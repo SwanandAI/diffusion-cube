@@ -27,6 +27,9 @@ const PUBLIC_PATHS = [
   '/contribute',
   '/api/chat',
   '/api/wiki-pathways',
+  // Called server-to-server by Supabase Auth (no session); authenticated by
+  // its webhook signature inside the route instead.
+  '/api/auth/send-email',
 ];
 
 export async function proxy(request: NextRequest) {

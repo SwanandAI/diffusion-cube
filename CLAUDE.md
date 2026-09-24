@@ -123,7 +123,7 @@ proxy.ts                    ← auth middleware (public: /login only)
   SignOutButton.tsx
 ```
 
-Deleted in the revamp: Explore (the old 7-dimension version — routes, prompts, modes, `pathway_cache`), `DimensionList` (superseded by the new `DimensionChips`, same visual idea), `CoverageGrid` (the 4×4 table UI — the grid data model itself is unchanged, just no longer rendered as a table), `Cube3D`/`CubeIcon`, `lib/pathways.ts`, the 7-dimension `cube_update` contract, and the email-flow leftovers remain dormant (`lib/email.ts`, `nodemailer` — see SIGNUP_APPROVAL_OPTIONS.md).
+Deleted in the revamp: Explore (the old 7-dimension version — routes, prompts, modes, `pathway_cache`), `DimensionList` (superseded by the new `DimensionChips`, same visual idea), `CoverageGrid` (the 4×4 table UI — the grid data model itself is unchanged, just no longer rendered as a table), `Cube3D`/`CubeIcon`, `lib/pathways.ts`, the 7-dimension `cube_update` contract. `lib/email.ts`'s old admin-approval senders (`sendAdminApprovalEmail`/`sendUserApprovedEmail`) remain dormant (see SIGNUP_APPROVAL_OPTIONS.md); its transport and auth-email senders are live, used by the Send Email hook.
 
 ## The `/api/chat` route handler
 
@@ -150,7 +150,7 @@ Style for both: simple English, 4-sentence hard cap plus at most one clarifying 
 
 ## Auth, approval, and roles
 
-`proxy.ts` gates everything but `/login`; signup is a request-access form (`supabase.auth.signUp` with name/organization metadata — requires "Confirm email" disabled in Supabase); zero rows in `user_roles` = pending, and `app/(app)/layout.tsx` shows an awaiting-approval screen; `/admin` (env `ADMIN_EMAILS` fallback OR the `admin` role) lists users with per-role checkboxes and destructive Reject.
+`proxy.ts` gates everything but `/login`; signup is a two-step form on `/login` (`supabase.auth.signUp` with name/organization metadata, then a 6-digit email OTP verified with `verifyOtp`, resendable via `auth.resend` — requires "Confirm email" **enabled** in Supabase). Supabase generates and verifies every OTP/link but sends no email itself: its **Send Email Auth Hook** POSTs each one to `app/api/auth/send-email/route.ts` (public in `proxy.ts`, authenticated by its Standard Webhooks signature against `SEND_EMAIL_HOOK_SECRET`), which delivers it via nodemailer to whatever SMTP server `SMTP_*` points at (`lib/email.ts` — provider-agnostic, no SES/AWS dependency) — sign-up codes, password-reset **codes** ("Forgot password?" on `/login` is code-based too: `resetPasswordForEmail` → `verifyOtp({ type: 'recovery' })` → `updateUser({ password })`; the old link-based `/login/reset-password` page is gone), invites, magic links; `email_change` is deliberately rejected since nothing in the app uses it. Email templates therefore live in `lib/email.ts`, not the Supabase dashboard. See SIGNUP_OTP_SPEC.md; the `adopter` role is granted via `/api/auth/grant-default-role` only after verification; zero rows in `user_roles` = pending, and `app/(app)/layout.tsx` shows an awaiting-approval screen; `/admin` (env `ADMIN_EMAILS` fallback OR the `admin` role) lists users with per-role checkboxes and destructive Reject.
 
 **Role semantics are real again** (this is the change from the role-split rework): `adopter` gates the Explorer flow (`/explore`, and any adoption whose `meta.flow === 'explorer'`), `pathway_contributor` gates the Contributor flow (`/contribute`, self-serve push to the wiki). Any role still grants baseline access past the approval gate (`hasAnyRole`) — analysis/plan documents and `/wiki` browsing aren't flow-specific — but starting or continuing either named flow requires the matching role, checked both in the UI (`app/(app)/{explore,contribute}/page.tsx`, `Sidebar.tsx`) and re-validated server-side in `app/api/chat/route.ts`.
 
@@ -178,9 +178,16 @@ SUPABASE_SERVICE_ROLE_KEY=...        # server-only, /admin actions
 ADMIN_EMAILS=a@x.com,b@y.com         # permanent admin fallback
 GOOGLE_SHEET_ID=...                  # optional logging
 GOOGLE_SERVICE_ACCOUNT_JSON={...}    # optional logging
+SEND_EMAIL_HOOK_SECRET=v1,whsec_...  # from Supabase → Auth Hooks → Send Email hook
+SMTP_HOST=smtp.example.com          # any SMTP provider (nodemailer)
+SMTP_PORT=587                        # 587 = STARTTLS, 465 = implicit TLS
+SMTP_SECURE=                         # optional override; defaults to true only on port 465
+SMTP_USER=...
+SMTP_PASS=...                        # app password / SMTP key, never a personal login password
+EMAIL_FROM_ADDRESS="100 Pathways <no-reply@your-domain>"   # must be an address SMTP_USER may send as
 ```
 
-`GITHUB_WIKI_BASE_URL`/`NEXT_PUBLIC_GITHUB_WIKI_BASE_URL` and the `SES_SMTP_*`/`EMAIL_FROM_ADDRESS`/`APP_URL` sets are no longer read by any active code path.
+`GITHUB_WIKI_BASE_URL`/`NEXT_PUBLIC_GITHUB_WIKI_BASE_URL` and `APP_URL` are no longer read by any active code path.
 
 ## Out of scope / not yet built
 
