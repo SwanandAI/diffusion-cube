@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import OrganisationInput from '@/components/OrganisationInput';
 import PasswordInput from '@/components/PasswordInput';
 import { showToast } from '@/lib/toast';
+import { LEGAL_VERSION, PRIVACY_PATH, TERMS_PATH, legalHref } from '@/lib/legal';
 
 const inputClass =
   'border border-navy/15 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-coral focus:ring-1 focus:ring-coral/20 transition-colors';
@@ -13,6 +14,20 @@ const labelClass = 'text-xs text-ink-soft';
 const primaryButtonClass =
   'mt-2 bg-navy hover:bg-coral disabled:opacity-60 text-white rounded-xl py-2.5 text-sm font-medium transition-colors';
 const linkButtonClass = 'text-xs text-ink-soft hover:text-coral transition-colors disabled:opacity-60';
+const checkboxClass = 'mt-0.5 h-4 w-4 flex-shrink-0 accent-coral';
+
+function LegalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium not-italic text-navy underline decoration-navy/30 underline-offset-2 hover:text-coral"
+    >
+      {children}
+    </a>
+  );
+}
 
 // Must match "Email OTP Length" in Supabase → Auth → Providers → Email.
 const OTP_LENGTH = 6;
@@ -37,7 +52,11 @@ function LoginForm() {
   // specs/SIGNUP_OTP_SPEC.md):
   //   signup: details → verify (code) → /explore
   //   forgot: email → code → new password → `next`
-  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
+  // ?mode=signup opens straight on the sign-up form — the fallback target of
+  // the Terms/Privacy pages' Back link (components/LegalBackLink.tsx).
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(
+    searchParams.get('mode') === 'signup' ? 'signup' : 'signin'
+  );
   const [signupStep, setSignupStep] = useState<'details' | 'verify'>('details');
   const [forgotStep, setForgotStep] = useState<'email' | 'code' | 'password'>('email');
   const [email, setEmail] = useState('');
@@ -45,6 +64,9 @@ function LoginForm() {
   const [confirmation, setConfirmation] = useState('');
   const [name, setName] = useState('');
   const [organization, setOrganization] = useState('');
+  // Sign-up only — sign-in never asks for these again.
+  const [privacyConsent, setPrivacyConsent] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [code, setCode] = useState('');
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -136,17 +158,29 @@ function LoginForm() {
 
   async function handleSignUp(e: FormEvent) {
     e.preventDefault();
+    if (!privacyConsent || !termsAccepted) return;
     setLoading(true);
     resetMessages();
 
     // With "Confirm email" on, this creates an unconfirmed user (no session)
     // and Supabase emails it an OTP. The account only becomes usable once
-    // that code is verified below.
+    // that code is verified below. The acceptance record rides along in
+    // user_metadata (there's no table row for the user yet) — terms_version
+    // is what a future "re-accept updated terms" check would compare against.
+    const acceptedAt = new Date().toISOString();
     const supabase = createClient();
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name, organization } },
+      options: {
+        data: {
+          name,
+          organization,
+          privacy_consent_at: acceptedAt,
+          terms_accepted_at: acceptedAt,
+          terms_version: LEGAL_VERSION,
+        },
+      },
     });
 
     setLoading(false);
@@ -181,7 +215,7 @@ function LoginForm() {
     // is non-fatal — the user still ends up on /explore (which needs no
     // role), and an admin can grant it manually later; they'd just see the
     // "Ask an admin" screen on /analyse in the meantime.
-    await fetch('/api/auth/grant-default-role', { method: 'POST' }).catch(() => {});
+    await fetch('/api/auth/grant-default-role', { method: 'POST' }).catch(() => { });
 
     // A fresh signup always lands on /explore — it's open with no approval
     // needed, so it's the one place a pending account has something to do
@@ -289,7 +323,7 @@ function LoginForm() {
       setFailedAttempts(attempts);
       setError(
         'That code is incorrect or has expired. Check it and try again, or request a new code.' +
-          (attempts >= FAILED_ATTEMPTS_BEFORE_NUDGE ? ' Still not working? Request a new code below.' : '')
+        (attempts >= FAILED_ATTEMPTS_BEFORE_NUDGE ? ' Still not working? Request a new code below.' : '')
       );
       return;
     }
@@ -402,9 +436,8 @@ function LoginForm() {
           type="button"
           onClick={handleResend}
           disabled={loading || resendCooldown > 0}
-          className={`text-xs transition-colors disabled:opacity-60 ${
-            failedAttempts >= FAILED_ATTEMPTS_BEFORE_NUDGE ? 'text-coral font-medium' : 'text-ink-soft hover:text-coral'
-          }`}
+          className={`text-xs transition-colors disabled:opacity-60 ${failedAttempts >= FAILED_ATTEMPTS_BEFORE_NUDGE ? 'text-coral font-medium' : 'text-ink-soft hover:text-coral'
+            }`}
         >
           {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
         </button>
@@ -579,9 +612,64 @@ function LoginForm() {
           />
         </div>
 
+        {/* Before you sign up — T&C doc, Tab 4. Links open in a new tab so
+            the half-filled form isn't lost. */}
+        <div className="flex flex-col gap-2.5 border-t border-navy/10 pt-4">
+          {/* <h3 className="font-display text-sm font-medium text-navy">Before you sign up</h3> */}
+          <div className="flex flex-col gap-2 text-xs leading-relaxed text-ink-soft">
+            <p>EkStep built the Cube so organisations can learn from each other&apos;s real experience of adopting AI.</p>
+            <p>
+              To create your Account, we collect your name, email, organisation name, and password. You can update
+              this information, or withdraw your consent and delete your Account, at any time.
+            </p>
+            <p>
+              Separately, once you have an Account, anything you type, share, or upload using the chatbot interface
+              of the Cube is processed by AI (Anthropic&apos;s Claude) to generate a response for you, or, if you
+              choose to share your own organisation&apos;s experience for others to learn from, to help create a
+              written account of it.
+            </p>
+            <p>
+              Full details on all of the above are in our <LegalLink href={legalHref(PRIVACY_PATH, 'signup')}>Privacy Notice</LegalLink>.
+            </p>
+          </div>
+
+          <label className="flex items-start gap-2 text-xs italic leading-relaxed text-ink">
+            <input
+              type="checkbox"
+              required
+              checked={privacyConsent}
+              onChange={(e) => setPrivacyConsent(e.target.checked)}
+              className={checkboxClass}
+            />
+            <span>
+              I consent to sharing my Personal Data with EkStep so my Account can be created and I can use the Cube.
+              I understand I can withdraw this consent and delete my Account at any time as per the{' '}
+              <LegalLink href={legalHref(PRIVACY_PATH, 'signup')}>Privacy Notice</LegalLink>.
+            </span>
+          </label>
+
+          <label className="flex items-start gap-2 text-xs italic leading-relaxed text-ink">
+            <input
+              type="checkbox"
+              required
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className={checkboxClass}
+            />
+            <span>
+              I&apos;ve read and agree to the <LegalLink href={legalHref(TERMS_PATH, 'signup')}>Terms of Use</LegalLink>, which set out my
+              rights and responsibilities when using the Cube, including how content I share may be used.
+            </span>
+          </label>
+        </div>
+
         {error && <p className="text-xs text-coral">{error}</p>}
 
-        <button type="submit" disabled={loading} className={primaryButtonClass}>
+        <button
+          type="submit"
+          disabled={loading || !privacyConsent || !termsAccepted}
+          className={primaryButtonClass}
+        >
           {loading ? 'Please wait…' : 'Sign up'}
         </button>
 

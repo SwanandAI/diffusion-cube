@@ -5,16 +5,38 @@ import { Fragment, type ReactNode } from 'react';
 // table support) — pathway docs lean heavily on pipe tables (identity,
 // coverage grid, toolkits, problem→solution).
 
-function renderInline(text: string): ReactNode {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith('**') && part.endsWith('**') ? (
-      <strong key={i} className="font-medium text-navy">
-        {part.slice(2, -2)}
-      </strong>
-    ) : (
-      <Fragment key={i}>{part}</Fragment>
-    )
-  );
+const BOLD = /(\*\*[^*]+\*\*)/g;
+// Only when `links` is on (the legal pages) — pathway docs carry relative
+// `[Title](other-pathway.md)` cross-links that would 404 if rendered here, so
+// by default link syntax still shows as plain text.
+const BOLD_OR_LINK = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g;
+
+function renderInline(text: string, links = false): ReactNode {
+  return text.split(links ? BOLD_OR_LINK : BOLD).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={i} className="font-medium text-navy">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    const link = links ? part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/) : null;
+    if (link) {
+      const [, label, href] = link;
+      const external = /^https?:\/\//.test(href);
+      return (
+        <a
+          key={i}
+          href={href}
+          {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          className="font-medium text-navy underline decoration-navy/30 underline-offset-2 transition hover:text-coral"
+        >
+          {label}
+        </a>
+      );
+    }
+    return <Fragment key={i}>{part}</Fragment>;
+  });
 }
 
 function isTableSeparator(line: string): boolean {
@@ -30,7 +52,7 @@ function splitRow(line: string): string[] {
     .map((c) => c.trim());
 }
 
-export default function WikiMarkdown({ markdown }: { markdown: string }) {
+export default function WikiMarkdown({ markdown, links = false }: { markdown: string; links?: boolean }) {
   const lines = markdown.split('\n');
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -59,7 +81,7 @@ export default function WikiMarkdown({ markdown }: { markdown: string }) {
               <tr className="border-b border-navy/15">
                 {headerCells.map((c, ci) => (
                   <th key={ci} className="px-2 py-1.5 text-left font-display font-medium text-navy">
-                    {renderInline(c)}
+                    {renderInline(c, links)}
                   </th>
                 ))}
               </tr>
@@ -69,7 +91,7 @@ export default function WikiMarkdown({ markdown }: { markdown: string }) {
                 <tr key={ri} className="border-b border-navy/5 align-top">
                   {r.map((c, ci) => (
                     <td key={ci} className="px-2 py-1.5 text-ink-soft">
-                      {renderInline(c)}
+                      {renderInline(c, links)}
                     </td>
                   ))}
                 </tr>
@@ -124,13 +146,13 @@ export default function WikiMarkdown({ markdown }: { markdown: string }) {
         ordered ? (
           <ol key={key++} className="my-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-ink">
             {items.map((item, ii) => (
-              <li key={ii}>{renderInline(item)}</li>
+              <li key={ii}>{renderInline(item, links)}</li>
             ))}
           </ol>
         ) : (
           <ul key={key++} className="my-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-ink">
             {items.map((item, ii) => (
-              <li key={ii}>{renderInline(item)}</li>
+              <li key={ii}>{renderInline(item, links)}</li>
             ))}
           </ul>
         )
@@ -151,7 +173,7 @@ export default function WikiMarkdown({ markdown }: { markdown: string }) {
     }
     blocks.push(
       <p key={key++} className="my-2 text-sm leading-relaxed text-ink">
-        {renderInline(paraLines.join(' '))}
+        {renderInline(paraLines.join(' '), links)}
       </p>
     );
   }

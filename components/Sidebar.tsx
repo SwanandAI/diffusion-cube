@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import SignOutButton from '@/components/SignOutButton';
-import DeleteAccountButton from '@/components/DeleteAccountButton';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 import { createClient } from '@/lib/supabase/client';
@@ -201,14 +200,21 @@ export default function Sidebar({ email, adoptions, isAdmin }: Props) {
       <div className="flex flex-col gap-1.5 border-t border-navy/10 p-3">
         {email ? (
           <>
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-xs text-ink-soft" title={email}>
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 truncate text-xs text-ink-soft" title={email}>
                 {email}
               </span>
-              <SignOutButton />
+              <Link
+                href="/account"
+                className={`flex-shrink-0 text-[11px] transition hover:text-coral ${
+                  pathname?.startsWith('/account') ? 'font-medium text-navy' : 'text-ink-soft/80'
+                }`}
+              >
+                Account
+              </Link>
             </div>
             <div>
-              <DeleteAccountButton />
+              <SignOutButton />
             </div>
           </>
         ) : (

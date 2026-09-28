@@ -11,6 +11,8 @@ Next.js 16 App Router, React 19, Tailwind CSS v4. No client-side state library (
 | `/analyse` | `app/analyse/page.tsx` + `StrengthenWorkspace.tsx` | Server + Client | Session required; tiered by `adopter` role |
 | `/contribute` | `app/contribute/page.tsx` + `ContributeAccessGate.tsx`/`ContributeGrid.tsx` | Server + Client | Session required; tiered by registration + `pathway_contributor` role |
 | `/navigate` | `app/navigate/page.tsx` | Server | Public (redirect stub → `/analyse`) |
+| `/terms`, `/privacy` | `app/terms/page.tsx`, `app/privacy/page.tsx` → `components/LegalDocument.tsx` | Server (static, reads `content/legal/*.md` at build) | Public (in `proxy.ts` `PUBLIC_PATHS`) — Terms of Use / Privacy Notice, linked from the Sign up and Register to Contribute acceptance checkboxes |
+| `/account` | `app/account/page.tsx` + `ManageAccount.tsx` | Server + Client | Any session, no role needed (outside the `(app)` group). Profile (name/organisation → `user_metadata`), Contact sharing (approved contributors only → `POST /api/account/contact-sharing`), Danger zone (`DeleteAccountButton`). Linked as "Account" next to the email in the Sidebar footer |
 | `/admin` | `app/admin/page.tsx` | Server | `isAdmin` only, else redirect to `/` |
 | `/` (inside `(app)` group) | `app/(app)/page.tsx` | Server | Redirects to `/explore` |
 | `/adoptions` | `app/(app)/adoptions/page.tsx` | Client | Any role (`hasAnyRole`) |
@@ -19,7 +21,7 @@ Next.js 16 App Router, React 19, Tailwind CSS v4. No client-side state library (
 
 ## Key pages, in detail
 
-**`app/login/page.tsx`** — sign-in, two-step signup (details → 6-digit OTP), and code-based forgot-password, all via `@/lib/supabase/client`. Calls `POST /api/auth/grant-default-role` right after successful signup verification, then redirects to `/explore`.
+**`app/login/page.tsx`** — sign-in, two-step signup (details → 6-digit OTP), and code-based forgot-password, all via `@/lib/supabase/client`. The signup details step carries the "Before you sign up" notice and two required checkboxes (Privacy Notice consent, Terms of Use agreement); the acceptance is stored in `user_metadata` as `privacy_consent_at`/`terms_accepted_at`/`terms_version` (`LEGAL_VERSION` in `lib/legal.ts`). Sign-in asks for nothing. Calls `POST /api/auth/grant-default-role` right after successful signup verification, then redirects to `/explore`.
 
 **`app/explore/page.tsx` / `ExploreLibrary.tsx`** — fetches `published_pathways` via the **admin** Supabase client (bypassing RLS/auth context) so anonymous visitors can browse. `ExploreLibrary.tsx` (~720 lines) is the largest single page component: merges DB-published pathways with the static `lib/library-pathways.ts` list (DB wins on slug collision), two views (card grid with Stage/Sector/Tags filters, and a per-pathway chat), persists signed-in-only conversations to `library_conversations`. Has its own markdown renderer, textarea, and send button — not shared with `ChatPanel.tsx` (see [`../architecture/coding-patterns.md`](../architecture/coding-patterns.md)).
 

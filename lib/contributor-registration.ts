@@ -21,6 +21,34 @@ export type PathwayRole = typeof PATHWAY_ROLES[number];
 export const SHARING_LEVELS = ['none', 'name', 'name_and_email'] as const;
 export type SharingLevel = (typeof SHARING_LEVELS)[number];
 
+// Shared by the Register to Contribute form and the Manage Account page, so
+// both always offer the same choices.
+export const SHARING_OPTIONS: { value: SharingLevel; label: string; description: string }[] = [
+  { value: 'none', label: "Don't share my contact details", description: 'Nothing about you personally is shown to Explorers.' },
+  { value: 'name', label: 'Share my name only', description: 'Your name is shown alongside citations of your pathway.' },
+  { value: 'name_and_email', label: 'Share my name and email', description: 'Explorers can also see your email to follow up directly.' },
+];
+
+export function isSharingLevel(value: unknown): value is SharingLevel {
+  return typeof value === 'string' && (SHARING_LEVELS as readonly string[]).includes(value);
+}
+
+export function sharingLevelFromRow(row: { share_name: boolean; share_contact: boolean }): SharingLevel {
+  if (row.share_contact) return 'name_and_email';
+  if (row.share_name) return 'name';
+  return 'none';
+}
+
+// The three columns one sharing level maps to — used for both the initial
+// insert and later changes from /account (app/api/account/contact-sharing).
+export function sharingColumns(level: SharingLevel, email: string) {
+  return {
+    share_name: level !== 'none',
+    share_contact: level === 'name_and_email',
+    contact_info: level === 'name_and_email' ? email : '',
+  };
+}
+
 export interface ContributorRegistrationInput {
   organisationName: string;
   // Set only when the org was picked from the existing-org autocomplete —
@@ -32,12 +60,10 @@ export interface ContributorRegistrationInput {
   pocName: string;
   pocEmail: string;
   pathwayDescription: string;
-  declarationAccepted: boolean;
-  mouAccepted: boolean;
-  consentName: boolean;
-  consentLogo: boolean;
-  consentQuote: boolean;
-  consentBlog: boolean;
+  // The single "I've read and agree to the Terms of Use" checkbox under
+  // "Declaration and Terms" — it covers both the declaration and the terms
+  // of submission (T&C doc, Tab 4).
+  termsAccepted: boolean;
   sharingLevel: SharingLevel;
 }
 
@@ -62,16 +88,16 @@ export async function submitContributorRegistration(
     poc_name: input.pocName,
     poc_email: input.pocEmail,
     pathway_description: input.pathwayDescription,
-    declaration_accepted: input.declarationAccepted,
-    mou_accepted: input.mouAccepted,
-    terms_accepted_at: input.mouAccepted ? new Date().toISOString() : null,
-    consent_name: input.consentName,
-    consent_logo: input.consentLogo,
-    consent_quote: input.consentQuote,
-    consent_blog: input.consentBlog,
-    share_name: input.sharingLevel !== 'none',
-    share_contact: input.sharingLevel === 'name_and_email',
-    contact_info: input.sharingLevel === 'name_and_email' ? input.pocEmail : '',
+    // One checkbox now covers what used to be two (declaration + MoU), so
+    // both legacy columns record the same acceptance. terms_accepted_at is
+    // the timestamp of agreeing to the Terms of Use version live at the time.
+    declaration_accepted: input.termsAccepted,
+    mou_accepted: input.termsAccepted,
+    terms_accepted_at: input.termsAccepted ? new Date().toISOString() : null,
+    // consent_name/logo/quote/blog are left at their default (false): the
+    // opt-in attribution step was removed because organisation attribution
+    // is no longer optional (Terms of Use §5.6).
+    ...sharingColumns(input.sharingLevel, input.pocEmail),
   });
 
   if (error) return { ok: false, error: error.message };

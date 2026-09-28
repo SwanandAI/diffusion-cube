@@ -35,6 +35,8 @@ No OpenAPI/Swagger/GraphQL schema exists in this repository — this table is ha
 
 | Method | Path | Handler | Auth | Purpose |
 |---|---|---|---|---|
+| POST | `/api/account/delete` | `app/api/account/delete/route.ts` | any session + password re-check | Permanent self-serve account deletion (see `specs/ACCOUNT_DELETION_SPEC.md`) |
+| POST | `/api/account/contact-sharing` | `app/api/account/contact-sharing/route.ts` | any session + own `contributor_registrations.access_status === 'approved'` | `{sharingLevel: 'none'\|'name'\|'name_and_email'}` → updates only `share_name`/`share_contact`/`contact_info` on the caller's own row, via the service-role client (the table has no user UPDATE policy, since one would also expose `access_status`) |
 | POST | `/api/auth/grant-default-role` | `app/api/auth/grant-default-role/route.ts` | any session | Grants `adopter` immediately post-signup (idempotent) |
 | POST | `/api/auth/send-email` | `app/api/auth/send-email/route.ts` | Standard Webhooks HMAC signature (`SEND_EMAIL_HOOK_SECRET`), no session | Supabase Send Email Auth Hook target — dispatches signup/recovery/reauthentication/invite/magiclink emails via SMTP. `email_change` explicitly rejected (400) |
 

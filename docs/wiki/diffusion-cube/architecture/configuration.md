@@ -22,6 +22,7 @@ All configuration is via environment variables read directly with `process.env.*
 | `SMTP_USER` | Yes | `lib/email.ts` | SMTP auth username |
 | `SMTP_PASS` | Yes | `lib/email.ts` | SMTP auth password (app password / SMTP key, never a personal login password) |
 | `EMAIL_FROM_ADDRESS` | Yes | `lib/email.ts` (also `scripts/smtp-test.mjs`) | Must be an address `SMTP_USER` is permitted to send as |
+| `NEXT_PUBLIC_SUPPORT_EMAIL` | No (defaults to `kamesh@ekstep.org`) | `lib/legal.ts` | "Contact Us" address substituted for `{{SUPPORT_EMAIL}}` in `content/legal/*.md`. Inlined at build time, so a change needs a rebuild. The Grievance Officer's email in those documents is literal text, not this variable |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | No | `lib/logger.ts` | Service-account credentials JSON for the Sheets logging sink |
 | `GOOGLE_SHEET_ID` | No | `lib/logger.ts` | Target spreadsheet for fire-and-forget conversation logging |
 
