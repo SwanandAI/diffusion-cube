@@ -19,7 +19,7 @@ This change covers three small auth/account UX items:
 |---|---|
 | Password fields are always masked | Each password field has a **Show / Hide** button inside it |
 | "Sign out" signs out immediately | "Sign out" opens an in-app "Sign out?" dialog (Cancel / Sign out) first |
-| Only an admin could remove an account (`/api/admin/reject`, and only for pending signups) | Any signed-in user can delete their own account from the sidebar footer, after re-entering their password |
+| Only an admin could remove an account (`/api/admin/reject`, and only for pending signups) | Any signed-in user can delete their own account from the Danger zone of the Manage Account page (`/account`), after re-entering their password |
 | Deleting a contributor who had published a pathway **failed** (`pathways.{assembled,published}_design_doc_id` point at their `design_documents` with no ON DELETE rule) | Migration 0033 relaxes those FKs to `ON DELETE SET NULL` |
 | Deleting an admin who had ever clicked Publish **failed** (FK on `published_pathways.published_by` had no ON DELETE rule) | Migration 0033 relaxes that FK to `ON DELETE SET NULL` |
 | Deleting a contributor would **cascade-delete their published `contribution_units`** | Published units are kept, and their `user_id` becomes `null` |
@@ -52,7 +52,7 @@ This applies everywhere the button is used: the sidebar footer and the "Awaiting
 ### 3.4 Delete account
 
 ```
-Sidebar footer → "Delete account"
+Sidebar footer → "Account" → /account → Danger zone → "Delete account"
       │
       ▼
 ConfirmDialog (danger): "Delete your account?"
@@ -75,7 +75,7 @@ ConfirmDialog (danger): "Delete your account?"
             └── ok ─────────────────► local signOut() → /login
 ```
 
-- The link is shown only to signed-in users, under the email and Sign out row in the [Sidebar](../components/Sidebar.tsx) footer. It is deliberately small and muted.
+- The button lives in the Danger zone of the Manage Account page ([app/account/ManageAccount.tsx](../app/account/ManageAccount.tsx)), reached from the "Account" link next to the email in the [Sidebar](../components/Sidebar.tsx) footer. (It originally sat directly in the sidebar footer.)
 - While the request runs, the confirm button reads "Deleting…". Both buttons and the password field are disabled, and `Esc` and backdrop clicks are ignored.
 - Editing the password clears any error that is showing.
 - The same email can sign up again afterwards and gets a completely fresh account.
@@ -177,7 +177,7 @@ RLS impact: `contribution_units` rows with `user_id = null` still match the "pub
 | [components/ConfirmDialog.tsx](../components/ConfirmDialog.tsx) | **New.** Shared in-app confirm dialog (§3.3) |
 | [components/SignOutButton.tsx](../components/SignOutButton.tsx) | Opens ConfirmDialog before signing out |
 | [components/DeleteAccountButton.tsx](../components/DeleteAccountButton.tsx) | **New.** ConfirmDialog with a password field, then POST, sign out, redirect; handles network failure |
-| [components/Sidebar.tsx](../components/Sidebar.tsx) | Footer turned into two rows (email + Sign out, then Delete account) |
+| [components/Sidebar.tsx](../components/Sidebar.tsx) | Footer: email + "Account" link, then Sign out (Delete account moved to `/account`) |
 | [lib/supabase/server.ts](../lib/supabase/server.ts) | New `createStatelessClient()` for the password re-check |
 | [app/api/account/delete/route.ts](../app/api/account/delete/route.ts) | **New.** Deletion route (§5) |
 | [supabase/migrations/0033_account_deletion.sql](../supabase/migrations/0033_account_deletion.sql) | **New.** FK changes (§7) |

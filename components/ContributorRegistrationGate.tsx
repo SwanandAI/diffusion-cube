@@ -1,37 +1,59 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import { PATHWAY_ROLES, submitContributorRegistration, type SharingLevel } from '@/lib/contributor-registration';
+import {
+  PATHWAY_ROLES,
+  SHARING_OPTIONS,
+  submitContributorRegistration,
+  type SharingLevel,
+} from '@/lib/contributor-registration';
 import OrganisationInput from '@/components/OrganisationInput';
+import { TERMS_PATH, legalHref } from '@/lib/legal';
 
-const DECLARATION_TEXT =
-  "100 Pathways compiles this information to help other organisations learn from real deployments. Inclusion in the program does not constitute an endorsement of the contributor's product, service, or claims by 100 Pathways initiative. Information is presented as reported by the contributor.";
+// "Before you contribute to the Cube: Declaration and Terms" — T&C doc, Tab 4.
+// A plain-language summary of Terms of Use §5; the full Terms govern.
+const DECLARATION_POINTS = [
+  "I confirm I'm authorised to represent my organisation, and that the information I provide is true and current to my knowledge.",
+  "I confirm that what I share doesn't include another person's personal data without their knowledge and consent, and doesn't infringe anyone else's intellectual property or other legal rights.",
+  'I grant EkStep a broad licence, worldwide, royalty-free, and including the right to sub-license, to host, process, share, and publish what I submit as part of the Cube.',
+];
 
-const MOU_CLAUSES = [
-  { label: 'Accuracy', text: 'Information I share is accurate to my knowledge as of the date given.' },
+const SUBMISSION_TERMS = [
   {
-    label: 'Use',
-    text: '100 Pathways may reference, summarise, and republish this information — including in a pathway document, microsite, and derived content (blog/article) — to advise future adopters.',
+    label: "How it's used",
+    text: "What you share is processed by AI to help create a structured written account of your adoption, and reviewed by EkStep for structure and completeness before it's published. This isn't a check on accuracy, so please review it yourself before submitting.",
   },
   {
-    label: 'Non-exclusivity',
-    text: 'This does not restrict me or my organisation from working with other programs, nor does it obligate 100 Pathways to any funding, partnership, or endorsement.',
+    label: 'Attribution',
+    text: "Your organisation will be named wherever this account, or a learning from it, is referenced. This happens automatically and isn't something you can opt out of, since it's what gives the account its value to others.",
   },
   {
-    label: 'Term & exit',
-    text: 'I (or 100 Pathways) may request removal or correction of published information at any time; 100 Pathways will action within 10 working days.',
+    label: 'If others contribute to it too',
+    text: "Some accounts are built up by more than one organisation over time. You're only responsible for what you contributed, not for anyone else's part.",
   },
   {
-    label: 'No IP transfer',
-    text: "I retain all rights to my own materials (decks, docs, code); 100 Pathways' use is limited to the pathway document, microsite, and derived summaries.",
+    label: 'Content takedown',
+    text: 'Once published, we cannot commit to fully removing it, even at your own request, since it may already be relied on elsewhere on the Cube by that point. Separately, EkStep can choose not to publish your submission, or remove it later, at its own discretion, if it turns out to be unlawful or in breach of these terms.',
+  },
+  {
+    label: 'Your responsibility',
+    text: "If anything in your declaration above turns out to be false or unauthorised, you're responsible for what follows from that, including any claim it leads to against EkStep.",
   },
 ];
 
-const SHARING_OPTIONS: { value: SharingLevel; label: string; description: string }[] = [
-  { value: 'none', label: "Don't share my contact details", description: 'Nothing about you personally is shown to Explorers.' },
-  { value: 'name', label: 'Share my name only', description: 'Your name is shown alongside citations of your pathway.' },
-  { value: 'name_and_email', label: 'Share my name and email', description: 'Explorers can also see your email to follow up directly.' },
-];
+function TermsLink({ children }: { children: React.ReactNode }) {
+  // New tab, so the half-filled registration form isn't lost.
+  return (
+    <a
+      href={legalHref(TERMS_PATH, 'contribute')}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium not-italic text-navy underline decoration-navy/30 underline-offset-2 hover:text-coral"
+    >
+      {children}
+    </a>
+  );
+}
 
 const inputClass =
   'border border-navy/15 rounded-lg px-3 py-2.5 text-sm text-ink placeholder:text-ink-soft/50 transition-colors focus:outline-none focus:border-coral focus:ring-1 focus:ring-coral/30';
@@ -76,12 +98,7 @@ export default function ContributorRegistrationGate({
   const [organisationUrl, setOrganisationUrl] = useState('');
   const [pathwayRole, setPathwayRole] = useState<string>(PATHWAY_ROLES[0]);
   const [pathwayDescription, setPathwayDescription] = useState('');
-  const [declarationAccepted, setDeclarationAccepted] = useState(false);
-  const [mouAccepted, setMouAccepted] = useState(false);
-  const [consentName, setConsentName] = useState(false);
-  const [consentLogo, setConsentLogo] = useState(false);
-  const [consentQuote, setConsentQuote] = useState(false);
-  const [consentBlog, setConsentBlog] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [sharingLevel, setSharingLevel] = useState<SharingLevel>('none');
 
   function handleOrgChange(name: string, canonicalRole?: string, url?: string) {
@@ -92,6 +109,7 @@ export default function ContributorRegistrationGate({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!termsAccepted) return;
     setLoading(true);
     setError(null);
 
@@ -102,12 +120,7 @@ export default function ContributorRegistrationGate({
       pocName: userName,
       pocEmail: userEmail,
       pathwayDescription,
-      declarationAccepted,
-      mouAccepted,
-      consentName,
-      consentLogo,
-      consentQuote,
-      consentBlog,
+      termsAccepted,
       sharingLevel,
     });
 
@@ -205,81 +218,54 @@ export default function ContributorRegistrationGate({
             </div>
           </div>
 
-          {/* Step 2: Declaration */}
+          {/* Step 2: Declaration and Terms — T&C doc, Tab 4 */}
           <div className="flex flex-col gap-3 border-t border-navy/10 pt-6">
-            <SectionHeading step={2} title="Declaration" />
-            <p className="rounded-lg bg-paper-dim p-3 font-serif text-[13px] italic leading-relaxed text-ink-soft">
-              {DECLARATION_TEXT}
+            <SectionHeading step={2} title="Declaration and Terms" />
+            <p className="text-[13px] leading-relaxed text-ink-soft">
+              The points below summarise the relevant sections of our <TermsLink>Terms of Use</TermsLink>, which
+              govern contributions in full. Please read the full Terms before contributing.
             </p>
-            <label className="flex items-start gap-2.5 text-sm leading-relaxed text-ink">
+
+            <div className="flex flex-col gap-2 rounded-lg bg-paper-dim p-3.5">
+              <p className="font-display text-sm font-medium text-navy">Declaration</p>
+              <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[13px] leading-relaxed text-ink-soft">
+                {DECLARATION_POINTS.map((point) => (
+                  <li key={point}>{point}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="flex flex-col gap-2 rounded-lg bg-paper-dim p-3.5">
+              <p className="font-display text-sm font-medium text-navy">Terms of submission</p>
+              <ul className="flex list-disc flex-col gap-2 pl-5 text-[13px] leading-relaxed text-ink-soft">
+                {SUBMISSION_TERMS.map((t) => (
+                  <li key={t.label}>
+                    <span className="font-medium text-ink">{t.label}:</span> {t.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <label className="flex items-start gap-2.5 text-sm italic leading-relaxed text-ink">
               <input
                 type="checkbox"
                 required
-                checked={declarationAccepted}
-                onChange={(e) => setDeclarationAccepted(e.target.checked)}
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
                 className={checkboxClass}
               />
               <span>
-                I confirm the information I provide is true and current, that I&apos;m authorised to represent my
-                organisation, and that it may be used to advise future adopters considering a similar deployment.
+                I&apos;ve read and agree to the <TermsLink>Terms of Use</TermsLink>.
               </span>
             </label>
           </div>
 
-          {/* Step 3: Terms */}
+          {/* Step 3: Personal sharing preference — also editable later from /account */}
           <div className="flex flex-col gap-3 border-t border-navy/10 pt-6">
-            <SectionHeading step={3} title="Terms" />
-            <ul className="flex flex-col gap-2.5 rounded-lg bg-paper-dim p-3.5 text-[13px] leading-relaxed text-ink-soft">
-              {MOU_CLAUSES.map((c) => (
-                <li key={c.label}>
-                  <span className="font-medium text-ink">{c.label}:</span> {c.text}
-                </li>
-              ))}
-            </ul>
-            <label className="flex items-start gap-2.5 text-sm leading-relaxed text-ink">
-              <input
-                type="checkbox"
-                required
-                checked={mouAccepted}
-                onChange={(e) => setMouAccepted(e.target.checked)}
-                className={checkboxClass}
-              />
-              <span>I&apos;ve read and agree to these terms.</span>
-            </label>
-          </div>
-
-          {/* Step 4: Attribution consent */}
-          <div className="flex flex-col gap-3 border-t border-navy/10 pt-6">
-            <SectionHeading step={4} title="Attribution consent" />
-            <p className="text-[13px] leading-relaxed text-ink-soft">
-              Each of these is independent and off by default — nothing here is implied just by registering.
-            </p>
-            <div className="flex flex-col gap-2.5">
-              <label className="flex items-center gap-2.5 rounded-lg border border-navy/10 px-3 py-2.5 text-sm text-ink transition-colors hover:border-coral/30">
-                <input type="checkbox" checked={consentName} onChange={(e) => setConsentName(e.target.checked)} className="h-4 w-4 accent-coral" />
-                Name our organisation in the published pathway document
-              </label>
-              <label className="flex items-center gap-2.5 rounded-lg border border-navy/10 px-3 py-2.5 text-sm text-ink transition-colors hover:border-coral/30">
-                <input type="checkbox" checked={consentLogo} onChange={(e) => setConsentLogo(e.target.checked)} className="h-4 w-4 accent-coral" />
-                Use our organisation logo on the pathway page / microsite
-              </label>
-              <label className="flex items-center gap-2.5 rounded-lg border border-navy/10 px-3 py-2.5 text-sm text-ink transition-colors hover:border-coral/30">
-                <input type="checkbox" checked={consentQuote} onChange={(e) => setConsentQuote(e.target.checked)} className="h-4 w-4 accent-coral" />
-                Quote our point of contact directly, with attribution
-              </label>
-              <label className="flex items-center gap-2.5 rounded-lg border border-navy/10 px-3 py-2.5 text-sm text-ink transition-colors hover:border-coral/30">
-                <input type="checkbox" checked={consentBlog} onChange={(e) => setConsentBlog(e.target.checked)} className="h-4 w-4 accent-coral" />
-                Feature us in a derived blog/article for external publication
-              </label>
-            </div>
-          </div>
-
-          {/* Step 5: Personal sharing preference */}
-          <div className="flex flex-col gap-3 border-t border-navy/10 pt-6">
-            <SectionHeading step={5} title="Sharing your own contact details" />
-            <p className="text-[13px] leading-relaxed text-ink-soft">
-              Separate from your organisation&apos;s attribution above — this is about whether Explorers using the
-              Cube can see who to reach out to, personally, when your pathway is cited in a conversation.
+            <SectionHeading step={3} title="Sharing your contact details" />
+            <p className="text-[13px] italic leading-relaxed text-ink-soft">
+              Separate from your organisation&apos;s attribution above — this is about whether Explorers can see who
+              to reach out to, personally, when your pathway is cited.
             </p>
             <div className="flex flex-col gap-2.5">
               {SHARING_OPTIONS.map((opt) => (
@@ -307,7 +293,7 @@ export default function ContributorRegistrationGate({
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !termsAccepted}
             className="rounded-xl bg-navy py-3 text-sm font-medium text-white transition-colors hover:bg-coral disabled:opacity-60"
           >
             {loading ? 'Submitting…' : 'Register'}

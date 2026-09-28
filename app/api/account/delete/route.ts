@@ -66,6 +66,9 @@ export async function POST(req: Request) {
 
   const { error } = await admin.auth.admin.deleteUser(user.id);
   if (error) {
+    // A concurrent request (double-click, two tabs) may have already deleted
+    // this account — that's a successful end state, not a failure.
+    if (error.code === 'user_not_found') return Response.json({ ok: true });
     console.error('[account/delete] deleteUser', error);
     return Response.json({ error: 'Could not delete your account.' }, { status: 500 });
   }

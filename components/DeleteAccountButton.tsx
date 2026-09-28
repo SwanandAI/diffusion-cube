@@ -9,8 +9,9 @@ import { showToast } from '@/lib/toast';
 
 // Permanent self-serve deletion — see app/api/account/delete and
 // specs/ACCOUNT_DELETION_SPEC.md. The account password is the confirmation;
-// the route re-verifies it server-side before deleting anything.
-export default function DeleteAccountButton() {
+// the route re-verifies it server-side before deleting anything. Lives in the
+// Manage Account page's Danger zone (app/account/ManageAccount.tsx).
+export default function DeleteAccountButton({ variant = 'link' }: { variant?: 'link' | 'danger' }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
@@ -62,7 +63,11 @@ export default function DeleteAccountButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-[11px] text-ink-soft/70 hover:text-coral transition-colors"
+        className={
+          variant === 'danger'
+            ? 'self-start rounded-lg border border-coral/40 px-5 py-2 text-sm font-medium text-coral transition-colors hover:bg-coral hover:text-white'
+            : 'text-[11px] text-ink-soft/70 hover:text-coral transition-colors'
+        }
       >
         Delete account
       </button>
