@@ -8,6 +8,8 @@ import { AdoptionConversation } from '@/lib/adoption-conversation';
 import { createClient } from '@/lib/supabase/client';
 import { hasRole } from '@/lib/roles';
 import { fetchAdoptionsList, setAdoptionsListCache } from '@/lib/adoptions-cache';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { showToast } from '@/lib/toast';
 
 function formatRelativeTime(iso: string): string {
   const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -31,6 +33,7 @@ function AdoptionsPageContent() {
   const [appliedOpenId, setAppliedOpenId] = useState<string | null>(null);
   const [canStrengthen, setCanStrengthen] = useState(false);
   const [canContribute, setCanContribute] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   useEffect(() => {
     let cancelled = false;
@@ -70,12 +73,18 @@ function AdoptionsPageContent() {
 
   async function deleteAdoption(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    if (!window.confirm('Delete this adoption? This cannot be undone.')) return;
+    const ok = await confirm({
+      title: 'Delete this adoption?',
+      message: "The adoption and its conversation will be permanently deleted. This can't be undone.",
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
 
     const supabase = createClient();
     const { error } = await supabase.from('designs').delete().eq('id', id);
     if (error) {
-      setLoadError('Could not delete that adoption. Try again.');
+      showToast('Could not delete that adoption. Please try again.', 'error');
       return;
     }
     setAdoptions((prev) => {
@@ -83,6 +92,7 @@ function AdoptionsPageContent() {
       setAdoptionsListCache(next);
       return next;
     });
+    showToast('Adoption deleted successfully.');
   }
 
   if (selection) {
@@ -112,6 +122,7 @@ function AdoptionsPageContent() {
 
   return (
     <div className="flex-1 overflow-y-auto bg-paper p-4 sm:p-8">
+      {confirmDialog}
       <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>

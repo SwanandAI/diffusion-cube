@@ -18,7 +18,7 @@ A new account can only be created once the person proves they own the email addr
 | Before | After this change |
 |---|---|
 | `supabase.auth.signUp()` with **"Confirm email" disabled** in Supabase, so the account is live straight away | "Confirm email" **enabled**. `signUp()` creates an *unconfirmed* user and sends an OTP. The account only becomes usable after `verifyOtp()` |
-| [app/login/page.tsx](app/login/page.tsx) calls `/api/auth/grant-default-role` right after `signUp()` | That call moves to **after a successful `verifyOtp()`**, because before that there is no session and the route would return 401 ([route.ts](app/api/auth/grant-default-role/route.ts)) |
+| [app/login/page.tsx](../app/login/page.tsx) calls `/api/auth/grant-default-role` right after `signUp()` | That call moves to **after a successful `verifyOtp()`**, because before that there is no session and the route would return 401 ([route.ts](../app/api/auth/grant-default-role/route.ts)) |
 | Sign-up is one screen | Sign-up is two steps on the same `/login` page: **Details → Verify code** |
 | No outbound email in production (Supabase's built-in sender is for development only and heavily rate-limited) | Every auth email (sign-up code, password reset, …) goes out through **nodemailer**, via the Send Email hook |
 
@@ -130,7 +130,7 @@ verifyOtp(code) ─────────────▶  checks code, expiry,
 ```
 
 - **Supabase** does all the security-sensitive work: code generation, hashing, expiry, single use, rate limits and verification.
-- **The app** only delivers. [app/api/auth/send-email/route.ts](app/api/auth/send-email/route.ts) verifies Supabase's HMAC-SHA256 signature (5-minute replay window) and then calls a sender in [lib/email.ts](lib/email.ts).
+- **The app** only delivers. [app/api/auth/send-email/route.ts](../app/api/auth/send-email/route.ts) verifies Supabase's HMAC-SHA256 signature (5-minute replay window) and then calls a sender in [lib/email.ts](../lib/email.ts).
 - **nodemailer** connects to whatever `SMTP_*` points at. There is no provider-specific code, so switching providers means changing environment variables only.
 
 What the hook sends for each auth email type:

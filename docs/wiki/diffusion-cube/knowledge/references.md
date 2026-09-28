@@ -14,8 +14,9 @@
 | [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) | Current, mostly accurate (one stale paragraph, see [`architecture/architecture-overview.md`](../architecture/architecture-overview.md)) | The most reliable prior architecture narrative in the repo |
 | [`CLAUDE.md`](../../../CLAUDE.md) | Substantially stale — describes an earlier "revamp-100pathways" branch state | AI-agent instructions; historical product framing, not current routing/schema |
 | [`conversation_design.md`](../../../conversation_design.md) | ~126 commits stale | Companion tone/posture philosophy; not routing, roles, or schema |
-| [`SIGNUP_OTP_SPEC.md`](../../../SIGNUP_OTP_SPEC.md) | Current and accurate | Exact OTP signup/reset flow spec |
-| [`SIGNUP_APPROVAL_OPTIONS.md`](../../../SIGNUP_APPROVAL_OPTIONS.md) | Superseded | Historical decision record — the in-app dashboard option it proposed is what got built |
+| [`specs/SIGNUP_OTP_SPEC.md`](../../../specs/SIGNUP_OTP_SPEC.md) | Current and accurate | Exact OTP signup/reset flow spec |
+| [`specs/ACCOUNT_DELETION_SPEC.md`](../../../specs/ACCOUNT_DELETION_SPEC.md) | Current and accurate | Self-serve account deletion (migration 0033), password Show/Hide, sign-out confirmation |
+| [`specs/SIGNUP_APPROVAL_OPTIONS.md`](../../../specs/SIGNUP_APPROVAL_OPTIONS.md) | Superseded | Historical decision record — the in-app dashboard option it proposed is what got built |
 | [`README.md`](../../../README.md), [`AGENTS.md`](../../../AGENTS.md) | Unmodified `create-next-app` boilerplate | Neither has project-specific content |
 
 ## External systems referenced by code (no dashboards/URLs provided in-repo)

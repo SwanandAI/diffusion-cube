@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import SignOutButton from '@/components/SignOutButton';
+import DeleteAccountButton from '@/components/DeleteAccountButton';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { showToast } from '@/lib/toast';
 import { createClient } from '@/lib/supabase/client';
 
 interface AdoptionSummary {
@@ -47,6 +50,7 @@ export default function Sidebar({ email, adoptions, isAdmin }: Props) {
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
   const [libraryConversations, setLibraryConversations] = useState<LibraryConversationSummary[]>([]);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   useEffect(() => {
     // No user to fetch for — leave state as-is rather than a synchronous
@@ -71,13 +75,23 @@ export default function Sidebar({ email, adoptions, isAdmin }: Props) {
   async function handleDeleteRecent(e: React.MouseEvent, item: RecentItem) {
     e.preventDefault();
     e.stopPropagation();
-    if (!window.confirm('Delete this exploration? This cannot be undone.')) return;
+    const ok = await confirm({
+      title: 'Delete this exploration?',
+      message: <>&ldquo;{item.title}&rdquo; and its conversation will be permanently deleted. This can&apos;t be undone.</>,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
 
     const supabase = createClient();
     const table = item.kind === 'library' ? 'library_conversations' : 'designs';
     const { error } = await supabase.from(table).delete().eq('id', item.id);
-    if (error) return;
+    if (error) {
+      showToast('Could not delete that exploration. Please try again.', 'error');
+      return;
+    }
     setDeletedIds((prev) => new Set(prev).add(item.id));
+    showToast('Exploration deleted successfully.');
   }
 
   // Auto-close the mobile drawer whenever the route changes (link clicked).
@@ -184,13 +198,18 @@ export default function Sidebar({ email, adoptions, isAdmin }: Props) {
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-navy/10 p-3">
+      <div className="flex flex-col gap-1.5 border-t border-navy/10 p-3">
         {email ? (
           <>
-            <span className="truncate text-xs text-ink-soft" title={email}>
-              {email}
-            </span>
-            <SignOutButton />
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-xs text-ink-soft" title={email}>
+                {email}
+              </span>
+              <SignOutButton />
+            </div>
+            <div>
+              <DeleteAccountButton />
+            </div>
           </>
         ) : (
           // An anonymous visitor to /explore (no login required there) has no
@@ -231,6 +250,8 @@ export default function Sidebar({ email, adoptions, isAdmin }: Props) {
       >
         {body}
       </aside>
+
+      {confirmDialog}
     </>
   );
 }

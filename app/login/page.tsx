@@ -4,6 +4,8 @@ import { FormEvent, ReactNode, Suspense, useEffect, useRef, useState } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import OrganisationInput from '@/components/OrganisationInput';
+import PasswordInput from '@/components/PasswordInput';
+import { showToast } from '@/lib/toast';
 
 const inputClass =
   'border border-navy/15 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-coral focus:ring-1 focus:ring-coral/20 transition-colors';
@@ -32,7 +34,7 @@ function LoginForm() {
   const next = searchParams.get('next') || '/';
 
   // Sign-up and password reset are both code-based and run on this page (see
-  // SIGNUP_OTP_SPEC.md):
+  // specs/SIGNUP_OTP_SPEC.md):
   //   signup: details → verify (code) → /explore
   //   forgot: email → code → new password → `next`
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
@@ -125,6 +127,7 @@ function LoginForm() {
       return;
     }
 
+    showToast('Signed in successfully.');
     router.replace(next);
     router.refresh();
   }
@@ -184,6 +187,7 @@ function LoginForm() {
     // needed, so it's the one place a pending account has something to do
     // while waiting, rather than landing back on whatever gated page sent
     // them here (see `next`, which sign-IN above still honors).
+    showToast('Account created successfully. Welcome to Diffusion Cube!');
     router.replace('/explore');
     router.refresh();
   }
@@ -248,6 +252,7 @@ function LoginForm() {
       return;
     }
 
+    showToast("Password updated successfully. You're signed in.");
     router.replace(next);
     router.refresh();
   }
@@ -420,30 +425,26 @@ function LoginForm() {
 
         <div className="flex flex-col gap-1">
           <label htmlFor="new-password" className={labelClass}>New password</label>
-          <input
+          <PasswordInput
             id="new-password"
-            type="password"
             required
             minLength={MIN_PASSWORD_LENGTH}
             autoComplete="new-password"
             autoFocus
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
           />
         </div>
 
         <div className="flex flex-col gap-1">
           <label htmlFor="confirm-password" className={labelClass}>Confirm new password</label>
-          <input
+          <PasswordInput
             id="confirm-password"
-            type="password"
             required
             minLength={MIN_PASSWORD_LENGTH}
             autoComplete="new-password"
             value={confirmation}
             onChange={(e) => setConfirmation(e.target.value)}
-            className={inputClass}
           />
         </div>
 
@@ -508,15 +509,13 @@ function LoginForm() {
 
         <div className="flex flex-col gap-1">
           <label htmlFor="password" className={labelClass}>Password</label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
             required
             minLength={MIN_PASSWORD_LENGTH}
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
           />
         </div>
 
@@ -570,15 +569,13 @@ function LoginForm() {
 
         <div className="flex flex-col gap-1">
           <label htmlFor="request-password" className={labelClass}>Password</label>
-          <input
+          <PasswordInput
             id="request-password"
-            type="password"
             required
             minLength={MIN_PASSWORD_LENGTH}
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
           />
         </div>
 

@@ -11,7 +11,7 @@ import {
 // generates, stores, expires and verifies every OTP and link, then POSTs them
 // here and we deliver them through nodemailer (lib/email.ts → SMTP_* server).
 // Public in proxy.ts — Supabase calls it with no session; the signature check
-// below is the only authentication. See SIGNUP_OTP_SPEC.md.
+// below is the only authentication. See specs/SIGNUP_OTP_SPEC.md.
 
 // Must match "Email OTP Expiration" in Supabase → Auth → Providers → Email
 // (set to 600s). Only used for the "expires in N minutes" line in the email.

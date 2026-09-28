@@ -29,7 +29,7 @@ report real results, not just claim coverage exists.
   `integrations/ai-llm.md` for anything touching `/api/chat` or `check-similar`,
   `business/workflows.md` for the two-step contributor-publish rule, `knowledge/technical-debt.md`
   for known gaps). Treat the wiki as current and reliable; `CLAUDE.md`/`conversation_design.md`/
-  `SIGNUP_APPROVAL_OPTIONS.md`/`README.md`/`AGENTS.md` at repo root are **known stale** (they
+  `specs/SIGNUP_APPROVAL_OPTIONS.md`/`README.md`/`AGENTS.md` are **known stale** (they
   describe an earlier `revamp-100pathways` state — a four-intent `/explore` Explorer entry point,
   `pathway_submissions` as the contributor draft table — that no longer matches the code; see
   `docs/wiki/diffusion-cube/knowledge/technical-debt.md#td-08` / `#td-09`). Reuse the wiki's own

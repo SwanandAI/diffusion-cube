@@ -27,7 +27,7 @@ diffusion-cube/
 ├── ARCHITECTURE.md                  current, accurate architecture doc (see note below)
 ├── CLAUDE.md                         AI agent instructions — describes an earlier app state
 ├── conversation_design.md             early companion-tone design doc, ~126 commits stale
-├── SIGNUP_OTP_SPEC.md / SIGNUP_APPROVAL_OPTIONS.md   auth design docs (former current, latter superseded)
+├── specs/                            feature specs + design-decision docs (SIGNUP_OTP_SPEC, ACCOUNT_DELETION_SPEC current; SIGNUP_APPROVAL_OPTIONS superseded)
 └── README.md, AGENTS.md               unmodified create-next-app boilerplate
 ```
 

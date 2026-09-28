@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, DM_Sans, PT_Serif, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import Toaster from "@/components/Toaster";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -40,7 +41,10 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${dmSans.variable} ${ptSerif.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-paper text-ink">{children}</body>
+      <body className="min-h-full flex flex-col bg-paper text-ink">
+        {children}
+        <Toaster />
+      </body>
     </html>
   );
 }

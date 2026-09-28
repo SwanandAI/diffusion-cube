@@ -69,8 +69,9 @@ The following root-level files serve the same secondary-reference role and were 
 - [`../../../ARCHITECTURE.md`](../../../ARCHITECTURE.md) — current, mostly accurate architecture narrative (one stale paragraph noted)
 - [`../../../CLAUDE.md`](../../../CLAUDE.md) — AI-agent instructions describing an earlier app state
 - [`../../../conversation_design.md`](../../../conversation_design.md) — companion tone/posture design doc, ~126 commits stale
-- [`../../../SIGNUP_OTP_SPEC.md`](../../../SIGNUP_OTP_SPEC.md) — current, accurate auth spec
-- [`../../../SIGNUP_APPROVAL_OPTIONS.md`](../../../SIGNUP_APPROVAL_OPTIONS.md) — superseded auth design proposal
+- [`../../../specs/SIGNUP_OTP_SPEC.md`](../../../specs/SIGNUP_OTP_SPEC.md) — current, accurate auth spec
+- [`../../../specs/SIGNUP_APPROVAL_OPTIONS.md`](../../../specs/SIGNUP_APPROVAL_OPTIONS.md) — superseded auth design proposal
+- [`../../../specs/ACCOUNT_DELETION_SPEC.md`](../../../specs/ACCOUNT_DELETION_SPEC.md) — self-serve account deletion, password Show/Hide, sign-out confirmation
 - [`../../../README.md`](../../../README.md), [`../../../AGENTS.md`](../../../AGENTS.md) — unmodified `create-next-app` boilerplate, no project-specific content
 
 Full reconciliation detail and use-for-what guidance: [`knowledge/references.md`](knowledge/references.md).

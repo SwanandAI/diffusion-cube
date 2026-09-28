@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import AdminPathwayRowCard from '@/components/AdminPathwayRowCard';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { showToast } from '@/lib/toast';
 
 export interface AdminPathwayRow {
   id: string;
@@ -17,6 +19,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   async function publish(id: string) {
     setPending(id);
@@ -30,15 +33,21 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error ?? 'Could not publish pathway.'); return; }
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isPublished: true, reviewRequested: false } : r)));
+      showToast('Pathway published successfully.');
     } finally {
       setPending(null);
     }
   }
 
   async function remove(id: string, title: string) {
-    if (!window.confirm(
-      `Delete "${title}"? This removes the pathway and every contributor's units from the database. It does not remove anything already published to the library. This cannot be undone.`
-    )) return;
+    const ok = await confirm({
+      title: `Delete "${title}"?`,
+      message:
+        "This removes the pathway and every contributor's units from the database. It does not remove anything already published to the library. This can't be undone.",
+      confirmLabel: 'Delete pathway',
+      danger: true,
+    });
+    if (!ok) return;
     setPending(id);
     setError(null);
     try {
@@ -53,6 +62,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
         return;
       }
       setRows((prev) => prev.filter((r) => r.id !== id));
+      showToast('Pathway deleted successfully.');
     } finally {
       setPending(null);
     }
@@ -64,6 +74,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
 
   return (
     <div className="flex flex-col gap-2">
+      {confirmDialog}
       {error && <p className="text-xs text-coral mb-1">{error}</p>}
       {rows.map((row) => (
         <AdminPathwayRowCard

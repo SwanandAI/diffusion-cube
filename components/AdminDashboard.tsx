@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import type { Role } from '@/lib/roles';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { showToast } from '@/lib/toast';
 
 export interface AdminUserRow {
   id: string;
@@ -21,6 +23,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
 export default function AdminDashboard({ initialRows }: { initialRows: AdminUserRow[] }) {
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   async function toggleRole(userId: string, role: Role, hasIt: boolean) {
     const key = `${userId}:${role}`;
@@ -31,7 +34,10 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId, role, action: hasIt ? 'remove' : 'add' }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        showToast('Could not update that role. Please try again.', 'error');
+        return;
+      }
       setRows((prev) =>
         prev.map((r) =>
           r.id === userId ? { ...r, roles: hasIt ? r.roles.filter((x) => x !== role) : [...r.roles, role] } : r
@@ -43,7 +49,13 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
   }
 
   async function reject(userId: string) {
-    if (!window.confirm('Reject and delete this account? This cannot be undone.')) return;
+    const ok = await confirm({
+      title: 'Reject this signup?',
+      message: "The account will be permanently deleted. They can sign up again with the same email. This can't be undone.",
+      confirmLabel: 'Reject and delete',
+      danger: true,
+    });
+    if (!ok) return;
     setPending(`${userId}:reject`);
     try {
       const res = await fetch('/api/admin/reject', {
@@ -51,8 +63,12 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        showToast('Could not reject that account. Please try again.', 'error');
+        return;
+      }
       setRows((prev) => prev.filter((r) => r.id !== userId));
+      showToast('Signup rejected and account deleted.');
     } finally {
       setPending(null);
     }
@@ -64,6 +80,7 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
 
   return (
     <div className="overflow-x-auto">
+      {confirmDialog}
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="text-left font-mono text-[10px] uppercase tracking-[0.15em] text-ink-soft border-b border-navy/10">
