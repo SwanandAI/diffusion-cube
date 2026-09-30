@@ -81,3 +81,27 @@ Stage 2 of `brd-task-creator`. **Answered 2026-09-29.** See "Answers" at the bot
 | Storage backend (O7 revised) | **AWS S3** (private bucket), not Supabase Storage. Records stay in `contribution_units`. |
 | D-Q6 | **Option B**: the explorer companion returns `toolkitAssetsReferenced` IDs in `<grid_update>`; the client validates them and renders download cards. |
 | Approval edits live content | **Accepted**: approving an asset regenerates the asset block in `published_pathways.content` without a separate publish click. |
+
+## Scope revision (Anurag Goutam, 2026-09-30), supersedes earlier answers where they conflict
+
+| Item | Revised decision | Supersedes |
+|---|---|---|
+| Storage | **Supabase Storage** (private bucket), not AWS S3 | O7 / plan-review "AWS S3" |
+| Formats | **All supported formats except ZIP**: PDF, DOC/DOCX, PPT/PPTX, XLS/XLSX, CSV/TXT/MD, images, plus https links | Q2 |
+| Contributor confirmation | **One question only: "OK to share with all adopters?"** The AI still identifies candidates; the separate "Is this a toolkit asset?" question is dropped. No means not stored (O3 unchanged). | Q3 (two questions) |
+| Approval | **No per-asset admin approval.** Assets are published together with their pathway: when the admin approves (publishes) the pathway, its assets are published too. | Q5, O8, and the "approval edits live content" review decision |
+| Surfaces | **Both `/analyse` and `/explore`** | Q6 (analyse only) |
+
+### New open points raised by the revision (defaults proposed)
+
+- **N1:** `/explore` is public with no login. Can anonymous visitors **download** assets, or only see them? *Default: anyone sees the asset cards; downloading requires signing in (any role).*
+- **N2:** how assets appear in `/explore`. *Default: the pathway's chat view shows a fixed "Toolkit assets" card list for that pathway (no AI involvement). The library chat's model can mention assets by name from the document but produces no cards itself.*
+- **N3:** all-or-nothing at publish, i.e. the admin can't publish the pathway while excluding one of its assets. *Default: yes, all-or-nothing. To drop an asset, the admin doesn't publish and asks the contributor to revise.*
+
+## Answers to N1–N3 (2026-09-30)
+
+| # | Decision | Plan consequence |
+|---|---|---|
+| N1 | **Anyone can view and download** published assets, with no sign-in (in `/explore` and `/analyse`). | The download and metadata routes are public for published assets. The consent question is reworded to say sharing is **public** (see plan §2). Egress abuse is flagged as a risk. |
+| N2 | **In `/explore`, assets are surfaced by Claude in conversation, not as a fixed UI list.** After some exchanges, Claude says these are the assets associated with this pathway. | The library pathway prompt receives that pathway's published assets. Replies end with a trailing `<toolkit_assets>[ids]</toolkit_assets>` tag, which the client validates and renders as cards. Never on the kickoff overview turn. |
+| N3 | **All-or-nothing.** When the admin approves (publishes) the pathway, its assets are published too. | As planned. "All" means every asset listed in the pathway document the admin reviewed. An asset attached after the last Send for Review is published on the next round (plan A6). Files are stored privately at consent time so the admin can preview them, and become downloadable on approval. |
