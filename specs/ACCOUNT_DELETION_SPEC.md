@@ -96,7 +96,8 @@ Deleting the Supabase auth user triggers the existing `ON DELETE CASCADE` foreig
 | `adoption_queries` | Log of every message the user sent | cascade on `user_id` and on `design_id` |
 | `library_conversations` | Explore chat history | cascade on `user_id` |
 | `pathway_contributors` | Links between the user and pathways they contributed to | cascade on `user_id` |
-| `contribution_units` where `published_at is null` | Unpublished draft units | deleted explicitly by the route |
+| `contribution_units` where `published_at is null` | Unpublished draft units, including toolkit assets not yet published with their pathway | deleted explicitly by the route |
+| Storage bucket `toolkit-assets`: files of the user's **unpublished** toolkit assets | The uploaded files themselves | removed explicitly by the route before their rows (added with toolkit assets; see `specs/TOOLKIT_ASSETS_SPEC.md`). A storage failure is logged and does not block the deletion |
 
 ### 4.2 Kept
 
@@ -108,6 +109,7 @@ Deleting the Supabase auth user triggers the existing `ON DELETE CASCADE` foreig
 | `pathways.content_cache` | Unchanged. It holds the live assembled text |
 | `pathways.assembled_design_doc_id` / `published_design_doc_id` | Become `null` when the contributor's referenced draft document is deleted (migration 0033). This loses only a pointer; the text itself is in `content_cache` / `published_pathways.content` |
 | `contribution_units` where `published_at is not null` | Kept. `user_id` becomes `null` |
+| Files of the user's **published** toolkit assets (bucket `toolkit-assets`) | Kept, and still publicly downloadable. They're part of a published pathway |
 | GitHub `content/wiki/pathways/<slug>.md` | Untouched |
 | `organisations` | Untouched (not tied to a user) |
 

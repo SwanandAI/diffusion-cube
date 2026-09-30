@@ -1,0 +1,305 @@
+// Toolkit asset files — the pure, browser-safe half: types, file-type rules,
+// the asset block written into pathway documents, and the library-chat
+// <toolkit_assets> tag. Storage and database access (service-role only) live
+// in lib/toolkit-assets-server.ts so importing this from a client component
+// never pulls the admin client into the browser bundle — the same split
+// lib/grid-update.ts makes for the route handler.
+//
+// An asset is one contribution_units row (unit_type='toolkit-asset',
+// unit_internal_id='asset-<uuid>'); see
+// supabase/migrations/0034_contribution_units_toolkit_assets.sql.
+
+export const TOOLKIT_ASSET_BUCKET = 'toolkit-assets';
+
+// Mirrors the bucket's own file_size_limit (0034) — the bucket is the real
+// enforcement; this only lets the UI and routes refuse early with a clear
+// message instead of a storage error.
+export const MAX_ASSET_BYTES = 25 * 1024 * 1024;
+
+// Extension → the one MIME type the upload is declared with. The server picks
+// the type from the extension rather than trusting the browser's File.type
+// (which varies by OS for .csv/.md), and the bucket's allowed_mime_types list
+// (0034) rejects anything else. No ZIP, deliberately.
+export const ASSET_MIME_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  md: 'text/markdown',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
+
+export function assetExtension(fileName: string): string | null {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  return ext && ext !== fileName.toLowerCase() && ext in ASSET_MIME_BY_EXTENSION ? ext : null;
+}
+
+export function isAllowedAssetFile(fileName: string, size: number): boolean {
+  return assetExtension(fileName) !== null && size > 0 && size <= MAX_ASSET_BYTES;
+}
+
+// The name shown on cards and used as the download's file name: the
+// original, minus any path components and control characters (keeps
+// non-ASCII letters, unlike the storage key below).
+export function displayAssetFileName(fileName: string): string {
+  const base = (fileName.split(/[\\/]/).pop() ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return base.slice(-200) || 'asset';
+}
+
+// The storage-key form of the name: Supabase Storage keys are ASCII-only, so
+// anything outside a small safe set becomes "_". Never contains a path
+// segment separator or "..".
+export function sanitizeAssetFileName(fileName: string): string {
+  const base = fileName.split(/[\\/]/).pop() ?? '';
+  const cleaned = base
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\.\.+/g, '.')
+    .replace(/[^\w.\- ()]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(-120);
+  return cleaned.replace(/^\.+/, '') || 'asset';
+}
+
+export const ASSET_ID_PATTERN = /^asset-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function isAssetId(value: unknown): value is string {
+  return typeof value === 'string' && ASSET_ID_PATTERN.test(value);
+}
+
+// What the contributor companion proposes in its <grid_update> — see
+// contributorSystemPrompt. Only ever a proposal: nothing is stored until the
+// contributor answers the consent card.
+export interface ToolkitAssetCandidate {
+  source: { fileName: string } | { url: string };
+  name: string;
+  purpose?: string;
+  reuseCondition?: string;
+  dimension?: string;
+  stage?: string;
+}
+
+// A consent card in the contributor's chat — carried on a client-constructed
+// message (never model-authored), one per candidate, and persisted with the
+// conversation so a reload shows the outcome instead of asking again.
+export interface ToolkitAssetConsentState {
+  id: string;
+  candidate: ToolkitAssetCandidate;
+  status: 'pending' | 'shared' | 'declined';
+  assetId?: string;
+}
+
+export function candidateSourceKey(candidate: ToolkitAssetCandidate): string {
+  return 'fileName' in candidate.source ? `file:${candidate.source.fileName}` : `url:${candidate.source.url}`;
+}
+
+// Public metadata for a published asset — what GET /api/toolkit-assets
+// returns and ToolkitAssetCard renders. Never carries a storage path or URL.
+export interface ToolkitAssetSummary {
+  id: string;
+  name: string;
+  purpose: string;
+  kind: 'file' | 'link';
+  fileName: string | null;
+  sizeBytes: number | null;
+  linkDomain: string | null;
+  pathwaySlug: string;
+  pathwayTitle: string;
+}
+
+// One entry of the block written into a pathway document at assemble time.
+export interface ToolkitAssetBlockEntry {
+  id: string;
+  name: string;
+  kind: 'file' | 'link';
+  fileName: string | null;
+  linkDomain: string | null;
+  purpose: string;
+  reuseCondition: string;
+}
+
+export function linkDomain(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The asset block inside a pathway document
+// ---------------------------------------------------------------------------
+//
+// Regenerated by the app on every assemble (app/api/pathways/assemble) from
+// contribution_units, never written by the model — pathwayDraftSystemPrompt
+// tells it to leave this block out. Each entry carries an
+// <!-- asset-id: … --> marker; admin publish (app/api/admin/pathways/publish)
+// publishes exactly the asset ids present in the reviewed document, so an
+// asset attached after the last assemble never rides along unreviewed.
+// Deliberately no URL in here: downloads only happen through the app.
+
+export const ASSET_BLOCK_START = '<!-- toolkit-assets:start -->';
+export const ASSET_BLOCK_END = '<!-- toolkit-assets:end -->';
+const ASSET_ID_MARKER = /<!--\s*asset-id:\s*(asset-[0-9a-f-]{36})\s*-->/g;
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+export function renderToolkitAssetBlock(assets: ToolkitAssetBlockEntry[]): string {
+  if (assets.length === 0) return '';
+  const lines = assets.map((a) => {
+    const where = a.kind === 'file' ? `File: ${a.fileName ?? 'attached file'}` : `Link: ${a.linkDomain ?? 'external link'}`;
+    const purpose = a.purpose ? ` — ${oneLine(a.purpose)}` : '';
+    const reuse = a.reuseCondition ? ` Reuse when: ${oneLine(a.reuseCondition)}` : '';
+    return `- **${oneLine(a.name)}** (${where})${purpose}${reuse} <!-- asset-id: ${a.id} -->`;
+  });
+  return [
+    ASSET_BLOCK_START,
+    '### Toolkit asset files',
+    '',
+    'Files and links the contributor has shared for reuse.',
+    '',
+    ...lines,
+    ASSET_BLOCK_END,
+  ].join('\n');
+}
+
+// Headings that mark the end of Section 4 — pathway documents number and
+// word these inconsistently ("# 4. Toolkits and Playbooks" then
+// "## 6. Retrieval guide"; drafts use "## Section 5"), so match on meaning,
+// not heading level.
+const AFTER_SECTION_4 = /^#{1,6}\s*(?:section\s*)?(?:[5-9]\b|problem|retrieval|source trace|provenance)/i;
+const SECTION_4 = /^#{1,6}\s*(?:section\s*)?4\b/i;
+const SOURCE_TRACE = /^#{1,6}\s*.*(?:source trace|provenance)/i;
+
+function removeBlock(markdown: string): string {
+  const start = markdown.indexOf(ASSET_BLOCK_START);
+  if (start === -1) return markdown;
+  const end = markdown.indexOf(ASSET_BLOCK_END, start);
+  const cut = end === -1 ? markdown.length : end + ASSET_BLOCK_END.length;
+  return (markdown.slice(0, start).replace(/\n+$/, '\n') + markdown.slice(cut).replace(/^\n+/, '\n')).replace(/\n{3,}/g, '\n\n');
+}
+
+// Line index to insert before: back up over a "---" rule and blank lines
+// sitting just above the heading, so the block stays inside the section it
+// belongs to rather than landing after its separator.
+function insertionIndexBefore(lines: string[], headingIndex: number): number {
+  let i = headingIndex;
+  while (i > 0 && (lines[i - 1].trim() === '' || lines[i - 1].trim() === '---')) i--;
+  return i;
+}
+
+export function applyToolkitAssetBlock(markdown: string, assets: ToolkitAssetBlockEntry[]): string {
+  const base = removeBlock(markdown);
+  const block = renderToolkitAssetBlock(assets);
+  if (!block) return base;
+
+  const lines = base.split('\n');
+  const s4 = lines.findIndex((l) => SECTION_4.test(l.trim()));
+  let at = -1;
+  if (s4 !== -1) {
+    const next = lines.findIndex((l, i) => i > s4 && AFTER_SECTION_4.test(l.trim()));
+    at = next === -1 ? lines.length : insertionIndexBefore(lines, next);
+  } else {
+    const trace = lines.findIndex((l) => SOURCE_TRACE.test(l.trim()));
+    if (trace !== -1) at = insertionIndexBefore(lines, trace);
+  }
+  if (at === -1) return `${base.replace(/\n+$/, '')}\n\n${block}\n`;
+
+  const before = lines.slice(0, at).join('\n').replace(/\n+$/, '');
+  const after = lines.slice(at).join('\n').replace(/^\n+/, '');
+  return `${before}\n\n${block}\n\n${after}`;
+}
+
+export function assetIdsInDocument(markdown: string): string[] {
+  const start = markdown.indexOf(ASSET_BLOCK_START);
+  if (start === -1) return [];
+  const end = markdown.indexOf(ASSET_BLOCK_END, start);
+  const block = markdown.slice(start, end === -1 ? undefined : end);
+  return [...new Set([...block.matchAll(ASSET_ID_MARKER)].map((m) => m[1]).filter(isAssetId))];
+}
+
+// ---------------------------------------------------------------------------
+// The library chat's <toolkit_assets> tag
+// ---------------------------------------------------------------------------
+//
+// /explore's library chat has no <grid_update> contract, so when the model
+// tells a visitor which assets belong to the pathway it ends that reply with
+// <toolkit_assets>["asset-…"]</toolkit_assets> (see libraryPathwaySystemPrompt).
+// ExploreLibrary strips it from the visible text and renders validated ids as
+// download cards — the model never writes a URL.
+
+export const TOOLKIT_ASSETS_TAG_START = '<toolkit_assets>';
+export const TOOLKIT_ASSETS_TAG_END = '</toolkit_assets>';
+
+export function parseToolkitAssetsTag(text: string): string[] {
+  const match = text.match(/<toolkit_assets>([\s\S]*?)<\/toolkit_assets>/);
+  if (!match) return [];
+  try {
+    const parsed: unknown = JSON.parse(match[1]);
+    return Array.isArray(parsed) ? [...new Set(parsed.filter(isAssetId))] : [];
+  } catch {
+    return [];
+  }
+}
+
+// Cuts at the opening tag rather than matching a closed one, so a tag that
+// has only partially streamed in never flashes in the UI — same approach as
+// stripGridUpdate, plus a trailing half-arrived "<toolk…" is held back too.
+export function stripToolkitAssetsTag(text: string): string {
+  const idx = text.indexOf('<toolkit_assets');
+  if (idx !== -1) return text.slice(0, idx).trimEnd();
+  const lt = text.lastIndexOf('<');
+  if (lt !== -1 && TOOLKIT_ASSETS_TAG_START.startsWith(text.slice(lt))) return text.slice(0, lt).trimEnd();
+  return text;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt text shared by /analyse (explorerSystemPrompt) and /explore
+// (libraryPathwaySystemPrompt) — one source, so both chats offer assets the
+// same way, at the same moments.
+// ---------------------------------------------------------------------------
+
+export interface ToolkitAssetPromptEntry {
+  id: string;
+  pathwaySlug: string;
+  pathwayTitle: string;
+  name: string;
+  purpose: string;
+  reuseCondition: string;
+  kind: 'file' | 'link';
+}
+
+export function renderToolkitAssetsForPrompt(assets: ToolkitAssetPromptEntry[]): string {
+  return assets
+    .map((a) => {
+      const purpose = a.purpose ? ` — ${oneLine(a.purpose)}` : '';
+      const reuse = a.reuseCondition ? ` Reuse when: ${oneLine(a.reuseCondition)}` : '';
+      return `- id: ${a.id} · pathway: ${a.pathwayTitle || a.pathwaySlug} (${a.pathwaySlug}) · ${a.kind === 'file' ? 'file' : 'link'} · ${oneLine(a.name)}${purpose}${reuse}`;
+    })
+    .join('\n');
+}
+
+// `whereRelevant` narrows which pathway's assets qualify: in /analyse only a
+// pathway that genuinely matches the user's situation; in /explore the one
+// pathway the conversation is about. `howToAttach` names the contract field
+// that carries the ids (the model never writes a link itself).
+export function toolkitAssetTimingRules(whereRelevant: string, howToAttach: string): string {
+  return `Toolkit asset files are real files and links that a pathway's contributors have shared publicly for reuse — templates, checklists, cost models, test sets, glossaries, tools. Offer them only inside the conversation, and only at the right moment:
+- Never in your first reply of the conversation.
+- From the user's second message onward, once the conversation is genuinely about ${whereRelevant} that has assets listed below, bring them up once as the assets associated with that pathway — one short line each on what it is and when it helps, framed as something they could reuse, never as a recommendation.
+- Straight away, at any point, if the user asks about tools, templates, resources, files, downloads, or how to implement or reuse something — as long as an asset below genuinely bears on what they asked.
+- Don't offer the same asset again later in the conversation unless the user asks for it again.
+- Never invent an asset, and never write a URL, link, or file path for one — ${howToAttach}; the product then shows a download card under your reply.
+- If no asset below genuinely fits, say nothing about assets at all.`;
+}

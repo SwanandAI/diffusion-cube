@@ -53,7 +53,10 @@ function splitRow(line: string): string[] {
 }
 
 export default function WikiMarkdown({ markdown, links = false }: { markdown: string; links?: boolean }) {
-  const lines = markdown.split('\n');
+  // HTML comments are machine markers, never content — e.g. the toolkit
+  // asset block's <!-- asset-id: … --> / start / end markers (see
+  // lib/toolkit-assets.ts). Dropped before parsing so they never show as text.
+  const lines = markdown.replace(/<!--[\s\S]*?-->/g, '').split('\n');
   const blocks: ReactNode[] = [];
   let i = 0;
   let key = 0;

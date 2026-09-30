@@ -10,6 +10,10 @@ import {
   PATHWAY_DOC_MARKER,
 } from '@/lib/grid-update';
 import type { DocType } from '@/lib/design-documents';
+import { ATTACH_ACCEPT } from '@/lib/extract-text';
+import type { ToolkitAssetConsentState } from '@/lib/toolkit-assets';
+import ToolkitAssetConsentCard from '@/components/ToolkitAssetConsentCard';
+import ToolkitAssetCards from '@/components/ToolkitAssetCards';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -30,6 +34,13 @@ export interface Message {
   // and stored alongside the message so source attribution chips can be
   // rendered below the bubble on reload as well as first display.
   pathwaysReferenced?: string[];
+  // Contributor flow: a client-constructed message carrying a toolkit-asset
+  // consent card (see TOOLKIT_ASSET_CONSENT_MARKER). Persisted with the
+  // conversation so the outcome survives reload.
+  toolkitAssetConsent?: ToolkitAssetConsentState;
+  // Explorer flow: ids of published toolkit assets this assistant message
+  // offered (from <grid_update>) — rendered as download cards under it.
+  toolkitAssetsReferenced?: string[];
 }
 
 // Legacy marker from an earlier design where the model signalled a grid
@@ -372,6 +383,9 @@ interface Props {
   // Shows a small attach icon in the composer itself when provided, so a
   // file can be staged without opening the separate AttachmentsPanel first.
   onAttachFiles?: (files: File[]) => void;
+  // The attach picker's accept list — the Contributor flow passes
+  // CONTRIBUTOR_ATTACH_ACCEPT (adds the toolkit-asset-only types).
+  attachAccept?: string;
   // Lets the composer's own attachment chips (above) be dismissed inline —
   // omit to render the chips without a remove control.
   onRemoveAttachment?: (id: string) => void;
@@ -386,6 +400,11 @@ interface Props {
     timestamp?: string;
     contributor?: string;
   }>;
+  // Contributor-flow only: answers a toolkit-asset consent card (see
+  // Message.toolkitAssetConsent) and tells the card whether the file is
+  // still held in memory. Explorer callers omit both.
+  onToolkitAssetConsent?: (consentId: string, share: boolean) => Promise<{ ok: boolean; error?: string }>;
+  hasToolkitAssetFile?: (fileName: string) => boolean;
   // Hides the "pathway information isn't independently verified" note under
   // the first assistant message — relevant for an Explorer reading someone
   // else's documented pathway, but not for the Contributor who's the one
@@ -407,8 +426,11 @@ export default function ChatPanel({
   onOpenPathwayDocument,
   onOpenExplorerDocument,
   onAttachFiles,
+  attachAccept = ATTACH_ACCEPT,
   onRemoveAttachment,
   pathwayLookup,
+  onToolkitAssetConsent,
+  hasToolkitAssetFile,
   hideAccuracyDisclaimer,
 }: Props) {
   const [input, setInput] = useState('');
@@ -460,6 +482,25 @@ export default function ChatPanel({
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 sm:px-6">
         <div className="mx-auto max-w-5xl space-y-5">
         {messages.map((m, i) => {
+          const consent = m.toolkitAssetConsent;
+          if (consent) {
+            if (!onToolkitAssetConsent) return null;
+            return (
+              <div key={i} className="flex justify-start">
+                <div className="w-full max-w-xl">
+                  <ToolkitAssetConsentCard
+                    consent={consent}
+                    fileAvailable={
+                      'fileName' in consent.candidate.source
+                        ? (hasToolkitAssetFile?.(consent.candidate.source.fileName) ?? false)
+                        : true
+                    }
+                    onAnswer={(share) => onToolkitAssetConsent(consent.id, share)}
+                  />
+                </div>
+              </div>
+            );
+          }
           // Strip the legacy per-message grid marker here, once, so it never
           // surfaces as literal text down either render path below — the
           // grid itself now lives once, persistently, in the workspace header.
@@ -481,6 +522,13 @@ export default function ChatPanel({
               All pathway information shared here comes from the respective contributing organizations. The Cube does not validate or guarantee its accuracy — the contributor owns that.
             </div>
           ) : null;
+
+          const assetsBlock =
+            m.role === 'assistant' && m.toolkitAssetsReferenced?.length ? (
+              <div className="whitespace-normal">
+                <ToolkitAssetCards ids={m.toolkitAssetsReferenced} />
+              </div>
+            ) : null;
 
           const sourcesBlock = sources ? (
             <div className="mt-3 border-t border-navy/10 pt-3">
@@ -532,12 +580,14 @@ export default function ChatPanel({
                 ) : isRich ? (
                   <div className="space-y-3">
                     {renderMessageContent(text, onOpenPathwayDocument, onOpenExplorerDocument)}
+                    {assetsBlock}
                     {disclaimerBlock}
                     {sourcesBlock}
                   </div>
                 ) : (
                   <>
                     {renderInlineMarkdown(text)}
+                    {assetsBlock}
                     {disclaimerBlock}
                     {sourcesBlock}
                   </>
@@ -592,7 +642,7 @@ export default function ChatPanel({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.docx,.xlsx,.xls,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp"
+                accept={attachAccept}
                 className="hidden"
                 onChange={handleFileChange}
               />

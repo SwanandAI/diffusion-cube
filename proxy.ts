@@ -31,6 +31,11 @@ const PUBLIC_PATHS = [
   '/privacy',
   '/api/chat',
   '/api/wiki-pathways',
+  // Published toolkit assets are public by the contributor's consent: the
+  // metadata GET and the download route serve anonymous visitors. The
+  // contributor-only POST routes under this prefix enforce their own auth
+  // (lib/toolkit-assets-server.ts authorizePathwayContributor).
+  '/api/toolkit-assets',
   // Called server-to-server by Supabase Auth (no session); authenticated by
   // its webhook signature inside the route instead.
   '/api/auth/send-email',

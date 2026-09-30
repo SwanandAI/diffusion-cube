@@ -39,7 +39,9 @@ function isBlockStart(line: string): boolean {
 
 export function parsePlanMarkdown(markdown: string): PlanBlock[] {
   const blocks: PlanBlock[] = [];
-  const lines = markdown.split('\n');
+  // HTML comments are machine markers (e.g. toolkit asset ids), never content
+  // for the modal or the PDF — same rule as components/WikiMarkdown.tsx.
+  const lines = markdown.replace(/<!--[\s\S]*?-->/g, '').split('\n');
   let i = 0;
 
   while (i < lines.length) {
