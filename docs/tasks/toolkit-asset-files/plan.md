@@ -1,239 +1,212 @@
-# Plan: Store Toolkit Asset Files and Surface Them in `/analyse`
+# Plan: Store Toolkit Asset Files and Surface Them in `/analyse` and `/explore`
 
-> Status: **Approved 2026-09-29** (Stage 3 of `brd-task-creator`), with these review decisions:
-> - Storage is **AWS S3**
-> - D-Q6 = **Option B** (asset-ID cards)
-> - Approval updating live content is **accepted**
->
-> Inputs: [`requirement.md`](requirement.md), [`clarifications.md`](clarifications.md). Task breakdown: [`task-list.md`](task-list.md).
+> Status: **Approved 2026-09-30** (Stage 3 of `brd-task-creator`), with N1–N3 answered. This supersedes both earlier versions. Decision history is in [`clarifications.md`](clarifications.md); build tasks are in [`task-list.md`](task-list.md).
 
 ## Summary
 
-Contributors can attach real toolkit asset files (PDF, office docs, ZIP, images) or links (GitHub/URL) inside their `/contribute` workspace. The contributor companion checks whether each upload is a genuine Toolkit Asset. If it is, the contributor must explicitly answer **yes** to both "this is a toolkit asset" and "OK to share with other adopters". An admin then approves each asset individually. Approved assets are recorded in the pathway document (`pathways.content_cache`, the GitHub `.md`, and `published_pathways.content`). They are offered to signed-in adopters in the `/analyse` chat as download cards when relevant to what the adopter is working on. Files live in a private **AWS S3** bucket, and asset records live in `contribution_units`.
+Contributors can attach real toolkit asset files (PDF, Word, PowerPoint, Excel, CSV/TXT/MD, images) or https links inside their `/contribute` workspace. The contributor companion flags uploads that genuinely look like reusable assets, and the contributor answers one explicit question: **"OK to share this publicly?"** Yes stores the file privately in Supabase Storage and records it in `contribution_units`. No stores nothing.
+
+Assets are **reviewed and published with their pathway**:
+- **Send for Review** (assemble) writes a generated "Toolkit asset files" block into the pathway document, so the admin reviews the assets as part of the pathway.
+- **Admin publish** publishes exactly the assets listed in that reviewed document.
+
+Published assets are **public**: anyone can view and download them, signed in or not. **Claude surfaces them in conversation** in both places:
+- **`/analyse`:** the companion returns asset IDs in `<grid_update>` and the client renders download cards.
+- **`/explore`:** after some exchanges in a pathway's chat, Claude says "these are the assets associated with this pathway". Its reply carries a trailing asset-ID tag that the client renders as download cards.
 
 ## Scope
 
 **In scope**
-- Contributor-only asset attach (files ≤ 25 MB: pdf, doc/docx, xls/xlsx, ppt/pptx, zip, png/jpg/jpeg/gif/webp; plus https links)
-- AI identification of asset candidates, plus an explicit two-question yes/no confirmation
-- Per-asset admin approve/reject gate, including assets added to already-published pathways
-- Records in `contribution_units` (toolkit-asset type), files in a private S3 bucket
-- Asset reference block written into the pathway document in all corpus locations on approval
-- Relevance-driven surfacing in `/analyse` only, for the `adopter` role, as validated download cards (Option B)
-- S3 object cleanup when an asset is rejected, a pathway is deleted, or an account is deleted
-- Adding the missing Playbook / Toolkit Asset rows to `content/framework.md`'s unit-type table (a dependency, see Architectural Approach §3)
+- Contributor-only attach: pdf, doc, docx, ppt, pptx, xls, xlsx, csv, txt, md, png, jpg/jpeg, gif, webp, up to 25 MB; plus https links. **No ZIP.**
+- AI identification plus a single explicit **public-sharing** consent question
+- Private Supabase Storage bucket, created in the migration, with Supabase-enforced size and MIME limits
+- Asset records in `contribution_units` (`unit_type='toolkit-asset'`)
+- Generated asset block in the pathway document at assemble time (GitHub `.md`, `content_cache`, then `published_pathways` on admin publish)
+- Publish-with-pathway, bound to the asset IDs in the reviewed document
+- Admin pathway card lists the pathway's assets with preview links
+- **Conversational** surfacing in `/analyse` (companion) and `/explore` (library pathway chat), as validated download cards
+- **Public** download and metadata for published assets
+- Storage cleanup when a pathway or an account is deleted
+- `content/framework.md` rows for Playbook and Toolkit Asset (a dependency for AI identification)
+- Fixes for security findings in code this feature touches: #2 (library `pathwayId` traversal), #4 (slug → GitHub path), #6 (assemble `designId` ownership)
 
-**Out of scope** (per clarifications)
-- Backfilling the 36 Toolkit Asset units already described in the committed corpus (O1)
-- Admin upload, licence field (O4)
-- Revoke/unpublish of an approved asset (O5)
-- Surfacing in `/explore`, `/wiki`, the Analysis Document, or the library chat (Q6)
-- All enhancement tracks (Q12). They are listed under "Future Upgrade Roadmap" as documentation only.
-- Infrastructure-as-code for the bucket. None exists in this repo; the bucket is provisioned manually from a documented checklist.
+**Out of scope**
+- ZIP, licence field, admin uploads, backfill of the 36 corpus-described assets
+- Per-asset approve/reject/exclude at publish (N3), revoke/unpublish
+- A fixed UI asset list (N2 chose conversation-only), the Analysis Document, `/wiki` pages
+- Assets on the library **overview** chat (no specific pathway) or on static curated pathways (no `pathways` row)
+- Rate limiting of downloads (flagged as a risk; see security finding #3)
+- Enhancements (see the Future Upgrade Roadmap)
 
 ## Assumptions
 
-- **A1.** "Not stored if the contributor says No" (O3): the file never leaves the browser. It is uploaded only after both answers are Yes.
-- **A2.** Candidate files are retained in browser memory for the current session until confirmed. A reload before confirmation loses them, and the contributor re-attaches.
-- **A3.** An asset belongs to a `pathways` row (the contributor's workspace pathway), not to a unit number. Unit numbers are renumbered on every revision.
-- **A4.** Contributors see the status of their own assets (pending / approved / rejected). Rejection has no reason field in v1.
-- **A5.** The download route also allows **admins** (to review) and **the uploading contributor** (to preview their own). Otherwise it is `adopter` only, approved assets only.
-- **A6.** One bucket serves all environments, separated by an env-specific key prefix (`TOOLKIT_ASSETS_S3_PREFIX`, e.g. `prod/`, `dev/`). Separate buckets per environment also work with no code change.
-- **A7.** AWS credentials come from the default SDK credential chain: access-key env vars on Vercel, or an instance/task IAM role on the Docker/AWS path.
+- **A1.** The file is uploaded only after the contributor answers Yes. Until then it's held in browser memory; a reload means re-attaching.
+- **A2.** An asset belongs to a `pathways` row, not a unit number.
+- **A3.** Contributors see each asset as **Awaiting pathway review** or **Published**.
+- **A4 (N1).** Published assets are public: the download and metadata routes need no session. Unpublished assets can be previewed only by their uploader and by admins.
+- **A5 (N2).** "After some chats" in `/explore` means: **never on the kickoff overview turn**; at the earliest on the visitor's second message, or immediately when the visitor asks about tools, templates, resources, files, or how to reuse or implement the pathway. Assets are mentioned when relevant, without being repeated every turn.
+- **A6 (N3).** Publishing publishes every asset listed in the reviewed document. Assets attached after the last Send for Review go out on the next assemble plus publish.
+- **A7.** Files are stored in the private bucket at consent time (so the admin can preview them) and are served only through the app's download route, via 60 s signed URLs, once published.
 
 ## Affected Areas
 
 | Area | Component(s) | Nature of change |
 |---|---|---|
-| Dependencies | `package.json` | **New**: `@aws-sdk/client-s3`, `@aws-sdk/s3-presigned-post`, `@aws-sdk/s3-request-presigner` |
-| Config | `.env.local` / Vercel env, `docs/wiki/diffusion-cube/architecture/configuration.md` (on wiki refresh) | **New env vars**: `AWS_REGION`, `TOOLKIT_ASSETS_S3_BUCKET`, `TOOLKIT_ASSETS_S3_PREFIX`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (the last two only where no IAM role exists) |
-| Infra (manual) | `docs/tasks/toolkit-asset-files/s3-setup.md` (new checklist) | Private bucket: Block Public Access on, SSE-S3 encryption, CORS allowing `POST` from the app origins, least-privilege IAM policy (`s3:PutObject`, `GetObject`, `DeleteObject` on the prefix; `ListBucket` for HeadObject 404s) |
-| Data | `supabase/migrations/0034_contribution_units_toolkit_assets.sql` (new) | Add asset columns and constraints to `contribution_units`; **drop client insert/update policies** (see Security) |
-| Domain logic | `lib/s3.ts` (new, server-only) | S3 client singleton; `presignUpload(key, contentType)` (presigned **POST** with `content-length-range` ≤ 25 MB), `presignDownload(key, fileName)` (60 s GET, `Content-Disposition: attachment`), `headObject`, `deleteObject(s)` |
-| Domain logic | `lib/toolkit-assets.ts` (new) | Types, allowed extensions/size, key builder, `renderToolkitAssetBlock` / `applyToolkitAssetBlock` (idempotent markdown block), `loadApprovedToolkitAssets`, `syncToolkitAssetBlock(pathwayId)` |
-| Domain logic | `lib/grid-update.ts` | `ParsedGridUpdate` gains contributor-only `toolkitAssetCandidates` and explorer-only `toolkitAssetsReferenced` |
-| Domain logic | `lib/system-prompts.ts` | `contributorSystemPrompt`: asset-identification section; `gridUpdateContract` options for both new fields; `explorerSystemPrompt`: approved-assets block + surfacing rule; `pathwayDraftSystemPrompt`: omit the asset block |
-| Framework content | `content/framework.md` | Add the Playbook and Toolkit Asset rows to "The five unit types" |
-| Client logic | `lib/adoption-conversation.ts`, `lib/extract-text.ts` | Keep asset-eligible `File`s in memory (contributor flow); accept ZIP (and oversize images) as asset-only attachments; handle candidates → confirmation card → S3 upload → register; persist `toolkitAssetsReferenced` on explorer messages |
-| Routes/API | `app/api/toolkit-assets/upload-url/route.ts` (new) | `pathway_contributor` + membership + type/size check → S3 presigned POST |
-| Routes/API | `app/api/toolkit-assets/route.ts` (new) | POST: register a confirmed asset (both confirmations true, `HeadObject` passes, key under that pathway's prefix) → `contribution_units` row, `review_status='pending'`. GET `?ids=`: approved-asset card metadata for the explorer |
-| Routes/API | `app/api/toolkit-assets/[id]/download/route.ts` (new) | Role/status check → 302 to a 60 s presigned GET (file) or the stored `link_url` (link) |
-| Routes/API | `app/api/admin/toolkit-assets/approve/route.ts`, `.../reject/route.ts` (new) | `isAdmin`; approve = status + `published_at` + document-block sync; reject = status + delete the S3 object |
-| Routes/API | `app/api/pathways/assemble/route.ts`, `app/api/admin/pathways/publish/route.ts` | Re-apply the approved-asset block to content before writing |
-| Routes/API | `app/api/chat/route.ts` | Explorer branch only: load approved assets and pass them to `explorerSystemPrompt` |
-| Routes/API | `app/api/admin/pathways/delete/route.ts`, `app/api/account/delete/route.ts` | Delete S3 objects before rows cascade / are deleted (account delete: unpublished assets only; published ones survive, matching `0033`) |
-| External integration | **AWS S3 (new to this app)**, GitHub (`lib/github.ts`, existing) | New bucket; approval commits the updated `.md` |
-| Frontend | `components/ToolkitAssetConfirmCard.tsx` (new), `components/ChatPanel.tsx` | Contributor confirmation card (two explicit Yes/No + Submit) from a client-constructed message marker |
-| Frontend | `components/PathwayDocumentPane.tsx` | "Toolkit assets" status list for the contributor |
-| Frontend | `components/AdminToolkitAssetsPanel.tsx` (new), `app/admin/page.tsx` | Pending-asset review list (preview, approve, reject) |
-| Frontend | `components/ToolkitAssetCard.tsx` (new), `components/ChatPanel.tsx` | Explorer download cards under an assistant message |
+| Data | `supabase/migrations/0034_contribution_units_toolkit_assets.sql` (new) | Add asset columns and constraints to `contribution_units`; drop the client insert/update policies; create the private `toolkit-assets` bucket (25 MB limit, MIME allow-list) with **no** client storage policies |
+| Domain logic | `lib/toolkit-assets.ts` (new) | Types, allowed extensions/MIME, path builder, `renderToolkitAssetBlock` / `applyToolkitAssetBlock`, `assetIdsInDocument`, `loadPublishedToolkitAssets({ pathwaySlug? })`, `parseToolkitAssetsTag` / `stripToolkitAssetsTag` (library replies), signed upload/download helpers (service role) |
+| Domain logic | `lib/grid-update.ts` | Contributor `toolkitAssetCandidates`; explorer `toolkitAssetsReferenced` |
+| Domain logic | `lib/system-prompts.ts` | `contributorSystemPrompt`: identification section; `gridUpdateContract` options; `explorerSystemPrompt`: published-assets block + surfacing rule; **`libraryPathwaySystemPrompt(document, assets)`**: the pathway's assets + timing rule + trailing-tag contract; `pathwayDraftSystemPrompt`: omit the asset block |
+| Framework content | `content/framework.md` | Playbook and Toolkit Asset rows |
+| Client logic | `lib/adoption-conversation.ts`, `lib/extract-text.ts` | Asset-eligible `File` retention (contributor flow); `.doc`/`.ppt` and images over 5 MB accepted as asset-only; candidates → consent card → signed upload → register; persist `toolkitAssetsReferenced` on explorer messages |
+| Client logic | `app/explore/ExploreLibrary.tsx` | Strip the `<toolkit_assets>` tag from streamed library replies (never shown half-streamed), validate the IDs, render cards, persist validated IDs on the message (saved to `library_conversations` for signed-in users) |
+| Routes/API | `app/api/toolkit-assets/upload-url/route.ts` (new) | `pathway_contributor` + membership + type/size → `createSignedUploadUrl` |
+| Routes/API | `app/api/toolkit-assets/route.ts` (new) | POST (contributor): register a consented asset. GET `?ids=` (**public**): published-asset card metadata |
+| Routes/API | `app/api/toolkit-assets/[id]/download/route.ts` (new) | **Public** for published assets → 302 to a 60 s signed URL or to `link_url`; unpublished → uploader or admin session only |
+| Routes/API | `proxy.ts` | Add `/api/toolkit-assets` to `PUBLIC_PATHS`. The handlers enforce auth for the contributor POST routes, which is the repo's rule that the API route is the real gate |
+| Routes/API | `app/api/pathways/assemble/route.ts` | Apply the asset block before commit/cache; validate the slug (#4); verify `designId` ownership and pathway link (#6) |
+| Routes/API | `app/api/admin/pathways/publish/route.ts` | After the upsert, publish the pathway's assets whose IDs appear in the published content |
+| Routes/API | `app/api/chat/route.ts` | Explorer companion: pass published assets. Library mode: validate `pathwayId` (#2); when it resolves to a DB pathway, pass that pathway's published assets to `libraryPathwaySystemPrompt` |
+| Routes/API | `app/api/admin/pathways/delete/route.ts`, `app/api/account/delete/route.ts` | Remove storage objects before rows cascade / are deleted (account delete: unpublished assets only) |
+| Frontend | `components/ToolkitAssetConsentCard.tsx` (new), `components/ChatPanel.tsx` | Single public-sharing consent card |
+| Frontend | `components/PathwayDocumentPane.tsx` | Contributor asset status list |
+| Frontend | `components/AdminPathwayRowCard.tsx`, `app/admin/page.tsx` | The pathway's assets (from `content_cache` markers), with preview links and a "not scanned" label |
+| Frontend | `components/ToolkitAssetCard.tsx` (new) | Shared download card used by `ChatPanel` (`/analyse`) and `ExploreLibrary` (`/explore`) |
 
 ## Architectural Approach
 
-**1. Where it lives.** Everything stays inside the existing Contributor → Admin → Explorer pipeline, on the same layering as pathway documents:
-- The contributor workspace produces a candidate.
-- An admin gate makes it live.
-- The explorer companion consumes the live state.
+**1. Where it lives.** Everything sits inside the existing Contributor → assemble → admin publish pipeline. Assets ride the same two-step gate as the pathway document, and the only new platform piece is Supabase Storage (same vendor, same service-role client). Surfacing reuses the one pattern the app already has for "the model mentions it, the client renders it" (`pathwaysReferenced`), in both chats.
 
-There's no new page and no ninth `/api/chat` mode. It crosses **one new external boundary, AWS S3**: a new vendor SDK, new credentials, and a manually provisioned bucket. That is a deliberate exception to the app's "Supabase is the only stateful dependency" stance, chosen by the requester. It is contained behind one server-only module (`lib/s3.ts`), in the same way `lib/github.ts` isolates GitHub, so a later move (e.g. to Supabase Storage or a new AWS account) is a one-module swap. This matches `lib/wiki-loader.ts`'s stated intent that "S3 is the likely eventual home" for corpus content.
+**2. The model signals, the client acts.**
+- **Contributor:** the companion adds `toolkitAssetCandidates` to `<grid_update>`. The client shows a card: **"OK to share this publicly? Anyone using 100 Pathways, including visitors who aren't signed in, will be able to download it."** Yes / No. Yes means upload and register, storing `share_consent` and `share_consented_at`; No means nothing is stored.
+- **`/analyse`:** the companion adds `toolkitAssetsReferenced: [id]`. The client validates the IDs via public `GET /api/toolkit-assets?ids=`, renders cards, and persists the IDs.
+- **`/explore`:** `libraryPathwaySystemPrompt` receives that pathway's published assets and the A5 timing rule. When it mentions them ("these are the assets associated with this pathway"), the reply ends with `<toolkit_assets>["asset-…"]</toolkit_assets>`. `ExploreLibrary` hides the tag from the moment it starts streaming, then keeps only IDs that are published **and** belong to the open pathway, and renders cards. The model never writes a URL in either chat.
 
-**2. The model signals, the client acts (invariant kept on both sides).**
-- *Contributor side:* the companion only adds `toolkitAssetCandidates: [{source: {fileName} | {url}, name, purpose, reuseCondition, dimension?, stage?}]`. The client renders a **confirmation card** with two explicit Yes/No controls. Only when both are Yes does the client upload and register. Consent is stored as `share_consent` + `share_consented_at`, never inferred from chat text.
-- *Explorer side (Option B):* the companion only adds `toolkitAssetsReferenced: [assetId]`. The client drops any ID not returned by `GET /api/toolkit-assets?ids=` (approved only), renders a card per surviving ID, and persists the IDs on the message (as `pathwaysReferenced` is today) so the cards survive reload. The model never writes a URL.
+**3. Identification needs the definition present.** `framework.md`'s unit-type table (`:294-300`) lacks Playbook and Toolkit Asset, and it is the file the contributor prompt injects.
 
-**3. Identification uses the existing definition, which must be present.** The "is this a real reusable artifact" test already exists in `content/pathway-generation-prompt.md:108`. But the contributor companion prompt injects `framework.md`, not that file, and `framework.md`'s unit-type table (`:294-300`) lists only 3 of the 5 types. Adding the Playbook and Toolkit Asset rows is a functional dependency.
+**4. Upload path.**
+1. `upload-url` checks role, membership, extension and size, then calls `createSignedUploadUrl('<pathwayId>/<uuid>/<safe-name>')` with the service role.
+2. The browser calls `uploadToSignedUrl` directly (avoiding the ~4.5 MB Vercel body limit). The bucket's `file_size_limit` and `allowed_mime_types` enforce limits at Supabase.
+3. Register checks that the object exists under that pathway's prefix, then inserts the row (service role).
 
-**4. Upload path: browser → S3 directly.** Vercel route handlers cap bodies at about 4.5 MB, well under 25 MB. The flow is:
-1. `upload-url` checks role, membership, extension and declared size.
-2. It returns an S3 **presigned POST** for key `<prefix>toolkit-assets/<pathwayId>/<uuid>/<safe-name>`, with a `content-length-range` condition (1 B – 25 MB) and a fixed `Content-Type`. S3 itself therefore enforces the cap.
-3. The browser uploads directly.
-4. `POST /api/toolkit-assets` runs `HeadObject` to confirm the object exists and its size, checks the key belongs to that pathway, and inserts the row with the service-role client.
+There are no client storage policies. Every read goes through the download route.
 
-Presigned POST is used over presigned PUT because PUT cannot enforce a maximum size.
-
-**5. Records in `contribution_units`.** Each asset is one row:
+**5. Records.** One `contribution_units` row per asset:
 - `section='micro-innovation'`, `unit_type='toolkit-asset'`
-- `unit_internal_id='asset-<uuid>'` as the stable ID
-- `published_at` = approval time (the table's documented meaning, "non-null = published")
-- `review_status` for pending / approved / rejected
-- `storage_key` holds the S3 key
+- `unit_internal_id='asset-<uuid>'`
+- `published_at` is null until its pathway is published
 
-**6. The document block is derived, not hand-edited.** `applyToolkitAssetBlock(markdown, approvedAssets)` replaces everything between `<!-- toolkit-assets:start -->` and `<!-- toolkit-assets:end -->`. If the markers are absent, it inserts the block at the end of Section 4 "Toolkits and playbooks" (before the next Section 5 / 6 / Source Trace heading), falling back to just before Source Trace. It lists name, kind, purpose and reuse condition, each with an `<!-- asset-id: … -->` marker, and **no download link**.
+**6. Publish-with-pathway, bound to what was reviewed.**
+- **Assemble:** applies the block (`<!-- toolkit-assets:start/end -->`, one `<!-- asset-id: … -->` entry per consented asset with name, kind, purpose and reuse condition, no URL) at the end of Section 4 (falling back to before Source Trace), then writes GitHub and `content_cache`.
+- **Admin publish:** after the upsert, sets `published_at = now()` for this pathway's unpublished assets whose IDs are in `assetIdsInDocument(content_cache)`.
+- The draft prompt omits the block and assemble regenerates it, so the model can neither drop nor forge entries.
 
-`syncToolkitAssetBlock(pathwayId)` writes it to three places:
-- `pathways.content_cache`
-- `published_pathways.content` (if live)
-- the GitHub `.md` (if assembled)
-
-It runs on approval, and `applyToolkitAssetBlock` also runs inside `assemble` and admin `publish`, so a new contributor draft can never drop approved assets. `pathwayDraftSystemPrompt` is told to omit that block.
-
-**7. Surfacing in `/analyse`.** For `flow==='explorer'` companion turns only, the chat route loads approved assets (`loadApprovedToolkitAssets`: `review_status='approved'`, joined to `pathways.slug`) and passes `id, pathwaySlug, name, purpose, reuseCondition, kind` to `explorerSystemPrompt`. The prompt rule:
-- Reuse the existing matching discipline (same sector + same use-case, or close problem match).
-- Name the asset in one short framing clause in prose.
-- Put its ID in `toolkitAssetsReferenced`.
-- Frame it as a suggestion, and never pad.
-
-The download is always `GET /api/toolkit-assets/[id]/download`, which re-checks role and approval on every click.
+**7. Public access (N1).** The download route serves published assets without a session. It mints a fresh 60 s signed URL per request and redirects, so there is no permanent public object URL, and the bucket stays private. Asset IDs are already visible in the public `published_pathways.content` markers, which is acceptable because the assets are public by consent.
 
 ## Alternatives Considered
 
 | Alternative | Why rejected |
 |---|---|
-| Supabase Storage (original default) | Requester chose S3. It would have avoided a new vendor, SDK and credentials; that cost is accepted and contained in `lib/s3.ts`. |
-| S3 presigned PUT | Cannot enforce a maximum object size; presigned POST can (`content-length-range`). |
-| Proxy uploads/downloads through Next.js routes | Breaks on Vercel above ~4.5 MB, and doubles bandwidth through the app. |
-| Model asks the yes/no in prose | Consent would be model-mediated free text with no hard record. An explicit UI control is unambiguous and auditable. |
-| Upload every contributor file on attach, delete if declined | Violates O3 ("not stored if No"), even briefly. |
-| Option A: model writes inline download links | Rejected at review (D-Q6 = B). A mistyped or invented ID would render a broken link. |
-| New dedicated `toolkit_assets` table | Requester chose `contribution_units` (D-Q9/10). |
-| DB-only prompt injection, no `.md` update | Requester wants both (D-Q11). The DB-driven prompt block is kept too, because static curated pathways never get the markdown block. |
-| GitHub as file storage | Binary bloat in the app repo, publicly served, and no role-checked access. |
+| Public-read bucket (direct object URLs) | Simpler, but gives permanent URLs that stay live after a pathway or account is deleted and until the object is removed. It also exposes unpublished files if a path leaks. Route-minted signed URLs keep a single check (published or not) in app code. |
+| Fixed "Toolkit assets" UI list in `/explore` | Rejected by the requester (N2: conversational only). |
+| Add a `<grid_update>` contract to library chat | Heavier than needed: library chat has no grid. A single-purpose trailing tag is minimal and mirrors `<deliverable>` / `<grid_update>` handling. |
+| Per-asset admin approval | Reversed by the requester (assets ride the pathway gate). |
+| Publish all of the pathway's unpublished assets on publish | Would publish assets the admin never saw (TOCTOU). Binding to the reviewed document's IDs avoids this. |
+| AWS S3 | Replaced by Supabase Storage. |
+| Keep "all adopters" consent wording | Inaccurate once downloads are public (N1). Informed consent needs the public wording. |
 
 ## Key Tradeoffs
 
-**Tradeoff: AWS S3 as a second stateful vendor**
-- Decision: files in S3; records in Supabase.
-- Gained: the requester's preferred storage; aligned with the Docker/AWS deployment direction and `wiki-loader`'s stated S3 intent.
-- Given up: a new SDK dependency, new secrets on Vercel, manual bucket provisioning with no IaC, and **no transactional link** between the Supabase row and the S3 object (orphans possible either way). The files also sit in an **AWS account that expires Dec-2026** (see Risks).
+**Tradeoff: public assets (N1)**
+- Gained: frictionless reuse and discovery for anyone.
+- Given up: contributor files are downloadable by the whole internet. Egress costs can be abused because there is no rate limit (security finding #3), and scraping is possible. Consent wording must say "public", and the Terms need checking.
 
-**Tradeoff: in-memory file retention until confirmation**
-- Decision: keep candidate `File`s in the hook's memory until the contributor answers.
-- Gained: nothing stored before consent (O3), no orphan objects from declined files.
-- Given up: a reload between upload and confirmation loses the file.
+**Tradeoff: conversational-only surfacing (N2)**
+- Gained: assets appear in context, only when relevant.
+- Given up: discovery depends on the model following the timing rule. A visitor who never chats past the kickoff won't see assets. No new AI call is added, but the library prompt grows by the pathway's asset list.
 
-**Tradeoff: `contribution_units` as the anchor**
-- Decision: reuse the dormant table and add asset columns.
-- Gained: no new table, the existing select RLS (own + published) fits, and account-deletion handling already exists (`0033`).
-- Given up: asset rows sit beside the not-yet-built "unit per row" model for the "Enhance Framework/Pathway schema" backlog item, and that future work must respect them.
+**Tradeoff: assets ride the pathway gate (N3)**
+- Gained: one review step, and assets always match a reviewed document.
+- Given up: no per-asset reject. Late-added assets wait for the next round.
 
-**Tradeoff: approval edits live published content (accepted at review)**
-- Decision: approval regenerates the block in `published_pathways.content` directly.
-- Gained: the document always matches approved assets.
-- Given up: a new write path into live content outside the pathway-publish click, plus one GitHub commit per approval.
-
-**Tradeoff: tighten `contribution_units` RLS**
-- Decision: drop the client insert/update policies; all writes go through service-role routes.
-- Gained: closes a self-approval hole (the existing insert policy would allow a row with `published_at` pre-set).
-- Given up: nothing today, since no code writes this table.
+**Tradeoff: consent-then-upload with in-memory retention**
+- Gained: nothing stored without consent.
+- Given up: a reload before answering loses the file.
 
 ## Non-Functional Impact
 
-- **Performance/scale:** one extra indexed Supabase query per explorer companion turn, plus one small `GET /api/toolkit-assets?ids=` per assistant message that references assets. The prompt grows by about 50 tokens per approved asset: negligible now, linear later. File bytes never pass through the app (browser ↔ S3 directly).
+- **Performance/scale:**
+  - One indexed query per explorer companion turn and per library pathway turn.
+  - One small `?ids=` call per reply that references assets.
+  - Roughly 50 prompt tokens per asset: across all published assets in explorer turns, but only the open pathway's in library turns.
+  - File bytes never pass through the app.
 - **Availability/failure modes:**
-  - *S3 unavailable or misconfigured:* upload-url and download fail with a handled error. Contributor chat and explorer chat keep working, and cards show "download unavailable".
-  - *Approval:* DB state is set first, then the document sync runs. If sync fails, the route returns `{approved: true, docSync: 'failed'}`, and re-calling approve on an approved row re-runs the idempotent sync.
-  - *Browser upload succeeds but register fails:* the object is orphaned; tolerated and flagged.
-  - No new Anthropic call is added, so TD-05 exposure is unchanged.
+  - Storage errors surface as handled errors on upload or download; chats keep working.
+  - Upload succeeds but register fails: the orphan object is tolerated.
+  - Publish succeeds but asset flagging fails: re-publishing is idempotent and retries.
+  - A malformed or missing `<toolkit_assets>` tag means no cards and no crash.
+  - No new Anthropic call is introduced (TD-05 unchanged).
 - **Security:**
-  - Private bucket with Block Public Access. Every read is a 60 s presigned GET minted only after `hasRole('adopter')` / `isAdmin` / owner and `review_status='approved'` (owner and admin excepted).
-  - Keys are server-built with sanitised file names; the client never chooses a key.
-  - Links must be https and are admin-reviewed before being served; the redirect target is only the stored `link_url`.
-  - Least-privilege IAM limited to the prefix. AWS keys are server-only (never `NEXT_PUBLIC_`).
-  - RLS tightening as above.
-  - **No malware or PII scanning** of uploads (charter NFR, Not started), flagged.
-- **Consistency/coupling:** new dependencies are explorer prompt ← `contribution_units` and approval → `published_pathways` / GitHub. One renderer module is reused by three writers (approve, assemble, publish).
+  - Private bucket with no client policies. Paths are server-built with sanitised names, and Supabase enforces size and MIME limits. Links must be https.
+  - Unpublished assets are readable only by the uploader or an admin.
+  - `contribution_units` client write policies are dropped (#8 for this table).
+  - Security findings #2, #4 and #6 are fixed in the code this work touches.
+  - **Public downloads have no rate limit, and there is no malware or PII scan.** Both are flagged below.
+- **Consistency/coupling:** `ToolkitAssetCard` and `lib/toolkit-assets.ts` are shared across both chats. Library chat gains a dependency on `contribution_units`.
 
 ## Data Model / API Changes
 
-**Migration `0034_contribution_units_toolkit_assets.sql`** (additive except the policy drop, and the header comment says so):
-- New columns on `contribution_units`:
-  - `asset_kind text check (asset_kind in ('file','link'))`
-  - `asset_name text`, `purpose text`, `reuse_condition text`
-  - `storage_key text`, `file_name text`, `mime_type text`, `size_bytes bigint`
-  - `link_url text`
-  - `share_consent boolean not null default false`, `share_consented_at timestamptz`
-  - `review_status text not null default 'pending' check (review_status in ('pending','approved','rejected'))`
-  - `reviewed_by uuid references auth.users(id) on delete set null`, `reviewed_at timestamptz`
-- Checks that apply when `unit_type='toolkit-asset'`: `asset_kind` required; `file` ⇒ `storage_key` (unless rejected); `link` ⇒ `link_url`; `share_consent = true`; `review_status='approved'` ⇔ `published_at is not null`.
-- Partial index on `(pathway_id, review_status) where unit_type = 'toolkit-asset'`.
-- `drop policy` for the two client insert/update policies.
+**Migration `0034_contribution_units_toolkit_assets.sql`** (additive except the policy drop, and the header says so):
+- New columns: `asset_kind` (file|link), `asset_name`, `purpose`, `reuse_condition`, `storage_path`, `file_name`, `mime_type`, `size_bytes`, `link_url`, `share_consent` (default false), `share_consented_at`.
+- Toolkit-asset checks: `asset_kind` required; file ⇒ `storage_path`; link ⇒ `link_url`; `share_consent = true`.
+- Partial index `(pathway_id, published_at) where unit_type = 'toolkit-asset'`.
+- Drop the two client write policies.
+- `insert into storage.buckets (..., public = false, file_size_limit = 26214400, allowed_mime_types = […])`, with no `storage.objects` policies.
 
 **Routes**
 
 | Method | Path | Auth | Request → Response |
 |---|---|---|---|
-| POST | `/api/toolkit-assets/upload-url` | `pathway_contributor` + membership | `{pathwayId, fileName, size, mimeType}` → `{key, url, fields}` (presigned POST); 400 on type/size |
-| POST | `/api/toolkit-assets` | `pathway_contributor` + membership | `{pathwayId, designId, kind, storageKey?, linkUrl?, fileName?, name, purpose, reuseCondition, dimension?, stage?, isToolkitAsset: true, shareConsent: true}` → `{id, reviewStatus:'pending'}`; 400 if a confirmation ≠ true, the object is missing/oversize, or the key is outside the pathway prefix |
-| GET | `/api/toolkit-assets?ids=a,b` | `adopter` | `[{id, name, purpose, kind, fileName?, sizeBytes?, pathwaySlug, pathwayTitle}]` (approved only; unknown IDs omitted) |
-| GET | `/api/toolkit-assets/[id]/download` | `adopter` (approved) / `isAdmin` / owner | 302 → presigned GET or `link_url`; 401/403/404 otherwise |
-| POST | `/api/admin/toolkit-assets/approve` | `isAdmin` | `{id}` → `{approved: true, docSync: 'ok'\|'failed'\|'skipped'}` |
-| POST | `/api/admin/toolkit-assets/reject` | `isAdmin` | `{id}` → `{rejected: true}` (S3 object deleted) |
+| POST | `/api/toolkit-assets/upload-url` | `pathway_contributor` + membership | `{pathwayId, fileName, size, mimeType}` → `{path, token}` |
+| POST | `/api/toolkit-assets` | `pathway_contributor` + membership | `{pathwayId, designId, kind, storagePath?, linkUrl?, fileName?, name, purpose, reuseCondition, dimension?, stage?, shareConsent: true}` → `{id, status:'awaiting_pathway_review'}` |
+| GET | `/api/toolkit-assets?ids=` | **public** | Published assets only: `[{id, name, purpose, kind, fileName?, sizeBytes?, linkDomain?, pathwaySlug, pathwayTitle}]`; max 20 |
+| GET | `/api/toolkit-assets/[id]/download` | **public** if published; uploader/admin otherwise | 302 → 60 s signed URL or `link_url`; 404 otherwise |
 
-**`<grid_update>` contract:** contributor gains optional `toolkitAssetCandidates[]`; explorer gains optional `toolkitAssetsReferenced: string[]`.
+Changed: `POST /api/pathways/assemble`, `POST /api/admin/pathways/publish`, `POST /api/chat` (library: `pathwayId` validation and assets in prompt), `proxy.ts` `PUBLIC_PATHS`.
+
+**Model contracts:**
+- contributor `<grid_update>`: `toolkitAssetCandidates[]`
+- explorer `<grid_update>`: `toolkitAssetsReferenced[]`
+- library reply: optional trailing `<toolkit_assets>[ids]</toolkit_assets>`
 
 ## Risks & Open Items
 
-1. **AWS account expires December 2026** (Product Charter; plan a new account by Nov-2026). Every stored asset file lives there. **The migration plan must include copying the bucket**, not only the Docker deploy. This is the highest-impact risk this plan introduces.
-2. **Manual infrastructure:** bucket, CORS, IAM and env vars are provisioned by hand (no IaC in the repo). A wrong CORS origin shows up as an opaque browser upload failure. `s3-setup.md` is the mitigation.
-3. **No malware/PII screening** of uploaded files (charter NFR, Not started). The admin panel labels files "not scanned"; admin review is the only check.
-4. **Supabase ↔ S3 consistency:** there is no cross-store transaction. Orphans are possible (upload OK, register failed) and dangling rows are possible (object deleted out-of-band). Download handles a missing object with a 404 card state; an orphan sweep is future work.
-5. **Pathway slug collision with static curated pathways** (e.g. a contributor-created `mahavistaar` alongside the static file, since `uniqueSlug` checks only `pathways`). Pre-existing, but it hits the requester's own example. Flagged, not fixed.
-6. **Source Trace in the prompt corpus** (`lib/wiki-loader.ts` doesn't strip it). Pre-existing, out of scope. The asset block is placed before Source Trace.
-7. **Prompt growth** from the approved-asset list every explorer turn. Negligible now; revisit with retrieval.
-8. **TD-16:** the Anthropic account expires **28-Oct-2026**. Candidate identification and explorer surfacing depend on it; S3 upload, admin approval and download do not. No hard delivery date (O9).
-9. **Wiki refresh** after landing (`llm-wiki`): TD-04 is no longer inert, S3 is a new integration with new env vars, the migration count becomes 34, and there are new routes.
+1. **Public downloads with no rate limit:** egress-cost abuse and scraping. Recommend reusing whatever limiter is built for security finding #3; not in this scope unless requested.
+2. **Consent and legal:** public sharing of contributor files should be checked against `content/legal/terms.md` (the contributor content licence) before launch. The consent wording in §2 is a proposal for that review.
+3. **No malware or PII screening.** Files become public on pathway approval. The admin card labels them "not scanned", and the admin preview is the only check.
+4. **Conversational-only discovery (N2)** depends on the model following the timing rule. Verify during testing; a fixed list stays on the roadmap as a fallback.
+5. **Late-added assets** wait for the next round (A6). The contributor status list must make that clear.
+6. **Static curated pathways can't carry assets.** The MahaVISTAAR example needs a DB pathway (slug collision with the static file is pre-existing and flagged).
+7. **TD-16:** the Anthropic account expires 28-Oct-2026. Identification and both chats' surfacing depend on it; upload, publish and download do not. No hard date.
+8. **Wiki refresh** after landing.
 
 ## Sequencing
 
-1. **S0** Provision the S3 bucket + IAM + CORS + env vars (checklist), and add the AWS SDK dependencies and `lib/s3.ts`
-2. **S1** Migration `0034` + `lib/toolkit-assets.ts`
-3. **S2** `framework.md` unit-type rows + contributor prompt section + `toolkitAssetCandidates` contract/parse
-4. **S3** Contributor client: retention, ZIP/oversize-image as asset-only, confirmation card, `upload-url` + register routes, status list
-5. **S4** Admin: panel, approve (with sync) and reject routes; block re-apply in `assemble` + `publish`; draft prompt instruction
-6. **S5** Download route + `GET /api/toolkit-assets?ids=`
-7. **S6** Explorer surfacing: prompt block + rule + `toolkitAssetsReferenced` + cards
-8. **S7** S3 cleanup in pathway-delete and account-delete routes
+1. **S1** Migration `0034` + `lib/toolkit-assets.ts`
+2. **S2** `framework.md` rows + contributor identification + `toolkitAssetCandidates`
+3. **S3** Contributor client: retention, asset-only types, consent card, upload-url + register, status list
+4. **S4** Assemble (block + #4/#6) and admin publish (asset publishing) + admin card list + draft-prompt instruction
+5. **S5** Public download route + public `GET ?ids=` + `proxy.ts`
+6. **S6** `/analyse` surfacing
+7. **S7** `/explore` surfacing (library prompt + tag + cards) + `pathwayId` validation (#2)
+8. **S8** Storage cleanup on deletes
 
-S0 and S1 come first. S2 and S3 go together. S4 and S5 can run in parallel after S3. S6 needs S5. S7 can go any time after S1.
+## Future Upgrade Roadmap (documentation only)
 
-## Future Upgrade Roadmap (documentation only, not in scope, per Q12)
-
-1. **Structured metadata** aligned to the company-brain toolkit schema: `toolkit_type` vocabulary (Technical Template, Governance Framework, Testing Protocol, Prompt Pattern, Vendor Criteria, Process Playbook), applies-when / fails-when, version.
-2. **Toolkit Catalogue** page: browse and filter approved assets by type, stage, dimension and sector.
-3. **"Adapt this for me"**: an AI mode that tailors an approved template to the adopter's own grid/meta.
-4. **Reuse signals**: download counts and "this helped" feedback shown to the contributor, feeding the *Incentivize Contributors* (15-Jan-27) and *Usage & Reuse* (15-Feb-27) milestones. The download route is the natural place to count.
-5. **Versioning, supersession, freshness**, plus the **revoke/unpublish** deferred by O5.
-6. **Gap-matched suggestions**: assets matched to the adopter's thin grid cells, and a "Toolkits you can use" section in the Analysis Document.
-7. **Upload safety**: malware and file-type sniffing, PII screening (charter NFR).
-8. **Backfill** of the 36 corpus-described assets by admins (deferred by O1).
-9. **Orphan sweep** reconciling S3 objects against `contribution_units` rows.
+1. Structured metadata aligned to the company-brain toolkit schema
+2. Toolkit Catalogue page, or a fixed per-pathway asset list (fallback for N2)
+3. "Adapt this for me" AI mode
+4. Reuse signals: download counts and "this helped" feedback (the Incentivize / Usage & Reuse milestones). The public download route is where to count.
+5. Versioning, supersession, revoke/unpublish, per-asset exclusion at publish
+6. Gap-matched suggestions and an Analysis Document section
+7. Upload safety (malware, PII) and download rate limiting
+8. ZIP support; backfill of the corpus-described assets; assets for static curated pathways
