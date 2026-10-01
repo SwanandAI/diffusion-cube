@@ -3,8 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { libraryPathways, libraryStages, type Accent, type LibraryPathway, type Stage } from '@/lib/library-pathways';
+import { parseToolkitAssetsTag, stripToolkitAssetsTag } from '@/lib/toolkit-assets';
+import ToolkitAssetCards from '@/components/ToolkitAssetCards';
 
-type ChatMessage = { role: 'user' | 'assistant'; content: string };
+// toolkitAssets: ids of published toolkit assets an assistant reply offered
+// (parsed from its trailing <toolkit_assets> tag, which is never shown) —
+// rendered as download cards under that reply and saved with the chat.
+type ChatMessage = { role: 'user' | 'assistant'; content: string; toolkitAssets?: string[] };
 type View = 'library' | 'chat';
 
 // A signed-in visitor's saved chat (library_conversations) — an anonymous
@@ -185,7 +190,8 @@ export default function ExploreLibrary({
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, mode: 'library', pathwayId }),
+        // Only role/content go to the model — never UI-only fields like toolkitAssets.
+        body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })), mode: 'library', pathwayId }),
       });
       if (!res.body) throw new Error('No response body');
 
@@ -201,9 +207,17 @@ export default function ExploreLibrary({
           firstChunk = false;
           setIsThinking(false);
         }
-        setMessages([...history, { role: 'assistant', content: text }]);
+        // Hide the <toolkit_assets> tag from the moment it starts streaming.
+        setMessages([...history, { role: 'assistant', content: stripToolkitAssetsTag(text) }]);
       }
-      void saveConversation([...history, { role: 'assistant', content: text }], pathway);
+      const assetIds = parseToolkitAssetsTag(text);
+      const reply: ChatMessage = {
+        role: 'assistant',
+        content: stripToolkitAssetsTag(text),
+        ...(assetIds.length ? { toolkitAssets: assetIds } : {}),
+      };
+      setMessages([...history, reply]);
+      void saveConversation([...history, reply], pathway);
     } catch {
       setMessages([
         ...history,
@@ -560,6 +574,9 @@ function ChatView({
                 }`}
             >
               <MessageText content={m.content} />
+              {m.role === 'assistant' && m.toolkitAssets?.length && selected ? (
+                <ToolkitAssetCards ids={m.toolkitAssets} pathwaySlug={selected.id} />
+              ) : null}
             </div>
           ))}
           {isThinking && (

@@ -13,6 +13,21 @@ export interface AdminPathwayRow {
   created_at: string;
   reviewRequested: boolean;
   isPublished: boolean;
+  // Every toolkit asset shared for this pathway (any status), loaded with
+  // the admin client in app/admin/page.tsx — the card shows the ones listed
+  // in the document under review.
+  toolkitAssets: AdminToolkitAsset[];
+}
+
+export interface AdminToolkitAsset {
+  id: string;
+  name: string;
+  purpose: string;
+  kind: 'file' | 'link';
+  fileName: string | null;
+  sizeBytes: number | null;
+  linkDomain: string | null;
+  published: boolean;
 }
 
 export default function AdminPathwaysPanel({ initialRows }: { initialRows: AdminPathwayRow[] }) {
@@ -33,7 +48,11 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error ?? 'Could not publish pathway.'); return; }
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isPublished: true, reviewRequested: false } : r)));
-      showToast('Pathway published successfully.');
+      if (data.assetsPublished === false) {
+        showToast('Pathway published, but its toolkit assets could not be published. Publish again to retry.', 'error');
+      } else {
+        showToast('Pathway published successfully.');
+      }
     } finally {
       setPending(null);
     }
@@ -43,7 +62,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
     const ok = await confirm({
       title: `Delete "${title}"?`,
       message:
-        "This removes the pathway and every contributor's units from the database. It does not remove anything already published to the library. This can't be undone.",
+        "This removes the pathway, every contributor's units, and its toolkit asset files. It does not remove the pathway document already published to the library. This can't be undone.",
       confirmLabel: 'Delete pathway',
       danger: true,
     });

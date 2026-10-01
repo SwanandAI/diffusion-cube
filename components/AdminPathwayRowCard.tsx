@@ -5,7 +5,44 @@ import WikiMarkdown from '@/components/WikiMarkdown';
 import PathwayFrontmatterBlock from '@/components/PathwayFrontmatterBlock';
 import { createClient } from '@/lib/supabase/client';
 import { stripFrontmatter, parseFrontmatter } from '@/lib/strip-frontmatter';
-import type { AdminPathwayRow } from '@/components/AdminPathwaysPanel';
+import type { AdminPathwayRow, AdminToolkitAsset } from '@/components/AdminPathwaysPanel';
+import { assetIdsInDocument } from '@/lib/toolkit-assets';
+
+function formatSize(bytes: number | null): string {
+  if (!bytes) return '';
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+// One toolkit asset in the review card. Its download goes through the same
+// route adopters use — admins may fetch unpublished assets there.
+function AdminAssetItem({ asset }: { asset: AdminToolkitAsset }) {
+  return (
+    <li className="flex items-start justify-between gap-3 rounded-lg border border-navy/10 bg-white px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-navy">
+          {asset.kind === 'file' ? '📎' : '🔗'} {asset.name}
+          {asset.published && (
+            <span className="ml-2 rounded-full bg-coral/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-coral">
+              Published
+            </span>
+          )}
+        </p>
+        <p className="text-xs text-ink-soft">
+          {asset.kind === 'file' ? `${asset.fileName ?? 'file'} · ${formatSize(asset.sizeBytes)}` : asset.linkDomain}
+          {asset.kind === 'file' && ' · Not scanned for malware'}
+        </p>
+        {asset.purpose && <p className="mt-1 text-xs text-ink">{asset.purpose}</p>}
+      </div>
+      <a
+        href={`/api/toolkit-assets/${asset.id}/download`}
+        {...(asset.kind === 'file' ? { download: true } : { target: '_blank', rel: 'noopener noreferrer' })}
+        className="flex-shrink-0 rounded-lg border border-navy/15 px-2.5 py-1 text-xs font-medium text-navy transition hover:border-coral hover:text-coral"
+      >
+        {asset.kind === 'file' ? 'Download' : 'Open link'}
+      </a>
+    </li>
+  );
+}
 
 interface Props {
   row: AdminPathwayRow;
@@ -110,6 +147,42 @@ export default function AdminPathwayRowCard({ row, isPending, onPublish, onRemov
                 {fm && <PathwayFrontmatterBlock fm={fm} />}
                 <WikiMarkdown markdown={stripFrontmatter(docContent)} />
               </>
+            );
+          })()}
+          {!docLoading && docContent !== null && row.toolkitAssets.length > 0 && (() => {
+            // Publishing publishes exactly the assets listed in this document;
+            // anything shared after the last Send for Review is shown apart.
+            const inDoc = new Set(assetIdsInDocument(docContent));
+            const included = row.toolkitAssets.filter((a) => inDoc.has(a.id));
+            const later = row.toolkitAssets.filter((a) => !inDoc.has(a.id) && !a.published);
+            return (
+              <div className="mt-6 border-t border-navy/10 pt-4">
+                <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.15em] text-ink-soft">
+                  Toolkit assets in this review ({included.length})
+                </p>
+                {included.length === 0 ? (
+                  <p className="text-xs text-ink-soft">None.</p>
+                ) : (
+                  <>
+                    <p className="mb-2 text-xs text-ink-soft">
+                      Publishing this pathway makes these public — anyone can download them, no sign-in needed.
+                    </p>
+                    <ul className="space-y-2">
+                      {included.map((a) => <AdminAssetItem key={a.id} asset={a} />)}
+                    </ul>
+                  </>
+                )}
+                {later.length > 0 && (
+                  <>
+                    <p className="mb-2 mt-4 font-mono text-[10px] uppercase tracking-[0.15em] text-ink-soft">
+                      Shared after this review was sent ({later.length}) — not published by this click
+                    </p>
+                    <ul className="space-y-2">
+                      {later.map((a) => <AdminAssetItem key={a.id} asset={a} />)}
+                    </ul>
+                  </>
+                )}
+              </div>
             );
           })()}
         </div>

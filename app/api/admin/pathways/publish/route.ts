@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin } from '@/lib/roles';
+import { assetIdsInDocument } from '@/lib/toolkit-assets';
 
 // Parses YAML frontmatter from a pathway document's content string.
 // Handles scalar values and simple inline arrays: [Tag1, Tag2].
@@ -101,5 +102,26 @@ export async function POST(req: NextRequest) {
     published_design_doc_id: pathway.assembled_design_doc_id ?? null,
   }).eq('id', pathway_id);
 
-  return NextResponse.json({ ok: true, slug: pathway.slug });
+  // Toolkit assets ride the pathway's own approval: publish exactly the
+  // assets listed in the document the admin just reviewed and published
+  // (their <!-- asset-id --> markers, written by assemble), and only this
+  // pathway's. An asset shared after the last Send for Review isn't in the
+  // document, so it waits for the next round. Idempotent on re-publish.
+  let assetsPublished = true;
+  const assetIds = assetIdsInDocument(pathway.content_cache);
+  if (assetIds.length > 0) {
+    const { error: assetsErr } = await admin
+      .from('contribution_units')
+      .update({ published_at: new Date().toISOString() })
+      .eq('pathway_id', pathway_id)
+      .eq('unit_type', 'toolkit-asset')
+      .is('published_at', null)
+      .in('unit_internal_id', assetIds);
+    if (assetsErr) {
+      console.error('[admin/pathways/publish] toolkit assets:', assetsErr);
+      assetsPublished = false;
+    }
+  }
+
+  return NextResponse.json({ ok: true, slug: pathway.slug, assetsPublished });
 }

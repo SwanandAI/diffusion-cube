@@ -21,6 +21,7 @@ import {
 } from '@/lib/explorer-intents';
 import type { DocType } from '@/lib/design-documents';
 import { EMPTY_GRID } from '@/lib/dimensions';
+import { ATTACH_ACCEPT, CONTRIBUTOR_ATTACH_ACCEPT } from '@/lib/extract-text';
 
 const CONTRIBUTOR_OPENING_MESSAGE: Message = {
   role: 'assistant',
@@ -113,6 +114,9 @@ export default function AdoptionWorkspace({
     handleUserSend,
     handleAttachFiles,
     removeAttachment,
+    hasToolkitAssetFile,
+    answerToolkitAssetConsent,
+    toolkitAssetsVersion,
     pathwayDoc,
     pathwayPreview,
     openPathwayDocument,
@@ -357,6 +361,8 @@ export default function AdoptionWorkspace({
                 onSelectVersion={selectPathwayDocVersion}
                 onClose={closeRightPanel}
                 deploymentName={conversation?.meta.name}
+                pathwayId={conversation?.meta.pathwayId || undefined}
+                toolkitAssetsRefreshKey={toolkitAssetsVersion}
               />
             </div>
           )}
@@ -587,6 +593,7 @@ export default function AdoptionWorkspace({
                 messages={[preChat.opening]}
                 onSend={(text) => handleUserSend(text, preChatFlow, preChatIntent)}
                 onAttachFiles={(files) => handleAttachFiles(files, preChatFlow, preChatIntent)}
+                attachAccept={CONTRIBUTOR_ATTACH_ACCEPT}
                 onRemoveAttachment={removeAttachment}
                 pendingAttachments={pendingAttachments}
                 loading={loading}
@@ -622,6 +629,7 @@ export default function AdoptionWorkspace({
                   attachments={pendingAttachments}
                   onAttachFiles={(files) => handleAttachFiles(files, preChatFlow, preChatIntent)}
                   onRemoveAttachment={removeAttachment}
+                  accept={CONTRIBUTOR_ATTACH_ACCEPT}
                 />
               </div>
             </div>
@@ -962,6 +970,7 @@ export default function AdoptionWorkspace({
               messages={displayMessages}
               onSend={handleUserSend}
               onAttachFiles={handleAttachFiles}
+              attachAccept={flow === 'contributor' ? CONTRIBUTOR_ATTACH_ACCEPT : ATTACH_ACCEPT}
               onRemoveAttachment={removeAttachment}
               pendingAttachments={pendingAttachments}
               loading={loading}
@@ -979,6 +988,8 @@ export default function AdoptionWorkspace({
                   : undefined
               }
               pathwayLookup={pathwayLookup}
+              onToolkitAssetConsent={flow === 'contributor' ? answerToolkitAssetConsent : undefined}
+              hasToolkitAssetFile={hasToolkitAssetFile}
               hideAccuracyDisclaimer={flow === 'contributor'}
             />
           </div>
@@ -1008,8 +1019,21 @@ export default function AdoptionWorkspace({
               <AttachmentsPanel
                 attachments={pendingAttachments}
                 uploadedFileNames={extractUploadedFileNames(conversation.messages)}
+                viewableFiles={
+                  flow === 'contributor'
+                    ? Object.fromEntries(
+                        conversation.messages.flatMap((m) => {
+                          const c = m.toolkitAssetConsent;
+                          return c?.status === 'shared' && c.assetId && 'fileName' in c.candidate.source
+                            ? [[c.candidate.source.fileName, c.assetId]]
+                            : [];
+                        })
+                      )
+                    : undefined
+                }
                 onAttachFiles={handleAttachFiles}
                 onRemoveAttachment={removeAttachment}
+                accept={flow === 'contributor' ? CONTRIBUTOR_ATTACH_ACCEPT : ATTACH_ACCEPT}
               />
             </div>
           </div>

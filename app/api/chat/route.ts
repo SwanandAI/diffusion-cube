@@ -19,6 +19,8 @@ import { createClient } from '@/lib/supabase/server';
 import { hasAnyRole, hasRole } from '@/lib/roles';
 import { EMPTY_GRID } from '@/lib/dimensions';
 import { parseGridUpdate } from '@/lib/grid-update';
+import { isValidSlug } from '@/lib/slug';
+import { loadPublishedToolkitAssets } from '@/lib/toolkit-assets-server';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -87,6 +89,10 @@ export async function POST(req: Request) {
   // DB as fallback — so cards from either source open into a grounded chat.
   if (mode === 'library') {
     if (typeof pathwayId === 'string' && pathwayId) {
+      // pathwayId comes straight from an unauthenticated request and becomes
+      // a file path below — only a real slug shape gets that far, never
+      // "../../wiki/pathways/x" (which would read any .md on the server).
+      if (!isValidSlug(pathwayId)) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
       let document = await readLibraryPathwayDocument(pathwayId);
       if (!document) {
         const { data } = await supabase
@@ -97,7 +103,10 @@ export async function POST(req: Request) {
         document = data?.content ?? null;
       }
       if (!document) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
-      systemPrompt = libraryPathwaySystemPrompt(document);
+      // Published toolkit assets for this pathway (only DB pathways have
+      // any) — public by the contributors' consent.
+      const toolkitAssets = await loadPublishedToolkitAssets({ pathwaySlug: pathwayId });
+      systemPrompt = libraryPathwaySystemPrompt(document, toolkitAssets);
     } else {
       systemPrompt = libraryOverviewSystemPrompt(await buildLibraryOverview());
     }
@@ -178,7 +187,15 @@ export async function POST(req: Request) {
       typeof existingPublishedDoc === 'string' ? existingPublishedDoc : null
     );
   } else {
-    systemPrompt = explorerSystemPrompt(wikiContent, frameworkContent, grid ?? EMPTY_GRID, meta ?? {}, resourcesContent);
+    const toolkitAssets = mode === 'companion' ? await loadPublishedToolkitAssets() : [];
+    systemPrompt = explorerSystemPrompt(
+      wikiContent,
+      frameworkContent,
+      grid ?? EMPTY_GRID,
+      meta ?? {},
+      resourcesContent,
+      toolkitAssets
+    );
   }
 
   const stream = await anthropic.messages.stream({
@@ -212,6 +229,14 @@ export async function POST(req: Request) {
 
       // Fire-and-forget — never blocks the response
       logConversation({ mode, messages, response: fullResponse });
+
+      // TEMPORARY dev-only diagnostic for toolkit-asset testing (see
+      // specs/TOOLKIT_ASSETS_SPEC.md) — prints the contributor companion's raw
+      // <grid_update> to the `npm run dev` terminal. Remove after testing.
+      if (process.env.NODE_ENV !== 'production' && mode === 'companion' && flow === 'contributor') {
+        const block = fullResponse.match(/<grid_update>[\s\S]*?<\/grid_update>/)?.[0];
+        console.log('[chat][dev] contributor grid_update:', block ?? '(none)');
+      }
 
       // Records every companion-mode query, tagged with the pathway slug(s)
       // the response actually drew on (see supabase/migrations/0010 and

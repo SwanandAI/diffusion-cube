@@ -4,12 +4,21 @@ import { Message } from '@/components/ChatPanel';
 import { createClient } from '@/lib/supabase/client';
 import { extractTextFromFile, fileToImageBlock, getFileExtension, isImageFile } from '@/lib/extract-text';
 import {
+  TOOLKIT_ASSET_BUCKET,
+  assetExtension,
+  candidateSourceKey,
+  isAllowedAssetFile,
+  type ToolkitAssetCandidate,
+  type ToolkitAssetConsentState,
+} from '@/lib/toolkit-assets';
+import {
   parseGridUpdate,
   stripGridUpdate,
   ANALYSIS_DOC_MARKER,
   DELIVERABLE_START,
   EXEC_SUMMARY_MARKER,
   PATHWAY_DOC_MARKER,
+  TOOLKIT_ASSET_CONSENT_MARKER,
   type ParsedGridUpdate,
 } from '@/lib/grid-update';
 import { extractGapsFromPathwayDraft } from '@/lib/pathway-gaps';
@@ -117,7 +126,7 @@ export const EMPTY_META: AdoptionMeta = {
 
 export { EMPTY_GRID };
 
-const UPLOAD_LINE = /(?:📄|🖼️)\s*Uploaded\s+\*\*(.+?)\*\*/g;
+const UPLOAD_LINE = /(?:📄|🖼️|📎)\s*Uploaded\s+\*\*(.+?)\*\*/g;
 
 // Files already sent in past turns aren't tracked separately — they're
 // embedded in each upload message's displayContent (e.g. "📄 Uploaded
@@ -140,9 +149,18 @@ export interface StagedAttachment {
   name: string;
   state: 'reading' | 'ready' | 'error';
   error?: string;
-  kind?: 'image' | 'text';
+  // 'asset' (contributor flow only): a file that can't be read as text or
+  // sent as an image — .doc/.ppt/.csv, an image over 5 MB, a PDF with no
+  // text layer — but can still be kept as a toolkit asset file. The model
+  // only learns its name, type and size.
+  kind?: 'image' | 'text' | 'asset';
   text?: string;
   image?: { mediaType: string; base64: string };
+  sizeBytes?: number;
+}
+
+function formatBytes(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 export interface AdoptionConversation {
@@ -287,6 +305,17 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   // once, each triggering extraction) so they share one row-creation insert
   // instead of racing to create duplicates.
   const creatingRef = useRef<Promise<AdoptionConversation> | null>(null);
+  // Contributor-only: files that could become toolkit asset files, keyed by
+  // file name, held in memory (never uploaded) until the contributor answers
+  // the public-sharing consent card for them. Lost on reload by design —
+  // nothing is stored before consent.
+  const assetFilesRef = useRef<Map<string, File>>(new Map());
+  // Consent ids with an upload/register in flight — blocks a double-click
+  // from creating two objects and two rows.
+  const consentInFlightRef = useRef<Set<string>>(new Set());
+  // Bumped after each successfully shared asset so the contributor's
+  // ToolkitAssetStatusList re-fetches.
+  const [toolkitAssetsVersion, setToolkitAssetsVersion] = useState(0);
 
   // Contributor-only pathway document state — see PathwayDocState. Mirrored
   // into a ref (same idiom as conversation/conversationRef above) so the
@@ -540,6 +569,9 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       });
       const data = await res.json();
       if (!res.ok) return { ok: false, error: data.error ?? 'Publish failed.' };
+      // The sent document now lists this pathway's shared toolkit assets —
+      // refresh their "sent for review" status.
+      setToolkitAssetsVersion((v) => v + 1);
 
       // The server publishes this design's latest draft version verbatim, so
       // the response's content should already match what the pane shows —
@@ -601,6 +633,163 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     const content = result.ok ? `Published — it's live now.\n\n${PATHWAY_DOC_MARKER}` : `I couldn't publish it — ${result.error || 'something went wrong. Try again.'}`;
     update((c) => ({ ...c, messages: [...c.messages, { role: 'assistant', content }] }));
     if (conversationRef.current) void persist(conversationRef.current);
+  }
+
+  // Applies the same message-list change to React state and to the persisted
+  // row. Builds the persisted copy from conversationRef directly rather than
+  // trusting the (batched) state update to have landed first.
+  function commitMessages(mutate: (messages: Message[]) => Message[]) {
+    const cur = conversationRef.current;
+    if (!cur) return;
+    update((c) => ({ ...c, messages: mutate(c.messages) }));
+    void persist({ ...cur, messages: mutate(cur.messages) });
+  }
+
+  // What the model reads back in history for a consent card — states the
+  // outcome, so it knows not to flag the same file again.
+  function toolkitAssetConsentContent(consent: ToolkitAssetConsentState): string {
+    const name = consent.candidate.name;
+    const line =
+      consent.status === 'shared'
+        ? `The contributor agreed to share **${name}** publicly as a toolkit asset; it goes live when this pathway is approved.`
+        : consent.status === 'declined'
+          ? `The contributor chose not to share **${name}** as a toolkit asset.`
+          : `Asked the contributor whether **${name}** can be shared publicly as a toolkit asset.`;
+    return `${line}\n\n${TOOLKIT_ASSET_CONSENT_MARKER}`;
+  }
+
+  // Contributor-only: one consent card per new toolkit-asset candidate the
+  // companion flagged this turn (see contributorSystemPrompt). Nothing is
+  // uploaded here — only after the contributor answers Yes on the card. A
+  // file candidate must name a file actually uploaded in this conversation,
+  // and a source already asked about is never asked again.
+  function appendToolkitAssetConsentMessages(candidates: ToolkitAssetCandidate[]) {
+    const cur = conversationRef.current;
+    if (!cur) return;
+    const seen = new Set(
+      cur.messages.flatMap((m) => (m.toolkitAssetConsent ? [candidateSourceKey(m.toolkitAssetConsent.candidate)] : []))
+    );
+    const uploaded = new Set(extractUploadedFileNames(cur.messages));
+    // A link must appear verbatim in something the contributor typed — the
+    // model has been seen to "correct" a pasted link into a URL nobody gave,
+    // which would then be published as theirs.
+    const userText = cur.messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.displayContent ?? m.content)
+      .join('\n');
+    const fresh = candidates.filter((candidate) => {
+      const key = candidateSourceKey(candidate);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return 'fileName' in candidate.source
+        ? uploaded.has(candidate.source.fileName)
+        : userText.includes(candidate.source.url);
+    });
+    if (fresh.length === 0) return;
+
+    const messages: Message[] = fresh.map((candidate) => {
+      const consent: ToolkitAssetConsentState = {
+        id: `consent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        candidate,
+        status: 'pending',
+      };
+      return {
+        role: 'assistant',
+        content: toolkitAssetConsentContent(consent),
+        displayContent: TOOLKIT_ASSET_CONSENT_MARKER,
+        toolkitAssetConsent: consent,
+      };
+    });
+    commitMessages((msgs) => [...msgs, ...messages]);
+  }
+
+  function hasToolkitAssetFile(fileName: string): boolean {
+    return assetFilesRef.current.has(fileName);
+  }
+
+  // The contributor's answer on a consent card. No → nothing is stored. Yes →
+  // signed upload straight to the private bucket (files only), then register
+  // the unpublished contribution_units row. The card shows the error and stays
+  // answerable if anything fails.
+  async function answerToolkitAssetConsent(consentId: string, share: boolean): Promise<{ ok: boolean; error?: string }> {
+    const cur = conversationRef.current;
+    const consent = cur?.messages.find((m) => m.toolkitAssetConsent?.id === consentId)?.toolkitAssetConsent;
+    if (!cur || !consent || consent.status !== 'pending') return { ok: true };
+    if (consentInFlightRef.current.has(consentId)) return { ok: false };
+
+    const setStatus = (status: ToolkitAssetConsentState['status'], assetId?: string) =>
+      commitMessages((msgs) =>
+        msgs.map((m) => {
+          if (m.toolkitAssetConsent?.id !== consentId) return m;
+          const next = { ...m.toolkitAssetConsent, status, assetId };
+          return { ...m, toolkitAssetConsent: next, content: toolkitAssetConsentContent(next) };
+        })
+      );
+    const { candidate } = consent;
+    const fileName = 'fileName' in candidate.source ? candidate.source.fileName : null;
+
+    if (!share) {
+      if (fileName) assetFilesRef.current.delete(fileName);
+      setStatus('declined');
+      return { ok: true };
+    }
+
+    const pathwayId = cur.meta.pathwayId;
+    if (!pathwayId) return { ok: false, error: "This workspace isn't linked to a pathway." };
+
+    consentInFlightRef.current.add(consentId);
+    try {
+      const base = {
+        pathwayId,
+        designId: cur.id,
+        name: candidate.name,
+        purpose: candidate.purpose ?? '',
+        reuseCondition: candidate.reuseCondition ?? '',
+        dimension: candidate.dimension ?? '',
+        stage: candidate.stage ?? '',
+        shareConsent: true,
+      };
+      let body: Record<string, unknown>;
+      if (fileName) {
+        const file = assetFilesRef.current.get(fileName);
+        if (!file) return { ok: false, error: 'Please attach the file again — it has to be re-selected after the page reloads.' };
+        const urlRes = await fetch('/api/toolkit-assets/upload-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pathwayId, fileName: file.name, size: file.size }),
+        });
+        const upload = await urlRes.json().catch(() => ({}));
+        if (!urlRes.ok) return { ok: false, error: upload.error ?? 'Could not prepare the upload. Try again.' };
+        const { error: uploadError } = await createClient()
+          .storage.from(TOOLKIT_ASSET_BUCKET)
+          .uploadToSignedUrl(upload.path, upload.token, file, { contentType: upload.contentType });
+        if (uploadError) {
+          console.error('[toolkit-assets] upload failed:', uploadError);
+          return { ok: false, error: 'The upload failed. Try again.' };
+        }
+        body = { ...base, kind: 'file', storagePath: upload.path, fileName: file.name };
+      } else {
+        body = { ...base, kind: 'link', linkUrl: 'url' in candidate.source ? candidate.source.url : '' };
+      }
+
+      const res = await fetch('/api/toolkit-assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: data.error ?? 'Could not save the asset. Try again.' };
+
+      if (fileName) assetFilesRef.current.delete(fileName);
+      setStatus('shared', data.id);
+      setToolkitAssetsVersion((v) => v + 1);
+      return { ok: true };
+    } catch (err) {
+      console.error('[toolkit-assets] consent submit failed:', err);
+      return { ok: false, error: 'Something went wrong. Try again.' };
+    } finally {
+      consentInFlightRef.current.delete(consentId);
+    }
   }
 
   // Explorer-only: generates the Guidance intent's Analysis Document, or the
@@ -866,10 +1055,14 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       // survives reload without re-parsing the stripped grid_update.
       const finalContent = stripGridUpdate(assistantText);
       const finalRefs = lastParsed?.pathwaysReferenced;
+      // Explorer-only: toolkit assets offered this turn — kept on the message
+      // (like pathwaysReferenced) so the download cards survive reload.
+      const finalAssets = flow === 'explorer' ? lastParsed?.toolkitAssetsReferenced : undefined;
       const finalMsg = {
         role: 'assistant' as const,
         content: finalContent,
         ...(finalRefs?.length ? { pathwaysReferenced: finalRefs } : {}),
+        ...(finalAssets?.length ? { toolkitAssetsReferenced: finalAssets } : {}),
       };
       update((c) => {
         const msgs = [...c.messages];
@@ -886,6 +1079,12 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         const msgs = [...cur.messages];
         msgs[msgs.length - 1] = finalMsg;
         void persist({ ...cur, messages: msgs });
+      }
+
+      // Contributor-only: consent cards for any toolkit-asset candidates the
+      // companion flagged this turn (nothing is uploaded until a Yes).
+      if (flow === 'contributor' && lastParsed?.toolkitAssetCandidates?.length) {
+        appendToolkitAssetConsentMessages(lastParsed.toolkitAssetCandidates);
       }
 
       // Contributor-only: react to the companion's pathwayAction, if any —
@@ -1034,13 +1233,19 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         const textParts = readyAttachments
           .filter((a) => a.kind === 'text')
           .map((a) => `--- Uploaded: ${a.name} ---\n${a.text}`);
+        const assetParts = readyAttachments
+          .filter((a) => a.kind === 'asset')
+          .map(
+            (a) =>
+              `--- Uploaded asset file: ${a.name} (${(assetExtension(a.name) ?? 'file').toUpperCase()}, ${formatBytes(a.sizeBytes ?? 0)}) — its contents can't be read here; judge it from its name and what the contributor says about it ---`
+          );
 
         const baseText =
           text || 'Please read the attached file(s) and tell me what they establish about this adoption.';
-        const content = [baseText, ...textParts].join('\n\n');
+        const content = [baseText, ...textParts, ...assetParts].join('\n\n');
         const displayLines = [
           ...(text ? [text] : []),
-          ...readyAttachments.map((a) => `${a.kind === 'image' ? '🖼️' : '📄'} Uploaded **${a.name}**`),
+          ...readyAttachments.map((a) => `${a.kind === 'image' ? '🖼️' : a.kind === 'asset' ? '📎' : '📄'} Uploaded **${a.name}**`),
         ];
 
         setPendingAttachments([]);
@@ -1067,17 +1272,52 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   );
 
   function handleAttachFiles(files: File[], flow: AdoptionFlow = '', intent: ExplorerIntent = '') {
+    const isContributor = (conversationRef.current?.meta.flow || flow) === 'contributor';
     for (const file of files) {
       const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const assetEligible = isContributor && isAllowedAssetFile(file.name, file.size);
+      if (assetEligible) assetFilesRef.current.set(file.name, file);
+      const markAsAssetOnly = () =>
+        setPendingAttachments((s) =>
+          s.map((a) => (a.id === attachmentId ? { ...a, state: 'ready', kind: 'asset', sizeBytes: file.size } : a))
+        );
+
+      // CSV is plain text: in the contributor flow read it so the companion
+      // can see what's actually in it (e.g. a filled-in test set) when
+      // judging whether it's a toolkit asset — the Explorer flow still
+      // doesn't take CSV at all.
+      if (assetEligible && assetExtension(file.name) === 'csv') {
+        setPendingAttachments((s) => [...s, { id: attachmentId, name: file.name, state: 'reading' }]);
+        file
+          .text()
+          .then((text) => {
+            if (!text.trim()) throw new Error('empty');
+            setPendingAttachments((s) =>
+              s.map((a) => (a.id === attachmentId ? { ...a, state: 'ready', kind: 'text', text } : a))
+            );
+            if (conversationRef.current) void extractInsightsForAttachment(text, flow, intent);
+          })
+          .catch(() => markAsAssetOnly());
+        continue;
+      }
 
       if (!getFileExtension(file.name)) {
+        if (assetEligible) {
+          setPendingAttachments((s) => [
+            ...s,
+            { id: attachmentId, name: file.name, state: 'ready', kind: 'asset', sizeBytes: file.size },
+          ]);
+          continue;
+        }
         setPendingAttachments((s) => [
           ...s,
           {
             id: attachmentId,
             name: file.name,
             state: 'error',
-            error: 'Unsupported type — use .pdf, .docx, .xlsx, .xls, .pptx, .txt, .md, or an image.',
+            error: isContributor
+              ? 'Unsupported type — use .pdf, .doc/.docx, .ppt/.pptx, .xls/.xlsx, .csv, .txt, .md, or an image (ZIP isn\'t supported yet).'
+              : 'Unsupported type — use .pdf, .docx, .xlsx, .xls, .pptx, .txt, .md, or an image.',
           },
         ]);
         continue;
@@ -1108,6 +1348,12 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
             if (conversationRef.current) void extractInsightsForAttachment(text, flow, intent);
           }
         } catch (err) {
+          // Too big to send as an image, or no readable text — still usable
+          // as a toolkit asset file in the contributor flow.
+          if (assetEligible) {
+            markAsAssetOnly();
+            return;
+          }
           setPendingAttachments((s) =>
             s.map((a) =>
               a.id === attachmentId
@@ -1131,6 +1377,9 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     handleUserSend,
     handleAttachFiles,
     removeAttachment,
+    hasToolkitAssetFile,
+    answerToolkitAssetConsent,
+    toolkitAssetsVersion,
     pathwayDoc,
     pathwayPreview,
     openPathwayDocument,

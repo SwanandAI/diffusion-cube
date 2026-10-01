@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import WikiMarkdown from '@/components/WikiMarkdown';
+import ToolkitAssetStatusList from '@/components/ToolkitAssetStatusList';
 import PathwayFrontmatterBlock from '@/components/PathwayFrontmatterBlock';
 import type { VersionOption } from '@/components/AdoptionPlanModal';
 import { downloadPlanAsPdf } from '@/lib/adoption-plan-pdf';
@@ -21,6 +22,10 @@ interface Props {
   onSelectVersion: (versionNumber: number) => void;
   // Optional name used as the PDF filename prefix.
   deploymentName?: string;
+  // The pathway this workspace contributes to — shows its toolkit assets and
+  // their status below the document. refreshKey re-fetches that list.
+  pathwayId?: string;
+  toolkitAssetsRefreshKey?: number;
 }
 
 // A persistent side panel next to the chat — read-only preview, a version
@@ -42,9 +47,16 @@ export default function PathwayDocumentPane({
   publishedVersionNumber,
   onSelectVersion,
   deploymentName,
+  pathwayId,
+  toolkitAssetsRefreshKey = 0,
 }: Props) {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  // Toolkit assets shared since the last Send for Review — offering the
+  // button again lets them reach the admin without a text change.
+  const [unsentAssets, setUnsentAssets] = useState(0);
+  const handleUnsentCount = useCallback((count: number) => setUnsentAssets(count), []);
+  const canSend = status === 'draft' || unsentAssets > 0;
   const fm = markdown ? parseFrontmatter(markdown) : null;
 
   function handleDownloadPdf() {
@@ -108,6 +120,13 @@ export default function PathwayDocumentPane({
             <WikiMarkdown markdown={stripFrontmatter(markdown)} />
           </>
         )}
+        {pathwayId && (
+          <ToolkitAssetStatusList
+            pathwayId={pathwayId}
+            refreshKey={toolkitAssetsRefreshKey}
+            onUnsentCountChange={handleUnsentCount}
+          />
+        )}
       </div>
 
       {!error && markdown && (
@@ -117,6 +136,10 @@ export default function PathwayDocumentPane({
             <p className="mr-auto text-xs text-ink-soft">
               Viewing v0.{selectedVersionNumber} — publishing always uses the latest version.
             </p>
+          ) : status !== 'draft' && unsentAssets > 0 ? (
+            <p className="mr-auto text-xs text-ink-soft">
+              {unsentAssets} new toolkit asset{unsentAssets === 1 ? '' : 's'} not yet sent for review.
+            </p>
           ) : null}
           <button
             onClick={handleDownloadPdf}
@@ -125,7 +148,7 @@ export default function PathwayDocumentPane({
           >
             Download PDF
           </button>
-          {status === 'draft' && (selectedVersionNumber === null || selectedVersionNumber === latestVersionNumber) && (
+          {canSend && (selectedVersionNumber === null || selectedVersionNumber === latestVersionNumber) && (
             <button
               onClick={handlePublish}
               disabled={publishing || loading}

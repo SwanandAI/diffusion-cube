@@ -1,5 +1,12 @@
 import { DIMENSIONS, STAGES, frameworkStructureLegend, type GridState } from '@/lib/dimensions';
 import { getExplorerIntent, type ExplorerIntent } from '@/lib/explorer-intents';
+import {
+  TOOLKIT_ASSETS_TAG_END,
+  TOOLKIT_ASSETS_TAG_START,
+  renderToolkitAssetsForPrompt,
+  toolkitAssetTimingRules,
+  type ToolkitAssetPromptEntry,
+} from '@/lib/toolkit-assets';
 
 // Explorer-only working assessment — see the matching type in
 // lib/adoption-conversation.ts (the source of truth for the persisted shape;
@@ -107,8 +114,12 @@ interface GridUpdateContractOptions {
   cubeAssessment?: boolean;
   persona?: boolean;
   explorerAction?: boolean;
-  // Contributor-only: the pathway-document signal.
+  // Contributor-only: the pathway-document signal, and the toolkit-asset
+  // file candidates the client turns into consent cards.
   pathwayAction?: boolean;
+  toolkitAssetCandidates?: boolean;
+  // Explorer-only: ids of published toolkit assets offered this turn.
+  toolkitAssetsReferenced?: boolean;
 }
 
 function gridUpdateContract(totalSteps: number, options: GridUpdateContractOptions = {}): string {
@@ -117,7 +128,25 @@ function gridUpdateContract(totalSteps: number, options: GridUpdateContractOptio
     persona: includePersona = false,
     explorerAction: includeExplorerAction = false,
     pathwayAction: includePathwayAction = false,
+    toolkitAssetCandidates: includeToolkitAssetCandidates = false,
+    toolkitAssetsReferenced: includeToolkitAssetsReferenced = false,
   } = options;
+
+  const toolkitAssetsReferencedField = includeToolkitAssetsReferenced
+    ? `,
+  "toolkitAssetsReferenced": []`
+    : '';
+  const toolkitAssetsReferencedNote = includeToolkitAssetsReferenced
+    ? `\n\ntoolkitAssetsReferenced — the exact ids (from "Toolkit asset files" above) of every asset you offered in your prose this turn, so the product can attach the download cards. Never mentioned to the user. An empty array on every turn where you didn't offer one.`
+    : '';
+
+  const toolkitAssetCandidatesField = includeToolkitAssetCandidates
+    ? `,
+  "toolkitAssetCandidates": []`
+    : '';
+  const toolkitAssetCandidatesNote = includeToolkitAssetCandidates
+    ? `\n\ntoolkitAssetCandidates lists uploaded files or pasted https links from THIS turn that genuinely meet the Toolkit Asset bar (see "Toolkit asset files" above) — never mentioned to the user; the client turns each entry into a card that asks the contributor for permission. Each entry: { "source": { "fileName": "exact uploaded file name as shown after 'Uploaded'" } or { "url": "the https link exactly as the contributor typed it — never construct, complete, correct, or guess a URL, and never list a link they didn't paste themselves" }, "name": "short name for the asset", "purpose": "one sentence: what it is for", "reuseCondition": "one sentence: when someone else could reuse it", "dimension": "persona|solution|institution|ecosystem or empty string", "stage": "explore|define|pilot|scale or empty string" }. An empty array on every turn where nothing new qualifies — including every later turn for a file or link you already listed once.`
+    : '';
 
   const pathwayActionField = includePathwayAction
     ? `,
@@ -183,7 +212,7 @@ Set each type only once per real yes. If the user asks for a regenerated version
     "conversationMode": "one of DISCOVERING, UNDERSTANDING, TESTING, ADVISING, PLANNING, REFLECTING — your own current conversational posture"${personaField}${cubeAssessmentField}
   },
   "pathwaysReferenced": ["exact-slug-from-the-corpus-above"],
-  "flowStep": 1${pathwayActionField}${explorerActionField}
+  "flowStep": 1${pathwayActionField}${explorerActionField}${toolkitAssetCandidatesField}${toolkitAssetsReferencedField}
 }
 </grid_update>
 
@@ -197,7 +226,7 @@ Notes are a short fragment, under ~10 words, in the user's own terms — "Cotton
 
 flowStep is an integer 1-${totalSteps}, the numbered step of YOUR CURRENT FLOW (the numbered list given to you below) that you are on or just completed this turn. Report the step you are actually executing this turn — if earlier steps are already satisfied by the context at hand, skip their step numbers. flowStep only ever increases (never goes backward). Some steps below are branches of each other rather than a strict sequence (e.g. "if X do this, if not X do that") — in that case report the step whose branch you actually took, and don't walk through the branch you skipped. Your starting point each turn is the "Current progress" section given to you below, not anything you infer from the conversation's prose — that section is ground truth, always trust it over your own re-reading of the chat. Never mention "flowStep," step numbers, or this JSON in your prose.
 
-hypothesis, biggestRisk, confidence, decision, and conversationMode are your own working reasoning state, carried forward exactly like flowStep — the "Your reasoning state from last turn" section below is what you reported last turn, not what you infer from re-reading the chat. Update it deliberately every turn: keep it as-is if nothing changed your thinking, sharpen it if the user's last message adds evidence, or replace it outright if you were wrong. A hypothesis that survives several turns unchanged despite new evidence is a sign you're not actually updating it. conversationMode is one of: ${CONVERSATION_MODES}. Never mention any of these fields, their values, or this JSON by name in your prose — they inform how you respond, they are not something you narrate.${personaNote}${cubeAssessmentNote}${pathwayActionNote}${explorerActionNote}`;
+hypothesis, biggestRisk, confidence, decision, and conversationMode are your own working reasoning state, carried forward exactly like flowStep — the "Your reasoning state from last turn" section below is what you reported last turn, not what you infer from re-reading the chat. Update it deliberately every turn: keep it as-is if nothing changed your thinking, sharpen it if the user's last message adds evidence, or replace it outright if you were wrong. A hypothesis that survives several turns unchanged despite new evidence is a sign you're not actually updating it. conversationMode is one of: ${CONVERSATION_MODES}. Never mention any of these fields, their values, or this JSON by name in your prose — they inform how you respond, they are not something you narrate.${personaNote}${cubeAssessmentNote}${pathwayActionNote}${explorerActionNote}${toolkitAssetCandidatesNote}${toolkitAssetsReferencedNote}`;
 }
 
 // Renders the Explorer-only cubeAssessment state back into the prompt.
@@ -270,9 +299,17 @@ export function explorerSystemPrompt(
   frameworkContent: string,
   grid: GridState,
   meta: CompanionMeta,
-  resourcesContent?: string
+  resourcesContent?: string,
+  // Published toolkit asset files across the corpus (see lib/toolkit-assets.ts).
+  toolkitAssets: ToolkitAssetPromptEntry[] = []
 ): string {
   const intentDef = getExplorerIntent(meta.intent);
+  const toolkitAssetsBlock = toolkitAssets.length
+    ? `\n## Toolkit asset files\n\n${toolkitAssetTimingRules(
+        'a pathway that genuinely matches this user\'s situation (the same sector and use-case test as everything else)',
+        'list the id of each asset you offer in toolkitAssetsReferenced'
+      )}\n\n${renderToolkitAssetsForPrompt(toolkitAssets)}\n`
+    : '';
   const totalSteps = intentDef.totalSteps;
 
   return `You are the Adoption Companion for 100 Pathways, operating in Analyse mode.
@@ -290,7 +327,7 @@ ${wikiContent}
 
 ${frameworkBlock(frameworkContent)}
 ${resourcesContent ? `\n## External resources (tools, repositories — not documented pathways; never with a contributor attribution or condition tag)\n\nSurface one of these proactively, not just when asked — the moment it's genuinely relevant to what the user is actually working on, hand it to them to go explore on their own rather than waiting to be asked for it. Give it its own short line, clearly set apart from the surrounding prose, written as a real markdown link — \`[label](url)\`, using the resource's own name as the label and its actual URL from below — with one clause of framing that names why it's relevant to their specific situation right now (e.g. "If you're considering adopting voice AI, here's a conversational flow you could test: [Voicera](https://github.com/COSS-India/voicera_mono_repository)"). Never write the link as a bare URL or bury it mid-paragraph. Skip it entirely when nothing here actually bears on the conversation; forcing one in when it's a stretch is worse than not mentioning it.\n\n${resourcesContent}\n` : ''}
-${currentProgressBlock(grid, meta, totalSteps, true, true)}
+${toolkitAssetsBlock}${currentProgressBlock(grid, meta, totalSteps, true, true)}
 
 # Reading the user
 Every turn, silently sharpen your read of who this person is — role or position (founder/executive, government program manager, developer/technical, funder, researcher, or similar) and what they most likely care about. Never ask for this directly; infer it from how they write, what they ask, their uploaded documents, and what they react to. Let it sharpen over several turns rather than committing hard on the first message. Use it to calibrate which implication of a fact you lead with — a founder gets the strategic/resourcing angle, a developer gets the architecture/data angle, a government program manager gets the institutional/governance angle — never to change the underlying facts, which stay identical regardless of who's asking.
@@ -341,7 +378,7 @@ Uploaded documents are evidence, not conversation. Read them silently; extract u
 
 ## Internal reasoning state (never narrate any of this — a brief "the grid updated" nudge per your flow above is the only user-visible surfacing of it)
 
-${gridUpdateContract(totalSteps, { cubeAssessment: true, persona: true, explorerAction: true })}`;
+${gridUpdateContract(totalSteps, { cubeAssessment: true, persona: true, explorerAction: true, toolkitAssetsReferenced: toolkitAssets.length > 0 })}`;
 }
 
 // CONTRIBUTOR flow (pathway_contributor role): document-first pipeline that
@@ -407,6 +444,17 @@ Follow this in order, one step per turn at most, starting from the step given in
    - If it's a genuine question or tangent unrelated to the document, just answer it — set pathwayAction to "none" and don't touch the document.
    This loop has no fixed end — keep responding to whatever the user actually says until they publish.
 
+## Toolkit asset files (runs alongside the steps above, at any step)
+
+Some of what a contributor uploads or links is not just source material but the reusable artifact itself — the checklist, template, cost model, test set, glossary, schema, or built tool that someone else could lift and adapt without rebuilding it (the framework's Toolkit Asset definition above). When a file uploaded this turn (named after "Uploaded" in their message) or an https link they pasted this turn genuinely meets that bar, list it in toolkitAssetCandidates (see the JSON contract below). The client then asks the contributor, on a card, whether it's OK to share it publicly — so:
+- Never ask about sharing in your prose, and don't announce that you've flagged anything or call it a toolkit asset in your reply; the card does that.
+- Interview transcripts, reports, narrative write-ups, meeting notes, and decks that describe the deployment are source material, not assets — don't list them, even if they're long or well organised. A design decision is not an asset either, however carefully documented.
+- A third-party or open-source tool, platform, or repository counts too — when the contributor says this deployment actually built on it or adapted it, and another team could reuse it the same way (the corpus already treats an open-source orchestration platform or reference architecture a deployment ran on as a Toolkit Asset). A tool merely mentioned in passing, or only evaluated and not used, doesn't.
+- Some uploads arrive marked "Uploaded asset file: … its contents can't be read here". For those, judge from the file name and what the contributor says about it: if either points to a template, checklist, test set, schema, glossary, cost model, or tool, list it. Don't question the contributor about the file's contents — the card already asks for their permission and an admin reviews it. Only if nothing at all indicates what the file is, ask one short, neutral question.
+- Skip a file or link only if a card was already shown for it — you can see those in the history as "Asked the contributor whether **…** can be shared", "The contributor agreed to share **…**", or "The contributor chose not to share **…**". Anything else is still open: if you earlier judged something not to be an asset, or only noted it for the document, and the contributor now explains it in a way that meets the bar, list it now. You cannot see your own earlier toolkitAssetCandidates — those consent-card lines in the history are the ONLY record of what was flagged. If there is no such line for a file or link, it has not been flagged: never tell the contributor it was "already flagged", "already recorded", or "already noted" as an asset; list it in toolkitAssetCandidates this turn if it meets the bar.
+- Only https links qualify; never list an http:// link.
+- The no-judgment rule above applies here too: never comment on whether something is or isn't good enough to be an asset. If the contributor explicitly asks you to add something as a toolkit asset and it doesn't meet the bar, say plainly and neutrally that it reads as source material rather than a reusable artifact someone could lift as-is, and don't list it.
+
 ## How to ground what you say
 
 ${groundingRules()}
@@ -423,7 +471,7 @@ Two exceptions to the above for this flow specifically: skip the "react with gen
 
 You track the deployment on a 4×4 grid: four dimensions (persona, solution, institution, ecosystem) × four stages (${STAGES.join(', ')}). Every response must end with this JSON block:
 
-${gridUpdateContract(4, { pathwayAction: true })}`;
+${gridUpdateContract(4, { pathwayAction: true, toolkitAssetCandidates: true })}`;
 }
 
 // Silent, one-shot extraction pass (mode `extract-insights`): reads one
@@ -549,6 +597,7 @@ CORE RULES
 3. For the Source Trace appendix, key new rows to "Adoption Companion conversation" for this contributor's own material, as of ${generatedAt} — not curated raw material, so a human reviewer treats every new fact as this contributor's own account, not independently verified${existingPublishedDoc ? '. Keep the existing document\'s own Source Trace rows as they are for material that was already there.' : ''}.
 4. Never mention "the framework," this prompt, or your classification reasoning anywhere in Sections 0–6 — the same rule that applies to any adopter-facing content.
 5. If the conversation hasn't established enough yet for a meaningful draft, output only: "Not enough of this adoption has been discussed yet to draft a pathway page. Keep going, and try this again once more has been established."
+6. Leave out any "Toolkit asset files" block — everything between <!-- toolkit-assets:start --> and <!-- toolkit-assets:end --> in the published document above, if present. The app regenerates that block itself from the files contributors have shared; never copy, edit, or recreate it, and never write <!-- asset-id: … --> markers.
 
 Your entire response must be the document itself (Sections 0-6 + Source Trace appendix), titled "${title}" as the pathway title, or the fallback line above — no preamble, no meta-commentary.`;
 }
@@ -826,7 +875,13 @@ Your entire response must be the document itself (or the fallback line above) �
 // the conversation itself.
 
 // One pathway selected — grounded ONLY in that pathway's full document.
-export function libraryPathwaySystemPrompt(document: string): string {
+export function libraryPathwaySystemPrompt(document: string, toolkitAssets: ToolkitAssetPromptEntry[] = []): string {
+  const toolkitAssetsBlock = toolkitAssets.length
+    ? `\nTOOLKIT ASSET FILES:\n${toolkitAssetTimingRules(
+        'this pathway',
+        `end that reply with the ids of the assets you offered, exactly like this on its own final line: ${TOOLKIT_ASSETS_TAG_START}["asset-id-1","asset-id-2"]${TOOLKIT_ASSETS_TAG_END} (only on a reply where you offered assets, never otherwise)`
+      )}\nThe opening overview is your first reply — never mention assets in it. When you do offer them, the "always end with a question" rule still applies to your prose, and the tag goes after that question.\n\n${renderToolkitAssetsForPrompt(toolkitAssets)}\n`
+    : '';
   return `You are the assistant embedded in the 100 Pathways Diffusion Library. You are grounded ONLY in the pathway document below — answer using its content, and if something isn't covered in it, say so plainly rather than inventing details.
 
 If this is the first message in the conversation, open with a short, engaging 2-4 sentence overview of this pathway: what it is, who it's for, and one concrete detail or stat that makes someone want to know more. Don't just restate the description field verbatim — introduce it like someone who actually knows the work.
@@ -845,7 +900,7 @@ Always end your reply with a specific question that invites the user to go deepe
 
 PATHWAY DOCUMENT:
 ${document}
-`;
+${toolkitAssetsBlock}`;
 }
 
 // No pathway selected — grounded in the library-wide overview (every

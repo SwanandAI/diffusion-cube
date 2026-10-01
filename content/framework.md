@@ -298,6 +298,8 @@ A pathway document is not a case study. A case study documents what was built. A
 | Strategic Decision | A framing, governance, or design decision that shaped what got built. Usually invisible in the final product. | The condition tag — when does this apply, when doesn't it? |
 | Tactical Decision | A stack, sequence, cost, or implementation decision specific enough to reuse. | A before→after: what changed because of this decision. |
 | Failure and Fix | Something that broke, the fix, and what the fix revealed about the system. | The fix reveals the structural insight — not the failure alone. |
+| Playbook | A genuine multi-step, gated sequence — "do X, then don't proceed to Y until X clears, then Z." A single decision that merely sounds procedural is a Decision, not a Playbook. | The steps themselves, in order, with the gate between them — plus the common failure mode of skipping one. |
+| Toolkit Asset | An actual reusable artifact — a checklist, template, schema, test set, glossary, or built tool — that someone else can lift and adapt without rebuilding it. A decision about how to structure something is a Decision, not a Toolkit Asset. | The artifact itself: what it is, what it's for, and what makes it liftable as-is. |
 
 **Tag every unit:** Dimension + Sub-category + Stage + Type + Condition tag.
 

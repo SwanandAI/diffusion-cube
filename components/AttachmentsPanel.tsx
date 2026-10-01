@@ -2,15 +2,22 @@
 
 import { useRef, useState } from 'react';
 import { PendingAttachment } from '@/components/ChatPanel';
+import { ATTACH_ACCEPT } from '@/lib/extract-text';
 
 interface Props {
   attachments: PendingAttachment[];
   uploadedFileNames?: string[];
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (id: string) => void;
+  // Contributor flow passes CONTRIBUTOR_ATTACH_ACCEPT (toolkit-asset-only types).
+  accept?: string;
+  // Contributor flow: file name → toolkit asset id, for uploads the
+  // contributor agreed to share (the only uploads ever stored). Those get a
+  // Download link; every other upload was read in the browser and never kept.
+  viewableFiles?: Record<string, string>;
 }
 
-export default function AttachmentsPanel({ attachments, uploadedFileNames = [], onAttachFiles, onRemoveAttachment }: Props) {
+export default function AttachmentsPanel({ attachments, uploadedFileNames = [], onAttachFiles, onRemoveAttachment, accept = ATTACH_ACCEPT, viewableFiles }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
@@ -63,7 +70,7 @@ export default function AttachmentsPanel({ attachments, uploadedFileNames = [], 
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.docx,.xlsx,.xls,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp"
+          accept={accept}
           className="hidden"
           onChange={handleFileChange}
         />
@@ -101,14 +108,33 @@ export default function AttachmentsPanel({ attachments, uploadedFileNames = [], 
       {uploadedFileNames.length > 0 && (
         <div className="flex flex-col gap-1 mt-3 overflow-y-auto">
           <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-ink-soft/70">Shared in this chat</p>
-          {uploadedFileNames.map((name, i) => (
-            <div
-              key={`${name}-${i}`}
-              className="flex items-center gap-2 text-xs rounded-lg px-2.5 py-1.5 border border-navy/10 text-ink-soft bg-paper-dim"
-            >
-              <span className="truncate">✓ {name}</span>
-            </div>
-          ))}
+          {[...new Set(uploadedFileNames)].map((name) => {
+            const assetId = viewableFiles?.[name];
+            return (
+              <div
+                key={name}
+                className="flex items-center justify-between gap-2 text-xs rounded-lg px-2.5 py-1.5 border border-navy/10 text-ink-soft bg-paper-dim"
+              >
+                <span className="truncate">✓ {name}</span>
+                {assetId ? (
+                  <a
+                    href={`/api/toolkit-assets/${assetId}/download`}
+                    download
+                    className="flex-shrink-0 font-medium text-navy underline underline-offset-2 transition hover:text-coral"
+                  >
+                    Download
+                  </a>
+                ) : viewableFiles ? (
+                  <span
+                    className="flex-shrink-0 text-[10px] text-ink-soft/70"
+                    title="Only files you agreed to share as toolkit assets are stored. Other uploads are read once and not kept."
+                  >
+                    Not stored
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

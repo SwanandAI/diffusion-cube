@@ -1,4 +1,5 @@
 import { createClient, createStatelessClient } from '@/lib/supabase/server';
+import { removeAssetObjects } from '@/lib/toolkit-assets-server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // Self-serve permanent account deletion. Deleting the auth user cascades
@@ -52,6 +53,19 @@ export async function POST(req: Request) {
     console.error('[account/delete] published units — is migration 0033 applied?', unitsError);
     return Response.json({ error: 'Could not delete your account.' }, { status: 500 });
   }
+
+  // Unpublished toolkit asset files go with the account (published ones stay
+  // downloadable, like every other published unit). Removed before their
+  // rows, so no file is left behind without a row pointing at it; a storage
+  // failure is logged, never blocks the deletion.
+  const { data: draftAssetFiles } = await admin
+    .from('contribution_units')
+    .select('storage_path')
+    .eq('user_id', user.id)
+    .eq('unit_type', 'toolkit-asset')
+    .is('published_at', null)
+    .not('storage_path', 'is', null);
+  await removeAssetObjects((draftAssetFiles ?? []).map((a) => a.storage_path as string));
 
   // Unpublished drafts go with the account.
   const { error: draftsError } = await admin
