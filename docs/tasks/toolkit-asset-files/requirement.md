@@ -2,7 +2,7 @@
 
 **Source:** Product Charter backlog item "Store toolkit-asset files, surface them in conversation" (Functional, status *In Progress* per the charter; see `docs/wiki/diffusion-cube/business/business-overview.md` → Roadmap). Requested by Anurag Goutam, 2026-09-29; scope revised 2026-09-30.
 
-> Status: **Final scope, approved 2026-09-30.** Engineering detail is in [`plan.md`](plan.md); build tasks are in [`task-list.md`](task-list.md).
+> Status: **Final scope, approved 2026-09-30. Behaviour rules added 2026-10-05** (see "How the assistant behaves"). Engineering detail, the full scenario list and the flow charts are in [`plan.md`](plan.md) → Appendix: Behaviour Specification; build tasks are in [`task-list.md`](task-list.md).
 
 ## The problem today
 
@@ -17,6 +17,56 @@ Every pathway in 100 Pathways describes "toolkit assets": ready-made things anot
    - **Explore (public library):** after a bit of conversation about a pathway, or as soon as someone asks about tools, templates or how to reuse it, the assistant says something like "these are the assets associated with this pathway".
    - **Analyse:** when someone's own project matches a pathway (same sector and same kind of problem), the assistant suggests that pathway's assets.
 5. **Anyone can download.** Approved assets can be viewed and downloaded by anyone, with no sign-in needed.
+
+## How the assistant behaves (added 2026-10-05)
+
+### Contributor side
+
+**Not every upload is a toolkit asset.** Most of what a contributor shares is background material that describes the deployment. Only something another team could pick up and use as-is counts as an asset. Being a PDF, being long, or being well written doesn't make a file an asset.
+
+| Counts as a toolkit asset | Doesn't count (background material) |
+|---|---|
+| Checklists, templates, cost models, test sets, data schemas, glossaries | Interview transcripts, reports, case studies, meeting notes |
+| A training deck another team could run as-is | A deck that describes the deployment (pitch, results, updates) |
+| The contributor's own tool or code repository | A document explaining a design decision |
+| An open-source tool or platform the deployment actually built on | A tool only mentioned in passing, or evaluated and not used |
+
+Other rules:
+- Files the assistant can't read (old Word or PowerPoint formats, scanned PDFs) are judged from the file name and what the contributor says. The assistant asks at most one short question, and only if nothing says what the file is.
+- Links must be https and exactly as the contributor typed them. The assistant never builds or "corrects" a link.
+- If the contributor insists on something that is background material, the assistant says so plainly and neutrally, without judging its quality.
+- The assistant never comments on whether a file is good. It never asks about sharing in its own words; the permission card does that.
+- A file or link is only ever asked about once.
+
+**The contributor is asked for assets.** Many contributors won't think to attach the actual files, so:
+- Under the first draft of the pathway, if nothing has been offered for sharing yet, the app asks once: *"Is there any asset you want to attach with this pathway? You can attach the file or paste an https link here."*
+- If the material mentions a specific item that wasn't attached (for example, "we built a vendor evaluation checklist"), the assistant asks about that item once, by name.
+- If the contributor says no, or ignores it, they're never asked again in that conversation.
+- Asking is never a condition for publishing, and the assistant never says sharing would make the pathway "better" or "more complete".
+
+### Adopter side
+
+**When assets come up.**
+- Never in the assistant's first reply, unless the person's very first message asks for tools, templates, files or downloads.
+- From the second message onward, once the conversation is about a relevant pathway that has assets.
+- Straight away whenever the person asks about tools, templates, resources, files, downloads, or how to implement or reuse something.
+- Each asset is offered once, unless the person asks again.
+
+**How well an asset fits.** Each asset is judged on its own:
+
+| Fit | When | What the assistant says |
+|---|---|---|
+| **Full match** | Same sector and same kind of problem as the person's situation (or it directly solves the narrow question they asked), and its "reuse when" condition holds | One line: what it is, and the situation it's useful in. Framed as something they *could* reuse, never "you should use this". |
+| **Partial match** | A related but different sector or problem, a "reuse when" condition only partly met (different language, scale, stage), or it covers only part of the need | It offers the asset, but says in the same breath that it isn't an exact fit, what differs, and what would need adapting. The adapting part is labelled as the assistant's own reading. |
+| **No match** | Neither of the above | Nothing about assets. If the person asked outright for templates or tools, it says plainly: *"No shared toolkit files match this yet."* It may then point to a toolkit a pathway only describes in its text, saying there's no file to download. |
+
+The assistant only knows an asset's name, purpose, reuse condition and when it was shared. It never describes what's inside a file. When assets come from several pathways, it says which pathway each comes from; when two assets serve the same need, it offers both and doesn't pick one.
+
+**How evidence is handled (Analyse, and dates in Explore).** These rules apply to everything the assistant says, not just assets:
+- **Evidence spread across pathways:** it brings the pieces together into one explanation, with each point credited to the pathway and contributor it came from. Any part of the question no pathway covers is named as a gap.
+- **No evidence:** it says plainly that nothing documented covers this. It never invents an answer or presents general advice as documented experience.
+- **Conflicting evidence:** when adopters took different approaches or got different results, it shows each one with the circumstances it happened in, and doesn't pick a winner. If the pathways don't explain the difference, it says so.
+- **Old evidence:** when it cites a cost, a vendor or model choice, a policy, or a measured result, it says when that's from. If it's more than 12 months old, it adds that technology, prices or policy may have changed since. If no date is documented, it says so. Download cards show when each asset was shared.
 
 ## Who it's for
 
@@ -39,4 +89,5 @@ Every pathway in 100 Pathways describes "toolkit assets": ready-made things anot
 - **There are no download limits yet**, so heavy or automated downloading could raise storage bandwidth costs. Adding limits is recommended; it ties in with the security review.
 - **Files aren't scanned** for viruses or personal data. The admin's review of the pathway is the only check.
 - **Discovery depends on the conversation.** Someone who never chats beyond the first overview won't be offered the assets. A fixed list is a possible fallback later.
+- **The behaviour rules are AI instructions, not hard guarantees.** Matching, asking about named items, and evidence handling depend on the AI following its instructions, so they need testing with real conversations before launch. The general "Is there any asset…" question and the dates are built into the app and always happen.
 - **The AI account expires 28-Oct-2026.** If it isn't renewed, the "is this an asset?" check and the in-conversation suggestions stop working. Uploading, approving and downloading keep working.
