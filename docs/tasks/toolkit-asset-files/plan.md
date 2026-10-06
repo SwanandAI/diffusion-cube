@@ -272,162 +272,161 @@ The test Claude applies: **could another team take this file or link as-is and u
 
 #### B1.3 Lifecycle of one asset
 
-```
-Contributor uploads a file / pastes an https link
-        │
-        ▼
-Claude judges it ──── not an asset ──► used as source material only (nothing stored)
-        │ asset
-        ▼
-Consent card: "OK to share this publicly?"
-        │                         │
-       Yes                        No ──► nothing stored, file dropped from memory
-        ▼
-Stored privately, row unpublished      status: "Not yet sent for review"
-        ▼
-Contributor clicks Send for Review     status: "Sent for review"
-        ▼
-Admin reviews the pathway + its assets (preview, "not scanned" label)
-        ▼
-Admin publishes the pathway            status: "Published" → downloadable by anyone
-        ▼
-Claude offers it to adopters in /analyse and /explore, as a download card under a reply
+The journey of a single asset, from the contributor's upload to an adopter's download.
+
+```mermaid
+flowchart LR
+    A(["Contributor<br/>shares a file"]) --> B["Agrees to<br/>share publicly"]
+    B --> C["Saved privately<br/>awaiting review"]
+    C --> D["Pathway sent<br/>for review"]
+    D --> E["Admin approves<br/>the pathway"]
+    E --> F(["Anyone can<br/>download it"])
+
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    class A start
+    class B,C,D,E step
+    class F done
 ```
 
 #### B1.4 Flow charts
 
-Four charts, two per side. Each node carries its scenario IDs, so a chart path maps straight to the tables in B2–B9. They show the behaviour as built on 2026-10-05 (B10).
+Four simple workflows, two for contributors and two for adopters, written from the user's point of view. They show the main path only; the edge cases and scenario IDs are in the tables in B2–B9.
 
-##### Contributor 1: what happens to a file or link
+**Colour key:** blue = where it starts · yellow = a decision · purple = a question the user sees · white = a step · green = good outcome · grey = nothing happens
 
-```mermaid
-flowchart TD
-    START(["Contributor shares something in the /contribute chat"]) --> KIND{"File or link?"}
-
-    KIND -->|File| TYPE{"Allowed type and size?"}
-    TYPE -->|ZIP| ZIP["Rejected when attached<br/>C-36"]
-    TYPE -->|Over 25 MB| BIG["Used as source material only<br/>can never be stored · C-37"]
-    TYPE -->|"PDF, Office, CSV, TXT, MD, image ≤ 25 MB"| READ{"Can Claude read the contents?"}
-    READ -->|"Yes: text, CSV, small image"| JUDGE
-    READ -->|"No: .doc, .ppt, scanned PDF, image over 5 MB"| BLIND["Claude judges from the file name<br/>and what the contributor says<br/>at most one neutral question · C-09"]
-    BLIND --> JUDGE
-
-    KIND -->|Link| HTTPS{"https, and typed by the<br/>contributor exactly as given?"}
-    HTTPS -->|"No: http, or a URL Claude built"| NOLINK["No card<br/>C-14 · C-15"]
-    HTTPS -->|Yes| JUDGE
-
-    JUDGE{"Is it a reusable artifact someone<br/>could lift as-is?<br/>B1.2"}
-    JUDGE -->|"No: transcript, report, notes,<br/>narrative deck, design decision,<br/>tool only mentioned or evaluated"| SOURCE["Source material for the pathway<br/>nothing stored · no card<br/>C-02 to C-06 · C-13"]
-    JUDGE -->|"Yes: template, checklist, test set,<br/>schema, glossary, cost model,<br/>own tool, or third-party tool built on"| SEEN{"Card already shown<br/>for this file or link?"}
-
-    SOURCE -.->|"contributor later explains<br/>it is a template · C-17"| JUDGE
-
-    SEEN -->|Yes| SKIP["No second card<br/>C-18"]
-    SEEN -->|No| CARD["Consent card under Claude's reply:<br/>OK to share this publicly?<br/>Claude's prose never mentions it"]
-
-    CARD -->|No| DECLINE["Nothing stored · file dropped<br/>never asked again · C-32"]
-    CARD -->|"Page reloaded first"| REATTACH["Attach the file again<br/>Yes disabled until then · C-33"]
-    REATTACH --> CARD
-    CARD -->|Yes| STORE["Upload to private bucket<br/>and register an unpublished row<br/>C-30 · C-31"]
-
-    STORE --> NOTSENT["Status: Not yet sent for review"]
-    NOTSENT --> SEND["Send for Review<br/>app writes the asset block into the document<br/>C-41"]
-    SEND --> SENT["Status: Sent for review"]
-    SENT --> ADMIN{"Admin approves the pathway?"}
-    ADMIN -->|"Not yet, asks for a revision"| NOTSENT
-    ADMIN -->|Yes| LIVE["Status: Published<br/>downloadable by anyone · C-44"]
-    LIVE -.->|"asset added after this review<br/>waits for the next round · C-42"| NOTSENT
-```
-
-##### Contributor 2: when assets get asked for
+##### Contributor 1: sharing a file or link
 
 ```mermaid
 flowchart TD
-    DRAFT(["First pathway draft is generated"]) --> ANYCARD{"Any consent card in<br/>this conversation yet?"}
-    ANYCARD -->|Yes| NOGENERAL["No general question<br/>C-25"]
-    ANYCARD -->|No| GENERAL["App adds under the draft:<br/>Is there any asset you want to<br/>attach with this pathway?<br/>C-22"]
+    A(["Contributor shares a file or link<br/>while writing their pathway"]) --> B{"Is it a reusable tool?<br/>e.g. template, checklist, test set"}
+    B -->|"No: a report, transcript<br/>or meeting notes"| C["Used only to help write the pathway<br/>Nothing is stored"]
+    B -->|Yes| D[/"The app asks:<br/>OK to share this publicly?"/]
+    D -->|No| E["Nothing is stored"]
+    D -->|Yes| F["Saved privately<br/>Status: Not yet sent for review"]
+    F --> G["Contributor clicks Send for Review<br/>Status: Sent for review"]
+    G --> H{"Admin approves<br/>the pathway?"}
+    H -->|"Asks for changes"| F
+    H -->|Approves| I(["Status: Published<br/>Anyone can download it"])
 
-    MENTION(["Step 4 onward: the material names an artifact<br/>that wasn't attached, e.g. a vendor checklist"]) --> TURN{"Turn with pathwayAction none,<br/>and not already asked about<br/>this artifact?"}
-    TURN -->|No| WAIT["Don't ask on this turn<br/>never in a step 2 or 3 message,<br/>or a revise or publish acknowledgement"]
-    TURN -->|Yes| TARGETED["Claude asks once, naming it:<br/>Do you want to attach the vendor<br/>checklist with this pathway?<br/>C-21"]
-
-    GENERAL --> ANSWER{"Contributor's answer"}
-    TARGETED --> ANSWER
-    ANSWER -->|"Attaches a file or pastes a link"| FLOW1["Goes through Contributor 1:<br/>a card only if it qualifies<br/>C-24"]
-    ANSWER -->|"No, nothing, or ignores it"| STOP["Accepted · never asked again<br/>in this conversation · C-23"]
-
-    PUBLISH(["Contributor asks to publish"]) --> GO["Publishing goes ahead<br/>the ask is never a gate · C-26"]
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef decision fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+    classDef ask fill:#F3E8FD,stroke:#8E44AD,color:#3B1A4F
+    classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
+    class A start
+    class B,H decision
+    class D ask
+    class F,G step
+    class I done
+    class C,E stop
 ```
 
-##### Adopter 1: when and how an asset is offered
+Good to know:
+- Files can be up to 25 MB. ZIP files aren't supported, and links must start with `https://`.
+- Each file is asked about only once. Saying No means the app won't ask about it again.
+- An asset added after Send for Review goes live with the pathway's next approval.
+
+##### Contributor 2: when the app asks for assets
 
 ```mermaid
 flowchart TD
-    MSG(["Adopter sends a message"]) --> WHERE{"Which chat?"}
-    WHERE -->|"/explore overview, no pathway"| NONE0["No assets, ever"]
-    WHERE -->|"/explore pathway chat"| EXP["Claude has only this pathway's<br/>published assets"]
-    WHERE -->|"/analyse"| ANA["Claude has every published asset<br/>across the corpus"]
+    A(["First pathway draft is ready"]) --> B{"Has the contributor already<br/>offered something to share?"}
+    B -->|Yes| C["No extra question"]
+    B -->|No| D[/"The app asks once:<br/>Is there any asset you want<br/>to attach with this pathway?"/]
 
-    EXP --> HAS{"Any published assets?"}
-    ANA --> HAS
-    HAS -->|No| NONE1["Asset rules not in the prompt<br/>Claude can't mention any · A-20"]
-    HAS -->|Yes| ASKED{"Does the user explicitly ask for tools,<br/>templates, files or downloads?"}
+    E(["The material mentions a tool<br/>that wasn't attached,<br/>e.g. a vendor checklist"]) --> F[/"Claude asks once:<br/>Do you want to attach<br/>the vendor checklist?"/]
 
-    ASKED -->|Yes| FIT
-    ASKED -->|No| FIRST{"Is this Claude's first reply?"}
-    FIRST -->|Yes| NONE2["No assets<br/>A-01"]
-    FIRST -->|No| REL{"Is the talk genuinely about a relevant pathway?<br/>/analyse: exact or adjacent match<br/>/explore: the part the asset supports"}
-    REL -->|No| NONE3["Nothing about assets"]
-    REL -->|Yes| ONCE{"Asset already offered<br/>in this chat?"}
-    ONCE -->|Yes| NONE4["Don't repeat it<br/>A-05"]
-    ONCE -->|No| FIT
+    D --> G{"Contributor's answer"}
+    F --> G
+    G -->|"Attaches it"| H(["Goes through<br/>Contributor 1 above"])
+    G -->|"No, or ignores it"| I["Not asked again"]
 
-    FIT{"For each asset:<br/>how well does it fit?"}
-    FIT -->|"Full: same sector and use case, or solves<br/>the narrow problem asked, and its<br/>Reuse when holds"| FULL["One line: what it is and<br/>the situation it's useful in<br/>never 'you should' · A-08"]
-    FIT -->|"Partial: adjacent pathway, Reuse when<br/>only partly met, or covers part of the need"| PART["Offer it, saying in the same breath:<br/>not an exact fit, what differs,<br/>what to adapt, flagged as inference<br/>A-10 · A-11 · A-18"]
-    FIT -->|No match| ASKED2{"Did the user ask explicitly?"}
-    ASKED2 -->|No| NONE5["Don't mention it<br/>A-13"]
-    ASKED2 -->|"Yes, and nothing fits"| NOFIT["Say: No shared toolkit files match this yet<br/>may point to a text-only described toolkit<br/>A-12 · A-34"]
-
-    FULL --> OLD{"Shared over 12 months ago,<br/>on something that changes?"}
-    PART --> OLD
-    OLD -->|Yes| DATE["Add when it was shared<br/>A-45"]
-    OLD -->|No| IDS
-    DATE --> IDS["Claude returns asset ids only, never a URL<br/>/analyse: toolkitAssetsReferenced<br/>/explore: hidden toolkit_assets tag"]
-
-    IDS --> VALID{"Client check: published,<br/>and from the open pathway in /explore?"}
-    VALID -->|No| DROP["Card silently dropped<br/>A-07 · A-19 · A-25"]
-    VALID -->|Yes| CARDS["Download card under the reply<br/>name · size · from pathway · shared date<br/>no sign-in needed · A-21 · A-22"]
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef decision fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+    classDef ask fill:#F3E8FD,stroke:#8E44AD,color:#3B1A4F
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
+    class A,E start
+    class B,G decision
+    class D,F ask
+    class H done
+    class C,I stop
 ```
 
-##### Adopter 2: handling the evidence (`/analyse`)
+Good to know:
+- These questions never block publishing. A contributor can send the pathway for review without attaching anything.
+- Claude only asks about tools the material actually mentions. It never suggests ones that aren't there.
+
+##### Adopter 1: when an asset is offered
 
 ```mermaid
 flowchart TD
-    Q(["Adopter asks something"]) --> CORPUS{"What does the corpus document?"}
+    A(["Adopter chats in<br/>Analyse or Explore"]) --> B{"Did they ask for tools,<br/>templates or files?"}
+    B -->|Yes| D
+    B -->|No| C{"Is the chat about a pathway<br/>that has shared assets?"}
+    C -->|No| X["No assets mentioned"]
+    C -->|Yes| D{"How well does the asset fit<br/>the adopter's situation?"}
 
-    CORPUS -->|Nothing relevant| NOEV["Say plainly it isn't documented<br/>state both absences, pathway and micro-innovation<br/>outside knowledge labelled as not documented<br/>A-31 to A-35"]
-    CORPUS -->|One pathway| ONE["Answer from it<br/>credited to its contributor"]
-    CORPUS -->|"Several pathways,<br/>each covers part"| SCATTER["One combined reply: lead-in + a bullet per point<br/>each credited · uncovered parts named as gaps<br/>A-28 · A-30"]
-    CORPUS -->|"Several pathways<br/>that disagree"| CONFLICT["Show each one with its conditions<br/>never pick a winner<br/>say so if the difference is unexplained<br/>A-36 to A-38"]
+    D -->|"Good fit"| F["Offered, with one line on<br/>when it's useful"]
+    D -->|"Partial fit"| G["Offered, with a note on<br/>what's different and what to adapt"]
+    D -->|"No fit"| H{"Did they ask for it<br/>directly?"}
+    H -->|No| X
+    H -->|Yes| I["Claude says no shared<br/>file matches yet"]
 
-    ONE --> TIME
-    SCATTER --> TIME
-    CONFLICT --> TIME
+    F --> J(["Download card appears under the reply<br/>No sign-in needed"])
+    G --> J
 
-    TIME{"Citing a cost, vendor or model,<br/>policy, or a measured result?"}
-    TIME -->|No| REPLY
-    TIME -->|Yes| DATED{"Date documented?<br/>Documented as of, First published,<br/>or the unit's own as-of date"}
-    DATED -->|No| NODATE["Say the pathway doesn't<br/>say when · A-44"]
-    DATED -->|Yes| GIVE["Give the as-of date<br/>A-41 · A-43"]
-    GIVE --> AGE{"More than 12 months old?"}
-    AGE -->|Yes| WARN["Add what may have changed:<br/>technology, prices, policy<br/>A-42"]
-    AGE -->|No| REPLY
-    WARN --> REPLY
-    NODATE --> REPLY
-
-    REPLY(["Reply · inferences flagged inline<br/>conflicting ages: each shown with its date · A-46"])
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef decision fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+    classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
+    class A start
+    class B,C,D,H decision
+    class F,G,I step
+    class J done
+    class X stop
 ```
+
+Good to know:
+- Assets never appear in Claude's first reply, unless the adopter asks for them straight away.
+- Each asset is offered once per chat, and again only if the adopter asks.
+- **Analyse** can offer any published asset. A pathway chat in **Explore** offers only that pathway's assets, and the Explore overview offers none.
+- An asset shared more than 12 months ago shows when it was shared.
+
+##### Adopter 2: how Analyse uses the evidence
+
+```mermaid
+flowchart TD
+    A(["Adopter asks a question<br/>in Analyse"]) --> B{"What do the pathways say?"}
+    B -->|Nothing| C["Says plainly that<br/>it isn't documented"]
+    B -->|"One pathway"| D["Answers from it,<br/>crediting the contributor"]
+    B -->|"Several, each<br/>covering part"| E["Combines them, credits each,<br/>and names any gaps"]
+    B -->|"Several that<br/>disagree"| F["Shows each side with its context,<br/>without picking a winner"]
+
+    D --> G{"Mentions a cost, vendor,<br/>policy or result?"}
+    E --> G
+    F --> G
+    G -->|Yes| H["Adds the date it was true<br/>plus a caution if over 12 months old"]
+    G -->|No| R
+    H --> R(["Reply"])
+    C --> R
+
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef decision fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+    classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    class A start
+    class B,G decision
+    class C,D,E,F,H step
+    class R done
+```
+
+Good to know:
+- Anything Claude infers rather than reads in a pathway is labelled as its own read.
 
 ---
 
