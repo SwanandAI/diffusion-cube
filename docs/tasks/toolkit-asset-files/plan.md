@@ -404,10 +404,10 @@ flowchart TD
     A(["Adopter asks a question<br/>in Analyse"]) --> B{"What do the pathways say?"}
     B -->|Nothing| C["Says plainly that<br/>it isn't documented"]
     B -->|"One pathway"| D["Answers from it,<br/>crediting the contributor"]
-    B -->|"Several, each<br/>covering part"| E["Combines them, credits each,<br/>and names any gaps"]
+    B -->|"Several, each<br/>covering part"| E["Combines them<br/>and names any gaps"]
     B -->|"Several that<br/>disagree"| F["Shows each side with its context,<br/>without picking a winner"]
 
-    D --> G{"Mentions a cost, vendor,<br/>policy or result?"}
+    D --> G{"Mentions a vendor,<br/>policy or result?"}
     E --> G
     F --> G
     G -->|Yes| H["Adds the date it was true<br/>plus a caution if over 12 months old"]
