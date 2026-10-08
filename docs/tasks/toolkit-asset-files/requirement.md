@@ -2,7 +2,7 @@
 
 **Source:** Product Charter backlog item "Store toolkit-asset files, surface them in conversation" (Functional, status *In Progress* per the charter; see `docs/wiki/diffusion-cube/business/business-overview.md` → Roadmap). Requested by Anurag Goutam, 2026-09-29; scope revised 2026-09-30.
 
-> Status: **Final scope, approved 2026-09-30. Behaviour rules added 2026-10-05** (see "How the assistant behaves"). Engineering detail, the full scenario list and the flow charts are in [`plan.md`](plan.md) → Appendix: Behaviour Specification; build tasks are in [`task-list.md`](task-list.md).
+> Status: **Final scope, approved 2026-09-30. Behaviour rules added 2026-10-05** (see "How the assistant behaves" and "Flow charts"). Engineering detail and the full scenario list are in [`plan.md`](plan.md) → Appendix: Behaviour Specification; build tasks are in [`task-list.md`](task-list.md).
 
 ## The problem today
 
@@ -56,9 +56,8 @@ Other rules:
 
 | Fit | When | What the assistant says |
 |---|---|---|
-| **Full match** | Same sector and same kind of problem as the person's situation (or it directly solves the narrow question they asked), and its "reuse when" condition holds | One line: what it is, and the situation it's useful in. Framed as something they *could* reuse, never "you should use this". |
-| **Partial match** | A related but different sector or problem, a "reuse when" condition only partly met (different language, scale, stage), or it covers only part of the need | It offers the asset, but says in the same breath that it isn't an exact fit, what differs, and what would need adapting. The adapting part is labelled as the assistant's own reading. |
-| **No match** | Neither of the above | Nothing about assets. If the person asked outright for templates or tools, it says plainly: *"No shared toolkit files match this yet."* It may then point to a toolkit a pathway only describes in its text, saying there's no file to download. |
+| **Match** | Matches the person's situation, question, or pathway, and its "reuse when" condition applies | Suggests the asset and explains what it is and how it can help them in this pathway, based on its purpose and "reuse when". Framed as something they *could* reuse, never "you should use this". |
+| **No match** | Doesn't fit what the user is doing or asking about | Nothing about assets. If the person asked outright for templates or tools, it says plainly: *"No shared toolkit files match this yet."* It may then point to a toolkit a pathway only describes in its text, saying there's no file to download. |
 
 The assistant only knows an asset's name, purpose, reuse condition and when it was shared. It never describes what's inside a file. When assets come from several pathways, it says which pathway each comes from; when two assets serve the same need, it offers both and doesn't pick one.
 
@@ -67,6 +66,95 @@ The assistant only knows an asset's name, purpose, reuse condition and when it w
 - **No evidence:** it says plainly that nothing documented covers this. It never invents an answer or presents general advice as documented experience.
 - **Conflicting evidence:** when adopters took different approaches or got different results, it shows each one with the circumstances it happened in, and doesn't pick a winner. If the pathways don't explain the difference, it says so.
 - **Old evidence:** when it cites a cost, a vendor or model choice, a policy, or a measured result, it says when that's from. If it's more than 12 months old, it adds that technology, prices or policy may have changed since. If no date is documented, it says so. Download cards show when each asset was shared.
+
+## Flow charts
+
+### Contributor side (Upload → Consent → Review → Publish)
+
+```mermaid
+flowchart TD
+    A(["Contributor uploads a file or pastes a link<br/>(/contribute workspace)"]) --> B{"AI check:<br/>Is it a reusable asset?"}
+
+    B -->|"No — report, notes,<br/>interview transcript, deck"| C["Used as background material<br/>to write the pathway"]
+    B -->|"Yes — template, checklist,<br/>test set, schema, cost model"| D[/"Consent card appears:<br/>'OK to share publicly?'"/]
+
+    C --> E{"Material mentions a tool<br/>that wasn't attached?"}
+    E -->|"Yes"| F[/"Claude asks once:<br/>'Want to attach it?'"/]
+    E -->|"No"| G[/"App asks under 1st draft:<br/>'Any asset to attach?'"/]
+    F --> H{"Contributor responds"}
+    G --> H
+    H -->|"No / ignores"| I["Not asked again"]
+    H -->|"Attaches something"| B
+
+    D -->|"No"| J["Nothing stored"]
+    D -->|"Yes"| K["Saved privately in<br/>Supabase Storage"]
+
+    K --> L["Contributor clicks 'Send for Review'<br/>(Asset block added to pathway doc)"]
+    L --> M{"Admin approves?"}
+    M -->|"Changes needed"| K
+    M -->|"Approved"| N(["✅ Published —<br/>Anyone can download publicly"])
+
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef decision fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+    classDef ask fill:#F3E8FD,stroke:#8E44AD,color:#3B1A4F
+    classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
+
+    class A start
+    class B,E,H,M decision
+    class D,F,G ask
+    class C,K,L step
+    class N done
+    class I,J stop
+```
+
+### Adopter side (Relevance & Download)
+
+```mermaid
+flowchart TD
+    A(["👤 User asks a question or discusses a topic<br/>(/analyse or /explore)"]) --> B{"Claude checks DB & Pathways:<br/>Does a relevant toolkit asset exist?"}
+
+    B -->|"✅ Match Found"| C["Claude surfaces the asset:<br/>'Here is a relevant tool from this pathway<br/>that can help you with this'<br/>+ 📥 Download Card appears"]
+
+    B -->|"❌ No Match / Not Relevant"| D{"Did user explicitly ask<br/>for tools/templates?"}
+
+    D -->|"Yes"| E["Claude states:<br/>'No shared files match this yet'"]
+    D -->|"No"| F["Normal conversation continues<br/>(No download card shown)"]
+
+    C --> G(["Adopter clicks Download<br/>(Immediate access, no sign-in required)"])
+
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef check fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+    classDef card fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    classDef text fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+
+    class A start
+    class B,D check
+    class C card
+    class E,F text
+    class G done
+```
+
+### End-to-end lifecycle
+
+```mermaid
+flowchart LR
+    A(["Contributor<br/>shares asset"]) --> B["Consents to<br/>public share"]
+    B --> C["Stored privately<br/>awaiting review"]
+    C --> D["Pathway sent<br/>for review"]
+    D --> E["Admin approves<br/>pathway + assets"]
+    E --> F(["Adopters discover &<br/>download via chat cards"])
+
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+
+    class A start
+    class B,C,D,E step
+    class F done
+```
 
 ## Who it's for
 
