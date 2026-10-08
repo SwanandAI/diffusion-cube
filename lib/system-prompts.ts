@@ -3,6 +3,7 @@ import { getExplorerIntent, type ExplorerIntent } from '@/lib/explorer-intents';
 import {
   TOOLKIT_ASSETS_TAG_END,
   TOOLKIT_ASSETS_TAG_START,
+  noToolkitAssetsRule,
   renderToolkitAssetsForPrompt,
   toolkitAssetTimingRules,
   type ToolkitAssetPromptEntry,
@@ -102,6 +103,22 @@ function speakingRules(): string {
 - Plain language only — never use framework or methodology jargon in your own words. Translate every concept: say "who this is actually built for" not "the excluded user"; "who inside the institution wants this to work" not "institutional mandate holder"; "which decision would be hard to undo" not "irreversible architectural choice"; "how the pilot is funded and run" not "operating model". The only exception is verbatim text quoted directly from a corpus pathway document.`;
 }
 
+// Explorer-only (the contributor flow shares groundingRules but not this):
+// how to present evidence that's spread across pathways, missing,
+// conflicting, or old. Dates come from the "Documented as of" / "First
+// published" line lib/wiki-loader.ts puts next to each pathway's "Contributed
+// by", or a unit's own as-of date — never the Source Trace, which
+// groundingRules keeps contributor-only. Behaviour spec:
+// docs/tasks/toolkit-asset-files/plan.md, appendix B9.
+function evidenceHandlingRules(): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return `# Handling the evidence
+- **Spread across pathways:** when the answer draws on several pathways, combine it into one reply — a short lead-in, then one bullet per point, each naming the pathway and its contributor in the same line. If part of the user's question isn't covered by any pathway, name that part as undocumented rather than skipping it.
+- **No evidence:** if nothing documented speaks to it, say so plainly. Anything you add from outside the corpus must be labelled as not from documented experience — never phrased as something an adopter did.
+- **Conflicting evidence:** when adopters made different choices or got different results on the same question, show each one, attributed, with the conditions documented for it (scale, institution, budget, timeline, stage, date). Never pick a winner or say which was better. If the pathways don't explain why they differ, say that. You may point out which documented conditions resemble the user's, flagged as your inference — and still show both. A single pathway's own failure-then-fix is a sequence, not a conflict.
+- **How old it is:** today is ${today}. Each pathway in the corpus carries a "Documented as of" or "First published" date next to "Contributed by"; some units also state their own as-of date. When you cite a cost or price, a vendor or model choice, a policy or regulation, or a measured result, give its date in one clause ("documented as of August 2026"). When anything you cite is more than 12 months old, add one clause on what may have changed since (technology, prices, policy, operating conditions). If a time-sensitive fact has no date at all, say the pathway doesn't say when it was measured. When conflicting experiences differ in age, show each with its date — newer doesn't automatically override older; the date is one of the conditions.`;
+}
+
 // `flowStep` is the explicit, machine-readable pointer to where the
 // conversation is in the numbered flow — the app carries it forward as
 // AdoptionMeta.flowStep and re-injects it every turn via currentProgressBlock
@@ -118,6 +135,9 @@ interface GridUpdateContractOptions {
   // file candidates the client turns into consent cards.
   pathwayAction?: boolean;
   toolkitAssetCandidates?: boolean;
+  // Contributor-only: artifacts the material names but didn't attach, and
+  // the contributor's "nothing to attach" answer — see ToolkitAssetMention.
+  toolkitAssetMentions?: boolean;
   // Explorer-only: ids of published toolkit assets offered this turn.
   toolkitAssetsReferenced?: boolean;
 }
@@ -129,6 +149,7 @@ function gridUpdateContract(totalSteps: number, options: GridUpdateContractOptio
     explorerAction: includeExplorerAction = false,
     pathwayAction: includePathwayAction = false,
     toolkitAssetCandidates: includeToolkitAssetCandidates = false,
+    toolkitAssetMentions: includeToolkitAssetMentions = false,
     toolkitAssetsReferenced: includeToolkitAssetsReferenced = false,
   } = options;
 
@@ -146,6 +167,15 @@ function gridUpdateContract(totalSteps: number, options: GridUpdateContractOptio
     : '';
   const toolkitAssetCandidatesNote = includeToolkitAssetCandidates
     ? `\n\ntoolkitAssetCandidates lists uploaded files or pasted https links from THIS turn that genuinely meet the Toolkit Asset bar (see "Toolkit asset files" above) — never mentioned to the user; the client turns each entry into a card that asks the contributor for permission. Each entry: { "source": { "fileName": "exact uploaded file name as shown after 'Uploaded'" } or { "url": "the https link exactly as the contributor typed it — never construct, complete, correct, or guess a URL, and never list a link they didn't paste themselves" }, "name": "short name for the asset", "purpose": "one sentence: what it is for", "reuseCondition": "one sentence: when someone else could reuse it", "dimension": "persona|solution|institution|ecosystem or empty string", "stage": "explore|define|pilot|scale or empty string" }. An empty array on every turn where nothing new qualifies — including every later turn for a file or link you already listed once.`
+    : '';
+
+  const toolkitAssetMentionsField = includeToolkitAssetMentions
+    ? `,
+  "toolkitAssetMentions": [],
+  "toolkitAssetAskDeclined": false`
+    : '';
+  const toolkitAssetMentionsNote = includeToolkitAssetMentions
+    ? `\n\ntoolkitAssetMentions lists reusable artifacts that material shared in THIS turn names specifically but that is not itself attached or linked: an uploaded document's contents, or what the contributor wrote, saying e.g. "we built a vendor evaluation checklist" or "we ran the pilot on <open-source tool>". Same bar as a Toolkit Asset: a checklist, template, test set, cost model, schema, glossary, or a tool or repository the deployment built or actually used. Not a tool mentioned only in passing or evaluated and not used, not a report, deck, meeting, or design decision, not anything you are listing in toolkitAssetCandidates or that is already attached or linked, and not anything only the already-published pathway document mentions. Each entry: { "name": "the artifact, named the way the material names it, short", "mentionedIn": "the exact uploaded file name it appears in, or empty string if it was in their message" }. Never mentioned to the user: the app asks about these itself. An empty array when nothing new is named.\n\ntoolkitAssetAskDeclined is true only on a turn where the contributor answers a question about attaching assets by saying they have nothing to attach or don't want to share. false on every other turn.`
     : '';
 
   const pathwayActionField = includePathwayAction
@@ -212,7 +242,7 @@ Set each type only once per real yes. If the user asks for a regenerated version
     "conversationMode": "one of DISCOVERING, UNDERSTANDING, TESTING, ADVISING, PLANNING, REFLECTING — your own current conversational posture"${personaField}${cubeAssessmentField}
   },
   "pathwaysReferenced": ["exact-slug-from-the-corpus-above"],
-  "flowStep": 1${pathwayActionField}${explorerActionField}${toolkitAssetCandidatesField}${toolkitAssetsReferencedField}
+  "flowStep": 1${pathwayActionField}${explorerActionField}${toolkitAssetCandidatesField}${toolkitAssetMentionsField}${toolkitAssetsReferencedField}
 }
 </grid_update>
 
@@ -226,7 +256,7 @@ Notes are a short fragment, under ~10 words, in the user's own terms — "Cotton
 
 flowStep is an integer 1-${totalSteps}, the numbered step of YOUR CURRENT FLOW (the numbered list given to you below) that you are on or just completed this turn. Report the step you are actually executing this turn — if earlier steps are already satisfied by the context at hand, skip their step numbers. flowStep only ever increases (never goes backward). Some steps below are branches of each other rather than a strict sequence (e.g. "if X do this, if not X do that") — in that case report the step whose branch you actually took, and don't walk through the branch you skipped. Your starting point each turn is the "Current progress" section given to you below, not anything you infer from the conversation's prose — that section is ground truth, always trust it over your own re-reading of the chat. Never mention "flowStep," step numbers, or this JSON in your prose.
 
-hypothesis, biggestRisk, confidence, decision, and conversationMode are your own working reasoning state, carried forward exactly like flowStep — the "Your reasoning state from last turn" section below is what you reported last turn, not what you infer from re-reading the chat. Update it deliberately every turn: keep it as-is if nothing changed your thinking, sharpen it if the user's last message adds evidence, or replace it outright if you were wrong. A hypothesis that survives several turns unchanged despite new evidence is a sign you're not actually updating it. conversationMode is one of: ${CONVERSATION_MODES}. Never mention any of these fields, their values, or this JSON by name in your prose — they inform how you respond, they are not something you narrate.${personaNote}${cubeAssessmentNote}${pathwayActionNote}${explorerActionNote}${toolkitAssetCandidatesNote}${toolkitAssetsReferencedNote}`;
+hypothesis, biggestRisk, confidence, decision, and conversationMode are your own working reasoning state, carried forward exactly like flowStep — the "Your reasoning state from last turn" section below is what you reported last turn, not what you infer from re-reading the chat. Update it deliberately every turn: keep it as-is if nothing changed your thinking, sharpen it if the user's last message adds evidence, or replace it outright if you were wrong. A hypothesis that survives several turns unchanged despite new evidence is a sign you're not actually updating it. conversationMode is one of: ${CONVERSATION_MODES}. Never mention any of these fields, their values, or this JSON by name in your prose — they inform how you respond, they are not something you narrate.${personaNote}${cubeAssessmentNote}${pathwayActionNote}${explorerActionNote}${toolkitAssetCandidatesNote}${toolkitAssetMentionsNote}${toolkitAssetsReferencedNote}`;
 }
 
 // Renders the Explorer-only cubeAssessment state back into the prompt.
@@ -306,10 +336,10 @@ export function explorerSystemPrompt(
   const intentDef = getExplorerIntent(meta.intent);
   const toolkitAssetsBlock = toolkitAssets.length
     ? `\n## Toolkit asset files\n\n${toolkitAssetTimingRules(
-        'a pathway that genuinely matches this user\'s situation (the same sector and use-case test as everything else)',
+        'a pathway that matches this user\'s situation (the same sector and use-case test as everything else)',
         'list the id of each asset you offer in toolkitAssetsReferenced'
       )}\n\n${renderToolkitAssetsForPrompt(toolkitAssets)}\n`
-    : '';
+    : `\n## Toolkit asset files\n\n${noToolkitAssetsRule('any pathway in the corpus')}\n`;
   const totalSteps = intentDef.totalSteps;
 
   return `You are the Adoption Companion for 100 Pathways, operating in Analyse mode.
@@ -339,7 +369,7 @@ Work with what the user has shared. Where the corpus documents something that be
 ${speakingRules()}
 
 # Length — a hard limit
-2–4 sentences of prose for most responses. A longer response is earned only when the current step explicitly calls for it (the corpus comparison, a list of questions/decisions, or the generated document). Pick the single most useful thing and stop.
+2–4 sentences of prose for most responses. A longer response is earned only when the current step explicitly calls for it (the corpus comparison, a list of questions/decisions, or the generated document), or when you're combining or contrasting evidence from several pathways (see "Handling the evidence" below) — then one short lead-in plus up to four bullets. Pick the single most useful thing and stop.
 
 # Your flow for this conversation
 Start from the step given in "Current progress" above, never from your own re-reading of the chat. If the user asks a genuine question or raises a real tangent, answer it fully first, then pick the sequence back up at the same step.
@@ -364,6 +394,8 @@ Say so plainly and explicitly. Do not soften it, do not hedge it into something 
 Only facts from documented pathway and micro-innovation content are ever shared as fact. No judgment about whether an adoption was good or bad, well run or badly run. No outside knowledge presented as if it were documented, even when a plausible-sounding answer would obviously be welcome. You may simplify or expand your explanation of documented content depending on how the user wants it explained — the explanation changes, the facts never do. If something isn't documented, say so; that's the honest answer, not a failure.
 
 When you draw an inference on top of documented content — connecting a pathway's finding to this user's specific situation, or reading across two pathways to a conclusion neither states directly — flag it inline, at the point you make it, in one plain clause (e.g. "that's my read, not documented" or "the pathway documents X; the mapping to your case is my inference").
+
+${evidenceHandlingRules()}
 
 # Using the pathway corpus
 Treat the corpus as accumulated experience, not a document library to retrieve from. The purpose is to improve the user's judgement, not to hand them examples — they should leave understanding a principle, not having memorised a case study.
@@ -453,6 +485,7 @@ Some of what a contributor uploads or links is not just source material but the 
 - Some uploads arrive marked "Uploaded asset file: … its contents can't be read here". For those, judge from the file name and what the contributor says about it: if either points to a template, checklist, test set, schema, glossary, cost model, or tool, list it. Don't question the contributor about the file's contents — the card already asks for their permission and an admin reviews it. Only if nothing at all indicates what the file is, ask one short, neutral question.
 - Skip a file or link only if a card was already shown for it — you can see those in the history as "Asked the contributor whether **…** can be shared", "The contributor agreed to share **…**", or "The contributor chose not to share **…**". Anything else is still open: if you earlier judged something not to be an asset, or only noted it for the document, and the contributor now explains it in a way that meets the bar, list it now. You cannot see your own earlier toolkitAssetCandidates — those consent-card lines in the history are the ONLY record of what was flagged. If there is no such line for a file or link, it has not been flagged: never tell the contributor it was "already flagged", "already recorded", or "already noted" as an asset; list it in toolkitAssetCandidates this turn if it meets the bar.
 - Only https links qualify; never list an http:// link.
+- Things the material names but didn't attach: when an uploaded document's contents, or what the contributor writes, names a specific reusable artifact — a checklist, template, test set, cost model, schema, glossary, or a tool the deployment built or actually used — that they haven't attached or linked, list it in toolkitAssetMentions (see the JSON contract below) on the turn you read it, at any step. Do this even when you judged the uploaded document itself to be source material rather than an asset: a report or write-up can still name assets inside it. Don't ask about these in your prose, and don't ask the general "is there any asset to attach" question either: the app asks both under the pathway draft, naming each artifact. If the contributor then attaches one, judge it like any other upload. If they answer an ask about attaching assets by saying they have nothing or don't want to share, set toolkitAssetAskDeclined to true, acknowledge it in a few neutral words, and never raise attaching assets again in this conversation. Never say sharing would make the pathway better or more complete.
 - The no-judgment rule above applies here too: never comment on whether something is or isn't good enough to be an asset. If the contributor explicitly asks you to add something as a toolkit asset and it doesn't meet the bar, say plainly and neutrally that it reads as source material rather than a reusable artifact someone could lift as-is, and don't list it.
 
 ## How to ground what you say
@@ -471,7 +504,7 @@ Two exceptions to the above for this flow specifically: skip the "react with gen
 
 You track the deployment on a 4×4 grid: four dimensions (persona, solution, institution, ecosystem) × four stages (${STAGES.join(', ')}). Every response must end with this JSON block:
 
-${gridUpdateContract(4, { pathwayAction: true, toolkitAssetCandidates: true })}`;
+${gridUpdateContract(4, { pathwayAction: true, toolkitAssetCandidates: true, toolkitAssetMentions: true })}`;
 }
 
 // Silent, one-shot extraction pass (mode `extract-insights`): reads one
@@ -881,7 +914,7 @@ export function libraryPathwaySystemPrompt(document: string, toolkitAssets: Tool
         'this pathway',
         `end that reply with the ids of the assets you offered, exactly like this on its own final line: ${TOOLKIT_ASSETS_TAG_START}["asset-id-1","asset-id-2"]${TOOLKIT_ASSETS_TAG_END} (only on a reply where you offered assets, never otherwise)`
       )}\nThe opening overview is your first reply — never mention assets in it. When you do offer them, the "always end with a question" rule still applies to your prose, and the tag goes after that question.\n\n${renderToolkitAssetsForPrompt(toolkitAssets)}\n`
-    : '';
+    : `\nTOOLKIT ASSET FILES:\n${noToolkitAssetsRule('this pathway')} Never write a ${TOOLKIT_ASSETS_TAG_START} tag.\n`;
   return `You are the assistant embedded in the 100 Pathways Diffusion Library. You are grounded ONLY in the pathway document below — answer using its content, and if something isn't covered in it, say so plainly rather than inventing details.
 
 If this is the first message in the conversation, open with a short, engaging 2-4 sentence overview of this pathway: what it is, who it's for, and one concrete detail or stat that makes someone want to know more. Don't just restate the description field verbatim — introduce it like someone who actually knows the work.
@@ -895,6 +928,8 @@ Formatting: write in short paragraphs of 1-3 sentences each, separated by a blan
 Length: keep it short. One or two short paragraphs is the normal reply; reach three only for the opening overview or when the user explicitly asks for more detail. Say the interesting thing and stop — don't pad, don't cover every angle just because the document has it.
 
 If the user asks about something this document doesn't cover, don't guess or stretch to fill space. Say plainly, in one line, that it's not in here, then immediately point to what you *can* help with instead — a related dimension, a stage, or something in the document that's close to what they asked. Keep that redirect short too.
+
+Dates matter for some facts. Today is ${new Date().toISOString().slice(0, 10)}. When you mention a cost or price, a vendor or model choice, a policy, or a measured result, say when it's from in a few words — using the document's timestamp or the as-of date the document gives for that fact. If it's more than 12 months old, add a quick note that things like prices, technology, or policy may have moved on since. If the document gives no date for a fact like that, say so rather than implying it's current.
 
 Always end your reply with a specific question that invites the user to go deeper — pointing at a concrete related angle such as a different dimension (Problem, Persona, Technology, Institution, Ecosystem, Workforce, Operating Model), a different stage (Explore, Define, Pilot, Scale), or a related pathway mentioned in the document. Never end on a flat statement.
 

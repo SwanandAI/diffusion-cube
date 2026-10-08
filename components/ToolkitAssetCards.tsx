@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { isAssetId, type ToolkitAssetSummary } from '@/lib/toolkit-assets';
+import { formatAssetMonth, isAssetId, type ToolkitAssetSummary } from '@/lib/toolkit-assets';
 
 // Download cards shown under an assistant reply that referenced published
 // toolkit assets — in /analyse (ids from <grid_update>.toolkitAssetsReferenced)
@@ -70,6 +70,7 @@ export default function ToolkitAssetCards({
             <p className="truncate text-xs text-ink-soft">
               {a.kind === 'file' ? [a.fileName, formatSize(a.sizeBytes)].filter(Boolean).join(' · ') : a.linkDomain}
               {a.pathwayTitle ? ` · from ${a.pathwayTitle}` : ''}
+              {formatAssetMonth(a.publishedAt) ? ` · shared ${formatAssetMonth(a.publishedAt)}` : ''}
             </p>
             {a.purpose && <p className="mt-1 text-xs text-ink">{a.purpose}</p>}
           </div>

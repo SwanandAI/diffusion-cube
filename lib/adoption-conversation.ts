@@ -4,12 +4,16 @@ import { Message } from '@/components/ChatPanel';
 import { createClient } from '@/lib/supabase/client';
 import { extractTextFromFile, fileToImageBlock, getFileExtension, isImageFile } from '@/lib/extract-text';
 import {
+  MAX_ASSET_MENTIONS_PER_ASK,
   TOOLKIT_ASSET_BUCKET,
   assetExtension,
+  assetMentionKey,
+  buildAssetMentionAsk,
   candidateSourceKey,
   isAllowedAssetFile,
   type ToolkitAssetCandidate,
   type ToolkitAssetConsentState,
+  type ToolkitAssetMention,
 } from '@/lib/toolkit-assets';
 import {
   parseGridUpdate,
@@ -269,6 +273,27 @@ export function rowToConversation(row: AdoptionRow): AdoptionConversation {
 // Converts our Message[] into the Anthropic content shape, expanding any
 // attached images into content blocks — shared by the main chat turn and the
 // one-off document-generation calls so they build requests identically.
+// Contributor-only: artifacts the companion saw named in the material
+// (Message.toolkitAssetMentions) that haven't been asked about yet and
+// haven't already reached a consent card. Nothing at all once the contributor
+// has declined attaching assets.
+export function pendingAssetMentions(messages: Message[]): ToolkitAssetMention[] {
+  if (messages.some((m) => m.toolkitAssetAskDeclined)) return [];
+  const done = new Set<string>();
+  for (const m of messages) {
+    for (const key of m.toolkitAssetMentionsAsked ?? []) done.add(key);
+    if (m.toolkitAssetConsent) done.add(assetMentionKey(m.toolkitAssetConsent.candidate.name));
+  }
+  const pending: ToolkitAssetMention[] = [];
+  for (const mention of messages.flatMap((m) => m.toolkitAssetMentions ?? [])) {
+    const key = assetMentionKey(mention.name);
+    if (!key || done.has(key)) continue;
+    done.add(key);
+    pending.push(mention);
+  }
+  return pending;
+}
+
 export function toApiMessages(messages: Message[]) {
   return messages.map(({ role, content, images }) => ({
     role,
@@ -623,9 +648,34 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     const gaps = opts.includeGaps ? extractGapsFromPathwayDraft(markdown) : [];
     const gapsLine = gaps.length ? `\n\nA few things I couldn't find in the documents:\n${gaps.map((g) => `- ${g}`).join('\n')}` : '';
     const intro = opts.includeGaps ? `Here is the pathway document drafted from your documents.${gapsLine}` : "Here's the updated pathway document.";
-    const content = `${intro}\n\n${PATHWAY_DOC_MARKER}\n\nDo you want to make any changes or want to publish it?`;
+    // Asking for assets happens here, under the draft, rather than in the
+    // companion's prose, because its step rules leave no turn for it; the
+    // companion sees these lines in history and doesn't repeat them (see
+    // contributorSystemPrompt's "Toolkit asset files"). Two asks:
+    // - artifacts the material named but didn't attach (toolkitAssetMentions),
+    //   by name, each once — under the first draft or any later revision,
+    //   since a new document can name new ones;
+    // - first draft only, when nothing has reached a consent card yet, the
+    //   general "any asset to attach?" — folded into the first ask if both
+    //   apply, so it's one question.
+    // Neither after the contributor has declined attaching assets.
+    const msgs = conversationRef.current?.messages ?? [];
+    const declined = msgs.some((m) => m.toolkitAssetAskDeclined);
+    const mentions = pendingAssetMentions(msgs).slice(0, MAX_ASSET_MENTIONS_PER_ASK);
+    const askGeneral = opts.includeGaps && !declined && !msgs.some((m) => m.toolkitAssetConsent);
+    const assetAsk = mentions.length
+      ? `\n\n${buildAssetMentionAsk(mentions, askGeneral)}`
+      : askGeneral
+        ? `\n\nIs there any asset you want to attach with this pathway? You can attach the file or paste an https link here.`
+        : '';
+    const content = `${intro}\n\n${PATHWAY_DOC_MARKER}\n\nDo you want to make any changes or want to publish it?${assetAsk}`;
+    const message: Message = {
+      role: 'assistant',
+      content,
+      ...(mentions.length ? { toolkitAssetMentionsAsked: mentions.map((m) => assetMentionKey(m.name)) } : {}),
+    };
 
-    update((c) => ({ ...c, messages: [...c.messages, { role: 'assistant', content }] }));
+    update((c) => ({ ...c, messages: [...c.messages, message] }));
     if (conversationRef.current) void persist(conversationRef.current);
   }
 
@@ -1058,11 +1108,18 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       // Explorer-only: toolkit assets offered this turn — kept on the message
       // (like pathwaysReferenced) so the download cards survive reload.
       const finalAssets = flow === 'explorer' ? lastParsed?.toolkitAssetsReferenced : undefined;
+      // Contributor-only: artifacts the material named but didn't attach, and
+      // a "nothing to attach" answer — kept on the message so the asks under
+      // the pathway draft (appendPathwayDocMessage) survive reload.
+      const finalMentions = flow === 'contributor' ? lastParsed?.toolkitAssetMentions : undefined;
+      const finalDeclined = flow === 'contributor' && lastParsed?.toolkitAssetAskDeclined === true;
       const finalMsg = {
         role: 'assistant' as const,
         content: finalContent,
         ...(finalRefs?.length ? { pathwaysReferenced: finalRefs } : {}),
         ...(finalAssets?.length ? { toolkitAssetsReferenced: finalAssets } : {}),
+        ...(finalMentions?.length ? { toolkitAssetMentions: finalMentions } : {}),
+        ...(finalDeclined ? { toolkitAssetAskDeclined: true } : {}),
       };
       update((c) => {
         const msgs = [...c.messages];

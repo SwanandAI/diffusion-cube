@@ -61,6 +61,7 @@ function toPublished(row: RowWithPathway): PublishedToolkitAsset {
     linkDomain: row.asset_kind === 'link' && row.link_url ? linkDomain(row.link_url) : null,
     pathwaySlug: row.pathways?.slug ?? '',
     pathwayTitle: row.pathways?.title ?? '',
+    publishedAt: row.published_at,
   };
 }
 
@@ -75,6 +76,7 @@ export function toSummary(asset: PublishedToolkitAsset): ToolkitAssetSummary {
     linkDomain: asset.linkDomain,
     pathwaySlug: asset.pathwaySlug,
     pathwayTitle: asset.pathwayTitle,
+    publishedAt: asset.publishedAt,
   };
 }
 

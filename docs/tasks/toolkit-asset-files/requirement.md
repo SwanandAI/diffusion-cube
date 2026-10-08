@@ -69,17 +69,23 @@ The assistant only knows an asset's name, purpose, reuse condition and when it w
 
 ## Flow charts
 
-### Contributor side (Upload → Consent → Review → Publish)
+### Contributor side (Login → Upload → Consent → Review → Publish)
 
 ```mermaid
 flowchart TD
+    S(["Contributor logs in<br/>(/contribute)"]) --> T{"New or existing<br/>contribution?"}
+    T -->|"+ New Contribution"| U["Pick or create the pathway<br/>→ fresh workspace"]
+    T -->|"Existing contribution"| V["Open that pathway's<br/>existing workspace"]
+    U --> A
+    V --> A
+
     A(["Contributor uploads a file or pastes a link<br/>(/contribute workspace)"]) --> B{"AI check:<br/>Is it a reusable asset?"}
 
     B -->|"No — report, notes,<br/>interview transcript, deck"| C["Used as background material<br/>to write the pathway"]
     B -->|"Yes — template, checklist,<br/>test set, schema, cost model"| D[/"Consent card appears:<br/>'OK to share publicly?'"/]
 
     C --> E{"Material mentions a tool<br/>that wasn't attached?"}
-    E -->|"Yes"| F[/"Claude asks once:<br/>'Want to attach it?'"/]
+    E -->|"Yes"| F[/"App asks under the draft,<br/>naming it once: 'Want to attach it?'"/]
     E -->|"No"| G[/"App asks under 1st draft:<br/>'Any asset to attach?'"/]
     F --> H{"Contributor responds"}
     G --> H
@@ -91,7 +97,7 @@ flowchart TD
 
     K --> L["Contributor clicks 'Send for Review'<br/>(Asset block added to pathway doc)"]
     L --> M{"Admin approves?"}
-    M -->|"Changes needed"| K
+    M -->|"Changes needed<br/>(contributor can remove an asset)"| K
     M -->|"Approved"| N(["✅ Published —<br/>Anyone can download publicly"])
 
     classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
@@ -101,10 +107,10 @@ flowchart TD
     classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
     classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
 
-    class A start
-    class B,E,H,M decision
+    class S,A start
+    class T,B,E,H,M decision
     class D,F,G ask
-    class C,K,L step
+    class U,V,C,K,L step
     class N done
     class I,J stop
 ```

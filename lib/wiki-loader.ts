@@ -65,6 +65,19 @@ export async function loadResourcesContent(): Promise<string> {
   return readSource(RESOURCES_FILE);
 }
 
+// The date the explorer prompt's "How old it is" rule reads (see
+// evidenceHandlingRules in lib/system-prompts.ts), placed beside "Contributed
+// by" so it's found the same way. The document's own frontmatter timestamp
+// wins; a community pathway without one falls back to when it was first
+// published (published_pathways.created_at — the publish upsert never
+// rewrites it), labelled as such so it isn't read as when the work happened.
+export function datedLine(document: string, firstPublishedAt?: string | null): string {
+  const timestamp = document.match(/^timestamp:\s*(.+)$/m)?.[1]?.trim();
+  if (timestamp) return `Documented as of: ${timestamp}\n\n`;
+  if (firstPublishedAt) return `First published: ${firstPublishedAt.slice(0, 10)}\n\n`;
+  return '';
+}
+
 // Loads the pathway corpus: the pathways index plus every pathway document,
 // plus any admin-published community pathways (see
 // supabase/migrations/0012_published_pathways.sql) — so a conversation with
@@ -85,16 +98,16 @@ export async function loadWikiContext(): Promise<string> {
       const contributorMatch = page.match(/^contributor:\s*(.+)$/m);
       const contributor = contributorMatch?.[1]?.trim() ?? '';
       const contributorLine = contributor ? `Contributed by: ${contributor}\n\n` : '';
-      return `# Pathway: ${slug.replace(/\.md$/, '')}\n\n${contributorLine}${page}`;
+      return `# Pathway: ${slug.replace(/\.md$/, '')}\n\n${contributorLine}${datedLine(page)}${page}`;
     })
   );
   parts.push(...pages.filter(Boolean));
 
   const supabase = await createClient();
-  const { data: published } = await supabase.from('published_pathways').select('slug, content, contributor_org');
+  const { data: published } = await supabase.from('published_pathways').select('slug, content, contributor_org, created_at');
   for (const p of published ?? []) {
     const contributorLine = p.contributor_org ? `Contributed by: ${p.contributor_org}\n\n` : '';
-    parts.push(`# Pathway: ${p.slug}\n\n${contributorLine}${p.content}`);
+    parts.push(`# Pathway: ${p.slug}\n\n${contributorLine}${datedLine(p.content, p.created_at)}${p.content}`);
   }
 
   return parts.join('\n\n---\n\n');

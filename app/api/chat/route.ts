@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { loadWikiContext, loadFrameworkContent, loadPathwayGenerationPrompt, loadResourcesContent } from '@/lib/wiki-loader';
+import { loadWikiContext, loadFrameworkContent, loadPathwayGenerationPrompt, loadResourcesContent, datedLine } from '@/lib/wiki-loader';
 import { readLibraryPathwayDocument, buildLibraryOverview } from '@/lib/library-wiki-loader';
 import {
   explorerSystemPrompt,
@@ -97,10 +97,13 @@ export async function POST(req: Request) {
       if (!document) {
         const { data } = await supabase
           .from('published_pathways')
-          .select('content')
+          .select('content, created_at')
           .eq('slug', pathwayId)
           .maybeSingle();
-        document = data?.content ?? null;
+        // Same date line the explorer corpus carries, so the library
+        // prompt's dates rule has something to read when the community
+        // pathway's own frontmatter has no timestamp.
+        document = data ? `${datedLine(data.content, data.created_at)}${data.content}` : null;
       }
       if (!document) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
       // Published toolkit assets for this pathway (only DB pathways have

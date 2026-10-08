@@ -11,7 +11,7 @@ import {
 } from '@/lib/grid-update';
 import type { DocType } from '@/lib/design-documents';
 import { ATTACH_ACCEPT } from '@/lib/extract-text';
-import type { ToolkitAssetConsentState } from '@/lib/toolkit-assets';
+import type { ToolkitAssetConsentState, ToolkitAssetMention } from '@/lib/toolkit-assets';
 import ToolkitAssetConsentCard from '@/components/ToolkitAssetConsentCard';
 import ToolkitAssetCards from '@/components/ToolkitAssetCards';
 
@@ -38,6 +38,15 @@ export interface Message {
   // consent card (see TOOLKIT_ASSET_CONSENT_MARKER). Persisted with the
   // conversation so the outcome survives reload.
   toolkitAssetConsent?: ToolkitAssetConsentState;
+  // Contributor flow, on the companion's reply: reusable artifacts the
+  // material named but didn't attach (from <grid_update>), and whether the
+  // contributor declined attaching anything this turn. Read back by
+  // appendPathwayDocMessage to decide what to ask under the draft.
+  toolkitAssetMentions?: ToolkitAssetMention[];
+  toolkitAssetAskDeclined?: boolean;
+  // Contributor flow, on a pathway-draft message: assetMentionKey of every
+  // artifact asked about in it, so none is asked about twice.
+  toolkitAssetMentionsAsked?: string[];
   // Explorer flow: ids of published toolkit assets this assistant message
   // offered (from <grid_update>) — rendered as download cards under it.
   toolkitAssetsReferenced?: string[];
