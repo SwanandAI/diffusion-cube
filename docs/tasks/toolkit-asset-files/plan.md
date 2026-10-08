@@ -16,7 +16,7 @@ Published assets are **public**: anyone can view and download them, signed in or
 
 **Behaviour additions (2026-10-05, see the appendix):**
 - **Contributors are asked.** Under the first draft, if nothing has been offered for sharing yet, the app asks once: *"Is there any asset you want to attach with this pathway?"* Claude also asks once about any specific artifact the material names but didn't attach.
-- **Adopters get match-aware offers.** Each asset is judged on its own as a full, partial or no match. A partial match is offered with a plain caveat; no match means silence, unless the user asked outright, in which case Claude says nothing matches.
+- **Adopters get matching offers.** Each asset is judged on its own. When an asset matches, Claude surfaces it directly as a relevant tool from this pathway that can help; no match means silence, unless the user asked outright, in which case Claude says nothing matches.
 - **Evidence handling in `/analyse`:** evidence spread across pathways is combined with attribution; missing evidence is stated plainly; conflicting experiences are shown side by side with their conditions; dated facts carry their as-of date and a caution past 12 months.
 
 ## Scope
@@ -57,7 +57,7 @@ Published assets are **public**: anyone can view and download them, signed in or
 - **A6 (N3).** Publishing publishes every asset listed in the reviewed document. Assets attached after the last Send for Review go out on the next assemble plus publish.
 - **A7.** Files are stored in the private bucket at consent time (so the admin can preview them) and are served only through the app's download route, via 60 s signed URLs, once published.
 - **A8 (2026-10-05, D2).** The general "Is there any asset you want to attach with this pathway?" question is added by the app under the first draft, not written by Claude. The contributor prompt's step rules leave Claude no clean turn for it.
-- **A9 (D3, D4).** Assets from an adjacent pathway count, at best, as partial matches. When an explicit ask finds no asset, Claude may point to a toolkit a pathway only describes in text, labelled as having no file.
+- **A9 (D4).** When an explicit ask finds no asset, Claude may point to a toolkit a pathway only describes in text, labelled as having no file.
 - **A10 (D5, D7).** Staleness threshold is 12 months; time-sensitive facts (cost, vendor or model, policy, measured results) always carry their date. A community pathway with no `timestamp` uses its first publish date, labelled "First published".
 
 ## Affected Areas
@@ -404,10 +404,10 @@ flowchart TD
     A(["Adopter asks a question<br/>in Analyse"]) --> B{"What do the pathways say?"}
     B -->|Nothing| C["Says plainly that<br/>it isn't documented"]
     B -->|"One pathway"| D["Answers from it,<br/>crediting the contributor"]
-    B -->|"Several, each<br/>covering part"| E["Combines them<br/>and names any gaps"]
+    B -->|"Several, each<br/>covering part"| E["Combines them, credits each,<br/>and names any gaps"]
     B -->|"Several that<br/>disagree"| F["Shows each side with its context,<br/>without picking a winner"]
 
-    D --> G{"Mentions a vendor,<br/>policy or result?"}
+    D --> G{"Mentions a cost, vendor,<br/>policy or result?"}
     E --> G
     F --> G
     G -->|Yes| H["Adds the date it was true<br/>plus a caution if over 12 months old"]
@@ -566,30 +566,23 @@ Shared text: [`lib/toolkit-assets.ts:297-305`](../../../lib/toolkit-assets.ts#L2
 
 ---
 
-### B7. Adopter: full, partial and no match
+### B7. Adopter: matching and surfacing assets
 
-#### B7.1 Defining the match level
+#### B7.1 Matching rules
 
-Match is judged **per asset**, comparing the user's situation with three things: the asset's **pathway** (sector + use case), its **reuse condition** ("Reuse when: …"), and the user's **specific question**.
+Match is judged **per asset**, comparing the user's situation and question with the asset's pathway and its reuse condition ("Reuse when: …").
 
-| Level | `/analyse`: when it applies | `/explore`: when it applies |
+| Level | When it applies | Expected behaviour |
 |---|---|---|
-| **Full match** | Same sector **and** same use-case category as the asset's pathway (the existing exact-match test), **and** nothing the user said contradicts the reuse condition. Or: the user asked a narrow question and the asset directly solves that problem (sector doesn't matter for narrow questions, per the existing relevance rule). | The conversation is about the part of the pathway the asset supports (its dimension or stage), or the user asks how to reuse or implement that part. |
-| **Partial match** | Related but not exact: an **adjacent** sector or use case, **or** an exact pathway whose reuse condition is only partly met (different language, scale, stage or channel), **or** the asset solves part of the user's problem but not all of it. | The user's own context (which they may mention in `/explore`) differs from the reuse condition, or the asset covers only part of what they asked. |
-| **No match** | Different sector **and** different use case, with no close problem match. Or the reuse condition clearly excludes the user's situation. | The conversation is about something the asset doesn't touch. |
+| **Match** | The asset fits what the user is doing or asking about (its sector, problem, or "Reuse when" applies). | Claude surfaces the asset directly: shows that this is a relevant tool from this pathway that can help them with this, stating what it is and when it helps. Framed as something they could reuse, never "you should". |
+| **No match** | Doesn't fit what the user is doing or asking about. | Silence about assets, unless the user explicitly asked. |
 
-#### B7.2 What Claude says at each level
+#### B7.2 What Claude says
 
-**Full match: offer it, and say when it's useful.**
-- One short line per asset: what it is, plus **the use case** (taken from the reuse condition), framed as a suggested choice drawn from another deployment.
+**Match: offer it, and say when it's useful.**
+- One short line per asset: what it is, plus **the use case** (taken from the reuse condition), framed as a relevant tool from this pathway that can help them with this.
 - Never "you should use this" and never "this is the right template".
 - *Example:* "The MahaVISTAAR pathway shared a **vendor evaluation checklist** you could reuse. It's built for comparing chatbot vendors at Define stage, which is where you are."
-
-**Partial match: offer it with a caveat in the same breath.**
-- Say plainly that it **isn't an exact fit** and **what differs**, mirroring the existing exact/adjacent rule for pathways.
-- Name **what would need adapting**, and flag that as inference ("that's my read, not documented").
-- Never let a partial match read as a full match.
-- *Example:* "There's a **language QA test matrix** from LangChat that could be a starting point. It isn't an exact fit, though: it was built for Hindi/Marathi chat, and you're working in Swahili, so the test sentences would need replacing. That mapping is my inference, not documented."
 
 **No match: say nothing about assets.**
 - No mention, unless the user explicitly asked (A-12).
@@ -599,17 +592,17 @@ Match is judged **per asset**, comparing the user's situation with three things:
 
 | ID | Situation | Expected behaviour | Status |
 |---|---|---|---|
-| A-08 | `/analyse`: the user's situation **fully matches** a pathway with assets, from message 2 on | Offer that pathway's relevant assets once, with use case (B7.2), plus cards. | ✅ Implemented |
-| A-09 | `/analyse`: the pathway fully matches, but **only some** of its assets bear on the user's need | Offer only those. A pathway match doesn't license dumping every asset. | 🟢 Built 2026-10-05, not live-tested |
-| A-10 | `/analyse`: only an **adjacent** pathway matches | Offer its relevant assets as **partial matches**, with the caveat. | 🟢 Built 2026-10-05, not live-tested (D3) |
-| A-11 | `/analyse`: exact pathway, but the **reuse condition is only partly met** | Offer with a caveat naming the difference. | 🟢 Built 2026-10-05, not live-tested |
+| A-08 | `/analyse`: the user's situation **matches** a pathway with assets, from message 2 on | Offer that pathway's relevant assets once, with use case (B7.2), plus cards. | ✅ Implemented |
+| A-09 | `/analyse`: the pathway matches, but **only some** of its assets bear on the user's need | Offer only those. A pathway match doesn't license dumping every asset. | 🟢 Built 2026-10-05, not live-tested |
+| A-10 | `/analyse`: a relevant pathway matches | Offer its matching assets directly. | 🟢 Built 2026-10-05, not live-tested |
+| A-11 | `/analyse`: reuse condition applies | Offer with its documented use case. | 🟢 Built 2026-10-05, not live-tested |
 | A-12 | **Explicit ask** for templates or tools, and **no asset fits** | Say so plainly, in one line, e.g. "No shared toolkit files match this yet." It may then point to a **described** toolkit in a pathway, as text and flagged as such. | 🟢 Built 2026-10-05, not live-tested (D4) |
 | A-13 | **No match** and the user didn't ask | Silence about assets. | ✅ Implemented |
-| A-14 | Several matching assets across **different pathways** | Group by pathway, each with its match level, so the user can tell which is which. | 🟢 Built 2026-10-05, not live-tested |
+| A-14 | Several matching assets across **different pathways** | Group by pathway so the user can tell which is which. | 🟢 Built 2026-10-05, not live-tested |
 | A-15 | The user asks for an asset's **contents** ("what's in the checklist?") | Claude says it can only describe the stated purpose, and points to the download card. Never invents contents. | 🟢 Built 2026-10-05, not live-tested |
 | A-16 | The user asks Claude to **adapt** a template to their context | Not supported (Claude can't read the file). Claude can discuss the reuse condition and what typically needs changing, flagged as inference. | ❌ Out of scope ("adapt this for me" is roadmap) |
-| A-17 | `/explore`: the conversation turns to the **dimension or stage** an asset supports | Full match, so offer it once, plus the tag. | ✅ Implemented |
-| A-18 | `/explore`: the user describes **their own context**, which differs from the asset's reuse condition | Partial match framing, with the caveat. | 🟢 Built 2026-10-05, not live-tested |
+| A-17 | `/explore`: the conversation turns to the **dimension or stage** an asset supports | Relevant match, so offer it once, plus the tag. | ✅ Implemented |
+| A-18 | `/explore`: the user asks about tools or reuse | Relevant match, offer with use case. | 🟢 Built 2026-10-05, not live-tested |
 | A-19 | `/explore`: Claude emits an ID from **another pathway** | The client filters it out; only the open pathway's cards render. | ✅ Implemented |
 | A-20 | A pathway **has no published assets** | The asset block is absent from the prompt, so Claude can't mention any. | ✅ Implemented |
 
@@ -723,16 +716,15 @@ The app does the general ask (predictable and testable), and Claude does the tar
    - never repeating after a "no", never claiming sharing improves the pathway
    - never repeating the app's general question
 
-#### B10.2 Adopter match levels (A-04, A-09 to A-15, A-18)
+#### B10.2 Adopter matching rules (A-04, A-09 to A-15, A-18)
 
 - `toolkitAssetTimingRules` ([`lib/toolkit-assets.ts`](../../../lib/toolkit-assets.ts)), shared by `/analyse` and `/explore`:
-  - full, partial and no-match rules, judged per asset
+  - match and no-match rules, judged per asset
   - an explicit ask overrides the first-reply ban (D1)
   - "No shared toolkit files match this yet" on an explicit ask with no fit, optionally pointing to a toolkit the pathway only describes in text (D4)
   - attribution by pathway; offer both when two assets serve one need
   - never describe a file's contents
   - a date clause for assets shared over 12 months ago
-- `/analyse` `whereRelevant` now includes **adjacent** pathways, whose assets are at best partial matches (D3).
 - `/explore` still never mentions assets in the opening overview. The kickoff has no user message, so the D1 override can't fire there.
 
 #### B10.3 Evidence handling (A-28 to A-46)

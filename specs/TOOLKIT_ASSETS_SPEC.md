@@ -74,6 +74,7 @@ Existing columns of `contribution_units` (`id`, `unit_internal_id`, `pathway_id`
 | POST | `/api/toolkit-assets` | `pathway_contributor` + pathway member | Built (TA-03), not live-tested |
 | GET | `/api/toolkit-assets?ids=` | Public (published only) | Built (TA-07), not live-tested |
 | GET | `/api/toolkit-assets/[id]/download` | Public if published; uploader/admin otherwise | Built (TA-07), not live-tested |
+| DELETE | `/api/toolkit-assets/[id]` | Uploader only (`pathway_contributor` + pathway member), unpublished only | Built (2026-10-08), not live-tested |
 | POST | `/api/pathways/assemble` | Changed: asset block, slug validation, `designId` ownership | Built (TA-05), not live-tested |
 | POST | `/api/admin/pathways/publish` | Changed: publishes the reviewed assets | Built (TA-06), not live-tested |
 | POST | `/api/chat` | Changed: assets in explorer/library prompts, library `pathwayId` validation | Built (TA-08/09), not live-tested |
@@ -130,6 +131,10 @@ Existing columns of `contribution_units` (`id`, `unit_internal_id`, `pathway_id`
 | `app/explore/ExploreLibrary.tsx` (strip tag, parse IDs, cards, persist) | TA-09 | Changed |
 | `app/api/admin/pathways/delete/route.ts`, `app/api/account/delete/route.ts`, `components/AdminPathwaysPanel.tsx` (copy) | TA-10 | Changed |
 | `specs/ACCOUNT_DELETION_SPEC.md` (asset files) | TA-10 | Changed |
+| `app/api/toolkit-assets/[id]/route.ts` (DELETE: contributor removes an unpublished asset) | Flow-chart fixes | New |
+| `components/ToolkitAssetStatusList.tsx` (Remove action) | Flow-chart fixes | Changed |
+| `lib/toolkit-assets.ts` (`noToolkitAssetsRule`, `ToolkitAssetMention`, `buildAssetMentionAsk`) | Flow-chart fixes | Changed |
+| `lib/grid-update.ts`, `lib/system-prompts.ts`, `lib/adoption-conversation.ts`, `components/ChatPanel.tsx` (`toolkitAssetMentions` / `toolkitAssetAskDeclined`, asks under the draft) | Flow-chart fixes | Changed |
 
 ## 10. Progress log
 
@@ -425,3 +430,97 @@ Test pathway: **"Test Assets Langchat"** (`test-assets-langchat`, id `f646508e�
   - Link assets still redirect to their own public https URL.
 - **Risk to verify on Vercel:** proxied downloads go through the function's response. Vercel limits function response size (~4.5 MB for buffered responses; streamed responses may behave differently). **Test a file larger than 5 MB on a Vercel preview** before launch. If it fails, the fallback is a short-lived redirect (the old behaviour) for large files only, which is an owner decision.
 - `createAssetDownloadUrl` was replaced by `openAssetFileStream`. `tsc` clean; no new lint problems.
+
+### 2026-10-05 · Behaviour scenarios documented
+- New: `docs/tasks/toolkit-asset-files/behaviour-scenarios.md` (since merged into `plan.md`, see below). Every contributor (`C-xx`) and adopter (`A-xx`) scenario, each marked implemented / partial / gap against the code at `3ded7ae`.
+- Gaps found (not yet built):
+  - the contributor is never asked proactively whether they have reusable assets (C-21 to C-28)
+  - no partial-match framing for assets in `/analyse` and `/explore`; adjacent-pathway assets undefined (A-10, A-11, A-18)
+  - "say nothing" when no asset fits also applies to an **explicit** ask (A-12)
+  - conflict between "never in first reply" and "straight away when asked" for a first `/analyse` message (A-04)
+- Added (same day) §9: evidence handling for adopters (scattered, missing, conflicting, stale), covering pathway insights and assets (A-28 to A-46). Already handled: no-evidence framing and inference flagging. Gaps:
+  - no rule to **combine** evidence from several pathways
+  - no rule for **conflicting** evidence
+  - no **dates**: pathway `timestamp`s reach the prompt but nothing uses them; asset dates reach neither the prompt nor the card
+- Proposed prompt/client changes and owner decisions D1 to D7 are in §10 of that document. No code changed.
+
+### 2026-10-05 · Behaviour gaps implemented with default decisions (code complete, not live-tested)
+Owner asked to take the recommended defaults (D1–D7, now in `plan.md` appendix B10.5) and build them.
+
+**Done**
+- **Contributor, general ask** (`lib/adoption-conversation.ts` `appendPathwayDocMessage`): on the first draft only, and only if no consent card exists yet, the draft message ends with *"Is there any asset you want to attach with this pathway? You can attach the file or paste an https link here."* The wording is the owner's.
+- **Contributor, targeted ask** (`contributorSystemPrompt`): Claude asks once per artifact the material names but didn't attach. Only from step 4, on a `pathwayAction: "none"` turn; never after a "no"; never repeats the app's general question.
+- **Adopter matching rules** (`toolkitAssetTimingRules`, shared by `/analyse` and `/explore`):
+  - match and no-match rules, judged per asset: surface matching assets directly as relevant tools from that pathway
+  - an explicit ask overrides the first-reply ban
+  - "No shared toolkit files match this yet" on an explicit ask, optionally pointing to a toolkit described only in text
+  - attribution by pathway; both of two competing assets offered
+  - never describe a file's contents
+  - a date clause for assets older than 12 months
+- **Evidence handling** (`evidenceHandlingRules`, explorer only; `groundingRules` untouched): scattered, missing, conflicting and dated evidence, with today's date in the prompt. The length rule allows a lead-in plus up to four bullets when combining or contrasting. The library prompt gains a dates paragraph.
+- **Dates:**
+  - `lib/wiki-loader.ts` `datedLine()` adds `Documented as of:` (frontmatter timestamp) or `First published:` (`published_pathways.created_at`) beside `Contributed by:`; also used for the `/explore` DB fallback
+  - assets carry `publishedAt` into the prompt (`· shared Sep 2026`) and onto the download card
+  - `formatAssetMonth` uses a fixed month list, because `toLocaleDateString('en-GB')` gave "Sept" on this machine's ICU
+
+**Verified**
+- `tsc` clean and `npm run build` passes.
+- `eslint` on the changed files: only the 2 pre-existing `exhaustive-deps` warnings in `adoption-conversation.ts`.
+- Scratch checks (14, all pass): month formatting incl. a UTC year-end edge, the prompt line with and without a date, and the new rule phrases present in the shared asset rules. The date-line helper was checked separately on 3 cases.
+
+**Open**
+- Live test pass (💲 model behaviour) for the scenarios listed in `plan.md` appendix B10.6. Needs a published asset in the production project, so it's confirmed with the owner first.
+- Before the pass, pick one test question that two corpus pathways answer differently (A-36).
+- The TEMPORARY dev-only `grid_update` log in `app/api/chat/route.ts` is still in place and must be removed before merge.
+
+### 2026-10-05 · Flow charts added
+- `behaviour-scenarios.md` §1.4 (now `plan.md` appendix B1.4): four Mermaid flow charts with scenario IDs on each node. They show the behaviour as built:
+  - Contributor 1: what happens to a file or link
+  - Contributor 2: when assets get asked for
+  - Adopter 1: when and how an asset is offered
+  - Adopter 2: handling the evidence
+- Verified: all four parse with the `mermaid` library (scratch check, outside the repo).
+
+### 2026-10-05 · Behaviour spec merged into plan.md and requirement.md
+- At the owner's request, `behaviour-scenarios.md` was folded into the planning documents and deleted:
+  - [`plan.md`](../docs/tasks/toolkit-asset-files/plan.md) gains "Appendix: Behaviour Specification": the full C-xx / A-xx catalogue with statuses, the four flow charts, the changes built, decisions D1–D7 and the live-test list. Its sections are renumbered B1–B10.
+  - The main body of `plan.md` is updated to match: status line, summary, scope, assumptions A5 and A8–A10, affected areas, `publishedAt` on `GET ?ids=`, risks 9–10, sequencing S9–S11.
+  - [`requirement.md`](../docs/tasks/toolkit-asset-files/requirement.md) gains "How the assistant behaves": the same rules in plain language (what counts as an asset, asking contributors, adopter fit levels, evidence handling, dates), plus a risk line that these rules are AI instructions needing live tests.
+- Code comments in `lib/toolkit-assets.ts` and `lib/system-prompts.ts` now point to `plan.md` B7 / B9.
+
+### 2026-10-08 · Code checked against the requirement.md flow charts; 2 gaps fixed, targeted ask rebuilt (code complete, not live-tested)
+A node-by-node check of the code against the contributor and adopter flow charts in `requirement.md` found three gaps:
+1. **Admin "Changes needed" couldn't drop an asset.** There was no way to remove a shared asset, and assemble re-lists every consented asset on each Send for Review.
+2. **"No shared toolkit files match this yet" never reached the model when no assets exist.** The rule lived inside the asset block, which was left out when the asset list was empty. That covers every curated pathway in `/explore`, and `/analyse` before anything is published.
+3. **The targeted ask almost never fired.** It was prompt-only and limited to step-4 turns with `pathwayAction: "none"`. Most step-4 turns are revise or publish, so a document that named a checklist in its text was rarely followed up.
+
+**Done**
+- **Fix 1:** `DELETE /api/toolkit-assets/[id]`.
+  - Only the uploader can remove an asset, and only while it is unpublished. Anyone else gets a 404.
+  - The row is deleted first, guarded on `published_at is null`, so a publish racing the delete gets a 409 and its file is never removed. The storage object is removed after the row.
+  - If the asset was already sent for review, it is also taken out of `pathways.content_cache` (the copy the admin reviews and publishes). The committed GitHub copy catches up on the next Send for Review.
+  - `ToolkitAssetStatusList` has a Remove action on unpublished rows, with a confirm dialog and toasts.
+- **Fix 2:** `noToolkitAssetsRule()`. When no assets exist, `/analyse` and `/explore` still get the explicit-ask rule ("No shared toolkit files match this yet", optionally pointing to a toolkit described only in text). `/explore` is also told never to write the tag.
+- **Targeted ask, rebuilt to be deterministic:**
+  - The contributor companion reports `toolkitAssetMentions` (`[{ name, mentionedIn }]`) on the turn it reads material that names a reusable artifact that wasn't attached. It does this even when it judged the uploaded document itself to be background material.
+  - It sets `toolkitAssetAskDeclined: true` when the contributor says they have nothing to attach.
+  - Both are stored on the assistant message, so they survive a reload.
+  - `appendPathwayDocMessage` asks under the draft (the first draft and any revision), naming each artifact once, up to 5 per ask. On the first draft the general "any other asset" question is folded in, so the contributor gets one question. After a decline, nothing is asked again.
+  - The companion no longer asks in its own prose.
+  - The order is now: material names an artifact → the app asks by name under the draft; nothing named → the general ask on the first draft. This matches the chart's E → F / E → G split.
+
+**Verified**
+- `tsc` clean. `eslint` on the changed files shows only the 2 pre-existing `exhaustive-deps` warnings.
+- Scratch checks (outside the repo), all as expected:
+  - `toolkitAssetMentions` parsing (object, bare string, empty name dropped)
+  - the ask text
+  - `pendingAssetMentions`: consent-card name excluded, already-asked excluded, new mention picked up, decline stops everything
+  - re-applying the asset block without a removed id
+
+**Open**
+- Live test (💲 model behaviour):
+  - a report that names a checklist in its text is followed by the by-name ask under the first draft
+  - a "no" stops later asks
+  - asking for templates on a curated `/explore` pathway gets the "No shared toolkit files" line
+  - Remove on a sent asset updates the admin review card
+

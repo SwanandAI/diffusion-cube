@@ -102,6 +102,47 @@ export function candidateSourceKey(candidate: ToolkitAssetCandidate): string {
   return 'fileName' in candidate.source ? `file:${candidate.source.fileName}` : `url:${candidate.source.url}`;
 }
 
+// A reusable artifact the contributor's material names but that wasn't
+// attached or linked: a document that says "we built a vendor evaluation
+// checklist", or "we ran it on <open-source tool>". The contributor
+// companion reports these in toolkitAssetMentions, even when it judged the
+// document itself to be background material. Nothing is stored from this;
+// the app asks once, by name, under the pathway draft
+// (lib/adoption-conversation.ts appendPathwayDocMessage).
+export interface ToolkitAssetMention {
+  name: string;
+  // The uploaded file it was named in, or '' when it was the contributor's
+  // own message.
+  mentionedIn: string;
+}
+
+// How a mention is matched against earlier asks and consent cards, so the
+// same artifact is never asked about twice.
+export function assetMentionKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// At most this many artifacts named in one ask; any more wait for the next
+// draft update.
+export const MAX_ASSET_MENTIONS_PER_ASK = 5;
+
+// The ask under a pathway draft. `includeOthers` (first draft only) folds
+// the general "any asset to attach?" question into it, so the contributor
+// gets one question rather than two. Neutral wording on purpose: never that
+// sharing would make the pathway better.
+export function buildAssetMentionAsk(mentions: ToolkitAssetMention[], includeOthers: boolean): string {
+  const clean = (text: string) => oneLine(text).replace(/[*_`]/g, '');
+  const items = mentions.map((m) => `- **${clean(m.name)}**${m.mentionedIn ? ` (in ${clean(m.mentionedIn)})` : ''}`);
+  const single = mentions.length === 1;
+  const what = single ? 'it' : 'any of them';
+  return [
+    `Your material mentions ${single ? 'this' : 'these'}, but ${single ? "it wasn't" : "they weren't"} attached:`,
+    ...items,
+    '',
+    `Do you want to attach ${what}${includeOthers ? ', or any other asset,' : ''} with this pathway? You can attach the file or paste an https link here.`,
+  ].join('\n');
+}
+
 // Public metadata for a published asset — what GET /api/toolkit-assets
 // returns and ToolkitAssetCard renders. Never carries a storage path or URL.
 export interface ToolkitAssetSummary {
@@ -114,6 +155,21 @@ export interface ToolkitAssetSummary {
   linkDomain: string | null;
   pathwaySlug: string;
   pathwayTitle: string;
+  // When the asset went live (its pathway's approval) — shown on the card so
+  // an adopter can tell how old it is.
+  publishedAt: string | null;
+}
+
+// "Sep 2026" — month precision is what an adopter needs to judge age. A
+// fixed month list + UTC (not toLocaleDateString, whose short month varies by
+// ICU version: "Sep" vs "Sept") keeps the server-rendered prompt and the
+// client card in agreement.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function formatAssetMonth(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : `${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
 }
 
 // One entry of the block written into a pathway document at assemble time.
@@ -278,6 +334,7 @@ export interface ToolkitAssetPromptEntry {
   purpose: string;
   reuseCondition: string;
   kind: 'file' | 'link';
+  publishedAt?: string | null;
 }
 
 export function renderToolkitAssetsForPrompt(assets: ToolkitAssetPromptEntry[]): string {
@@ -285,21 +342,39 @@ export function renderToolkitAssetsForPrompt(assets: ToolkitAssetPromptEntry[]):
     .map((a) => {
       const purpose = a.purpose ? ` — ${oneLine(a.purpose)}` : '';
       const reuse = a.reuseCondition ? ` Reuse when: ${oneLine(a.reuseCondition)}` : '';
-      return `- id: ${a.id} · pathway: ${a.pathwayTitle || a.pathwaySlug} (${a.pathwaySlug}) · ${a.kind === 'file' ? 'file' : 'link'} · ${oneLine(a.name)}${purpose}${reuse}`;
+      const shared = formatAssetMonth(a.publishedAt);
+      return `- id: ${a.id} · pathway: ${a.pathwayTitle || a.pathwaySlug} (${a.pathwaySlug}) · ${a.kind === 'file' ? 'file' : 'link'}${shared ? ` · shared ${shared}` : ''} · ${oneLine(a.name)}${purpose}${reuse}`;
     })
     .join('\n');
 }
 
-// `whereRelevant` narrows which pathway's assets qualify: in /analyse only a
-// pathway that genuinely matches the user's situation; in /explore the one
-// pathway the conversation is about. `howToAttach` names the contract field
-// that carries the ids (the model never writes a link itself).
+// `whereRelevant` narrows which pathway's assets qualify: in /analyse a
+// pathway that matches the user's situation;
+// in /explore the one pathway the conversation is about. `howToAttach` names
+// the contract field that carries the ids (the model never writes a link
+// itself). The match rules and the explicit-ask rules are the behaviour in
+// docs/tasks/toolkit-asset-files/requirement.md.
 export function toolkitAssetTimingRules(whereRelevant: string, howToAttach: string): string {
   return `Toolkit asset files are real files and links that a pathway's contributors have shared publicly for reuse — templates, checklists, cost models, test sets, glossaries, tools. Offer them only inside the conversation, and only at the right moment:
-- Never in your first reply of the conversation.
-- From the user's second message onward, once the conversation is genuinely about ${whereRelevant} that has assets listed below, bring them up once as the assets associated with that pathway — one short line each on what it is and when it helps, framed as something they could reuse, never as a recommendation.
-- Straight away, at any point, if the user asks about tools, templates, resources, files, downloads, or how to implement or reuse something — as long as an asset below genuinely bears on what they asked.
+- Not in your first reply of the conversation — unless the user's own message explicitly asks for tools, templates, resources, files, or downloads.
+- From the user's second message onward, once the conversation is genuinely about ${whereRelevant} that has assets listed below, bring up the ones that bear on what they're doing, once, as assets associated with that pathway.
+- Straight away, at any point, if the user asks about tools, templates, resources, files, downloads, or how to implement or reuse something.
 - Don't offer the same asset again later in the conversation unless the user asks for it again.
 - Never invent an asset, and never write a URL, link, or file path for one — ${howToAttach}; the product then shows a download card under your reply.
-- If no asset below genuinely fits, say nothing about assets at all.`;
+
+How well each asset fits — judge every asset on its own, never a pathway's assets as a bundle:
+- **Match** — when an asset matches what the user is working on or asking about (its sector, problem, or "Reuse when"), surface it directly: show that this is a relevant tool from this pathway that can help them with this, stating what it is and when it helps based on its "Reuse when". Framed as something they could reuse from another deployment, never as a recommendation or "you should".
+- **No match** — don't mention it. Stretching an asset to fit is worse than leaving it out.
+- If the user explicitly asked for tools, templates, or files and no asset below fits, say so plainly in one line (e.g. "No shared toolkit files match this yet") instead of saying nothing. You may then point to a toolkit a pathway document only describes in its text, saying plainly that it's described there and there's no file to download.
+- When assets come from more than one pathway, say which pathway each comes from. When two assets serve the same need from different pathways, offer both, each with its own "Reuse when" — don't pick one.
+- You only know each asset's name, purpose, "Reuse when", and when it was shared — never its contents. Don't describe what's inside a file beyond its stated purpose; the user can download it.
+- If an asset was shared more than 12 months ago, mention when, in one clause, where its purpose depends on things that change (prices, models, vendors, policy).`;
+}
+
+// The prompt block for when there are no shared asset files to offer (no
+// published assets anywhere for /analyse, or none on the open pathway for
+// /explore — every curated pathway). The explicit-ask answer still has to
+// reach the model, or a user asking for templates gets silence or a guess.
+export function noToolkitAssetsRule(whereRelevant: string): string {
+  return `No toolkit asset files (downloadable templates, checklists, tools or links shared by contributors) exist for ${whereRelevant} yet. Don't bring the subject up yourself. If the user explicitly asks for tools, templates, resources, files, or downloads, say so plainly in one line (e.g. "No shared toolkit files match this yet"). You may then point to a toolkit a pathway document only describes in its text, saying plainly that it's described there and there's no file to download. Never invent a file, a link, or a download.`;
 }

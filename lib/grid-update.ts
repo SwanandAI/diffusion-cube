@@ -1,6 +1,6 @@
 import type { CellState } from '@/lib/dimensions';
 import type { ExplorerIntent } from '@/lib/explorer-intents';
-import { isAssetId, type ToolkitAssetCandidate } from '@/lib/toolkit-assets';
+import { isAssetId, type ToolkitAssetCandidate, type ToolkitAssetMention } from '@/lib/toolkit-assets';
 
 // Step 5 (Generate Output) wraps the Deep Dive Report / Holistic Adoption
 // Plan's full markdown in this tag pair — shared between ChatPanel (renders
@@ -102,6 +102,14 @@ export interface ParsedGridUpdate {
   // "Toolkit asset files" section). Only a proposal — the client asks the
   // contributor for public-sharing consent before anything is stored.
   toolkitAssetCandidates?: ToolkitAssetCandidate[];
+  // Contributor-only: reusable artifacts the material shared this turn names
+  // but didn't attach (see ToolkitAssetMention) — the client asks about them
+  // under the next pathway draft.
+  toolkitAssetMentions?: ToolkitAssetMention[];
+  // Contributor-only: true on the turn the contributor answered an ask about
+  // attaching assets with "nothing / don't want to share" — the client then
+  // never asks again in this conversation.
+  toolkitAssetAskDeclined?: boolean;
   // Explorer-only: ids of published toolkit assets the companion offered this
   // turn — the client validates them against GET /api/toolkit-assets and
   // renders download cards (see explorerSystemPrompt).
@@ -150,6 +158,26 @@ function parseToolkitAssetCandidates(value: unknown): ToolkitAssetCandidate[] | 
   return out;
 }
 
+// Lenient like parseToolkitAssetCandidates: a bare string is taken as the
+// name. Capped, since these turn into one chat question.
+function parseToolkitAssetMentions(value: unknown): ToolkitAssetMention[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: ToolkitAssetMention[] = [];
+  for (const raw of value) {
+    let name = '';
+    let mentionedIn = '';
+    if (typeof raw === 'string') {
+      name = raw.trim();
+    } else if (raw && typeof raw === 'object') {
+      const entry = raw as Record<string, unknown>;
+      name = str(entry.name);
+      mentionedIn = str(entry.mentionedIn ?? entry.source ?? entry.fileName);
+    }
+    if (name && name.length <= 150) out.push({ name, mentionedIn: mentionedIn.slice(0, 200) });
+  }
+  return out.slice(0, 10);
+}
+
 export function parseGridUpdate(text: string): ParsedGridUpdate | null {
   const match = text.match(/<grid_update>([\s\S]*?)<\/grid_update>/);
   if (!match) return null;
@@ -163,6 +191,8 @@ export function parseGridUpdate(text: string): ParsedGridUpdate | null {
       pathwayAction: parsed.pathwayAction,
       explorerAction: parsed.explorerAction,
       toolkitAssetCandidates: parseToolkitAssetCandidates(parsed.toolkitAssetCandidates),
+      toolkitAssetMentions: parseToolkitAssetMentions(parsed.toolkitAssetMentions),
+      toolkitAssetAskDeclined: parsed.toolkitAssetAskDeclined === true,
       toolkitAssetsReferenced: Array.isArray(parsed.toolkitAssetsReferenced)
         ? [...new Set<string>(parsed.toolkitAssetsReferenced.filter(isAssetId))]
         : undefined,
