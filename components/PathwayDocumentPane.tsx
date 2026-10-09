@@ -13,7 +13,10 @@ interface Props {
   loading: boolean;
   error: string | null;
   onClose: () => void;
-  onPublish: (commitMessage: string) => Promise<{ ok: boolean; slug?: string; error?: string }>;
+  // Send for Review: asks "may this be published?" on a card in the chat
+  // (useAdoptionConversation's requestPublishConsent) — the pathway is sent
+  // only once the contributor confirms there.
+  onPublish: () => Promise<{ ok: boolean; error?: string }>;
   status: 'draft' | 'awaiting' | 'published';
   versions: VersionOption[];
   selectedVersionNumber: number | null;
@@ -52,6 +55,7 @@ export default function PathwayDocumentPane({
 }: Props) {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [askedInChat, setAskedInChat] = useState(false);
   // Toolkit assets shared since the last Send for Review — offering the
   // button again lets them reach the admin without a text change.
   const [unsentAssets, setUnsentAssets] = useState(0);
@@ -68,8 +72,9 @@ export default function PathwayDocumentPane({
     setPublishing(true);
     setPublishError(null);
     try {
-      const result = await onPublish('Update pathway page');
+      const result = await onPublish();
       if (!result.ok) setPublishError(result.error || 'Could not publish. Try again.');
+      else setAskedInChat(true);
     } finally {
       setPublishing(false);
     }
@@ -132,6 +137,9 @@ export default function PathwayDocumentPane({
       {!error && markdown && (
         <div className="flex flex-shrink-0 items-center justify-end gap-2 border-t border-navy/10 p-3">
           {publishError && <p className="mr-auto text-xs text-coral">{publishError}</p>}
+          {!publishError && askedInChat && status === 'draft' && (
+            <p className="mr-auto text-xs text-ink-soft">Please confirm in the chat to send it.</p>
+          )}
           {selectedVersionNumber !== null && selectedVersionNumber !== latestVersionNumber ? (
             <p className="mr-auto text-xs text-ink-soft">
               Viewing v0.{selectedVersionNumber} — publishing always uses the latest version.

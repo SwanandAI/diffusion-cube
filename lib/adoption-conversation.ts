@@ -4,13 +4,16 @@ import { Message } from '@/components/ChatPanel';
 import { createClient } from '@/lib/supabase/client';
 import { extractTextFromFile, fileToImageBlock, getFileExtension, isImageFile } from '@/lib/extract-text';
 import {
-  MAX_ASSET_MENTIONS_PER_ASK,
   TOOLKIT_ASSET_BUCKET,
   assetExtension,
   assetMentionKey,
-  buildAssetMentionAsk,
   candidateSourceKey,
   isAllowedAssetFile,
+  mentionItemKey,
+  resourceReviewContent,
+  type PublishConsentState,
+  type ResourceReviewItem,
+  type ResourceReviewState,
   type ToolkitAssetCandidate,
   type ToolkitAssetConsentState,
   type ToolkitAssetMention,
@@ -22,6 +25,8 @@ import {
   DELIVERABLE_START,
   EXEC_SUMMARY_MARKER,
   PATHWAY_DOC_MARKER,
+  PUBLISH_CONSENT_MARKER,
+  RESOURCE_REVIEW_MARKER,
   TOOLKIT_ASSET_CONSENT_MARKER,
   type ParsedGridUpdate,
 } from '@/lib/grid-update';
@@ -273,25 +278,169 @@ export function rowToConversation(row: AdoptionRow): AdoptionConversation {
 // Converts our Message[] into the Anthropic content shape, expanding any
 // attached images into content blocks — shared by the main chat turn and the
 // one-off document-generation calls so they build requests identically.
-// Contributor-only: artifacts the companion saw named in the material
-// (Message.toolkitAssetMentions) that haven't been asked about yet and
-// haven't already reached a consent card. Nothing at all once the contributor
-// has declined attaching assets.
-export function pendingAssetMentions(messages: Message[]): ToolkitAssetMention[] {
-  if (messages.some((m) => m.toolkitAssetAskDeclined)) return [];
-  const done = new Set<string>();
+// ---------------------------------------------------------------------------
+// Contributor resource review — pure helpers (see ResourceReviewState)
+// ---------------------------------------------------------------------------
+
+// Keys of everything the contributor has already been asked about: items on
+// any resource review card, plus legacy one-candidate consent cards.
+function reviewedResourceKeys(messages: Message[]): Set<string> {
+  const keys = new Set<string>();
   for (const m of messages) {
-    for (const key of m.toolkitAssetMentionsAsked ?? []) done.add(key);
-    if (m.toolkitAssetConsent) done.add(assetMentionKey(m.toolkitAssetConsent.candidate.name));
+    for (const item of m.resourceReview?.items ?? []) {
+      keys.add(item.key);
+      keys.add(mentionItemKey(item.name));
+      if (item.candidate) keys.add(candidateSourceKey(item.candidate));
+    }
+    if (m.toolkitAssetConsent) {
+      keys.add(candidateSourceKey(m.toolkitAssetConsent.candidate));
+      keys.add(mentionItemKey(m.toolkitAssetConsent.candidate.name));
+    }
   }
-  const pending: ToolkitAssetMention[] = [];
-  for (const mention of messages.flatMap((m) => m.toolkitAssetMentions ?? [])) {
-    const key = assetMentionKey(mention.name);
-    if (!key || done.has(key)) continue;
-    done.add(key);
-    pending.push(mention);
+  return keys;
+}
+
+// A file candidate must name a file actually uploaded in this conversation,
+// and a link must appear verbatim in something the contributor typed — the
+// model has been seen to "correct" a pasted link into a URL nobody gave,
+// which would then be published as theirs.
+function validCandidates(candidates: ToolkitAssetCandidate[], messages: Message[]): ToolkitAssetCandidate[] {
+  const uploaded = new Set(extractUploadedFileNames(messages));
+  const userText = messages
+    .filter((m) => m.role === 'user')
+    .map((m) => m.displayContent ?? m.content)
+    .join('\n');
+  return candidates.filter((candidate) =>
+    'fileName' in candidate.source ? uploaded.has(candidate.source.fileName) : userText.includes(candidate.source.url)
+  );
+}
+
+// New review items for candidates and mentions not reviewed yet. A mention
+// whose name matches a candidate is dropped: the real file or link wins.
+export function newResourceItems(
+  candidates: ToolkitAssetCandidate[],
+  mentions: ToolkitAssetMention[],
+  reviewed: Set<string>
+): ResourceReviewItem[] {
+  const seen = new Set(reviewed);
+  const items: ResourceReviewItem[] = [];
+  for (const candidate of candidates) {
+    const key = candidateSourceKey(candidate);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    seen.add(mentionItemKey(candidate.name));
+    items.push({ key, name: candidate.name, candidate, status: 'pending' });
   }
-  return pending;
+  for (const mention of mentions) {
+    const key = mentionItemKey(mention.name);
+    if (!assetMentionKey(mention.name) || seen.has(key)) continue;
+    seen.add(key);
+    items.push({ key, name: mention.name, mentionedIn: mention.mentionedIn, status: 'pending' });
+  }
+  return items;
+}
+
+function sameSource(a: { fileName: string } | { url: string }, b: { fileName: string } | { url: string }): boolean {
+  return 'fileName' in a ? 'fileName' in b && a.fileName === b.fileName : 'url' in b && a.url === b.url;
+}
+
+// Folds one companion turn's findings into an open review. Something
+// attached from the card takes the candidate that matches its file or link;
+// a pending mention takes a candidate with its name; the rest are new items.
+// Anything attached from the card that the check didn't list is background
+// material (the "doesn't pass the checks" branch).
+export function mergeIntoReview(
+  review: ResourceReviewState,
+  candidates: ToolkitAssetCandidate[],
+  mentions: ToolkitAssetMention[],
+  reviewed: Set<string>
+): ResourceReviewState {
+  const items = review.items.map((item) => ({ ...item }));
+  const leftover: ToolkitAssetCandidate[] = [];
+  for (const candidate of candidates) {
+    const attached = items.find((i) => i.attachedSource && sameSource(i.attachedSource, candidate.source));
+    if (attached) {
+      attached.candidate = candidate;
+      attached.attachedSource = undefined;
+      if (attached.key.startsWith('attached:')) attached.name = candidate.name;
+      continue;
+    }
+    const named = items.find(
+      (i) => !i.candidate && !i.attachedSource && i.status === 'pending' && i.key === mentionItemKey(candidate.name)
+    );
+    if (named) {
+      named.candidate = candidate;
+      continue;
+    }
+    leftover.push(candidate);
+  }
+  for (const item of items) {
+    if (!item.attachedSource) continue;
+    item.attachedSource = undefined;
+    item.status = 'background';
+  }
+  const known = new Set([...reviewed, ...items.map((i) => i.key)]);
+  return { ...review, items: [...items, ...newResourceItems(leftover, mentions, known)] };
+}
+
+// Findings from a turn the contributor started in chat (an upload or a link,
+// not something attached from a card) get their own new card at the bottom,
+// next to that upload, instead of being folded into an older card further
+// up where they'd go unnoticed. A still-pending mention on an older open
+// card that this turn's file or link now answers moves to the new card with
+// it, so the same resource is never asked about twice. Pure — the caller
+// applies `messages` and appends a card holding `items`.
+export function takeFindingsForFreshReview(
+  messages: Message[],
+  candidates: ToolkitAssetCandidate[],
+  mentions: ToolkitAssetMention[]
+): { messages: Message[]; items: ResourceReviewItem[] } {
+  const moved: ResourceReviewItem[] = [];
+  const remaining: ToolkitAssetCandidate[] = [];
+  const movedKeys = new Set<string>();
+  for (const candidate of candidates) {
+    const key = mentionItemKey(candidate.name);
+    const pending = messages.some((m) =>
+      m.resourceReview?.status === 'open' &&
+      m.resourceReview.items.some((i) => i.key === key && i.status === 'pending' && !i.candidate && !i.attachedSource)
+    );
+    if (pending && !movedKeys.has(key)) {
+      movedKeys.add(key);
+      const from = messages
+        .flatMap((m) => m.resourceReview?.items ?? [])
+        .find((i) => i.key === key && i.status === 'pending');
+      moved.push({ ...from!, candidate });
+    } else {
+      remaining.push(candidate);
+    }
+  }
+  const next = movedKeys.size === 0
+    ? messages
+    : messages.map((m) => {
+        const review = m.resourceReview;
+        if (review?.status !== 'open' || !review.items.some((i) => movedKeys.has(i.key) && i.status === 'pending')) return m;
+        const updated = { ...review, items: review.items.filter((i) => !(movedKeys.has(i.key) && i.status === 'pending')) };
+        return { ...m, resourceReview: updated, content: resourceReviewContent(updated) };
+      });
+  const reviewed = reviewedResourceKeys(next);
+  for (const item of moved) {
+    reviewed.add(item.key);
+    if (item.candidate) reviewed.add(candidateSourceKey(item.candidate));
+  }
+  return { messages: next, items: [...moved, ...newResourceItems(remaining, mentions, reviewed)] };
+}
+
+function publishConsentContent(consent: PublishConsentState): string {
+  switch (consent.status) {
+    case 'sent':
+      return 'The contributor confirmed this version is accurate and sent the pathway for administrator review.';
+    case 'kept':
+      return 'The contributor chose not to publish for now; the pathway stays a private draft.';
+    case 'deleted':
+      return 'The contributor deleted this contribution.';
+    default:
+      return 'Asked the contributor to confirm this version is accurate and may be published to help future adopters once an administrator approves it.';
+  }
 }
 
 export function toApiMessages(messages: Message[]) {
@@ -648,39 +797,19 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     const gaps = opts.includeGaps ? extractGapsFromPathwayDraft(markdown) : [];
     const gapsLine = gaps.length ? `\n\nA few things I couldn't find in the documents:\n${gaps.map((g) => `- ${g}`).join('\n')}` : '';
     const intro = opts.includeGaps ? `Here is the pathway document drafted from your documents.${gapsLine}` : "Here's the updated pathway document.";
-    // Asking for assets happens here, under the draft, rather than in the
-    // companion's prose, because its step rules leave no turn for it; the
-    // companion sees these lines in history and doesn't repeat them (see
-    // contributorSystemPrompt's "Toolkit asset files"). Two asks:
-    // - artifacts the material named but didn't attach (toolkitAssetMentions),
-    //   by name, each once — under the first draft or any later revision,
-    //   since a new document can name new ones;
-    // - first draft only, when nothing has reached a consent card yet, the
-    //   general "any asset to attach?" — folded into the first ask if both
-    //   apply, so it's one question.
-    // Neither after the contributor has declined attaching assets.
-    const msgs = conversationRef.current?.messages ?? [];
-    const declined = msgs.some((m) => m.toolkitAssetAskDeclined);
-    const mentions = pendingAssetMentions(msgs).slice(0, MAX_ASSET_MENTIONS_PER_ASK);
-    const askGeneral = opts.includeGaps && !declined && !msgs.some((m) => m.toolkitAssetConsent);
-    const assetAsk = mentions.length
-      ? `\n\n${buildAssetMentionAsk(mentions, askGeneral)}`
-      : askGeneral
-        ? `\n\nIs there any asset you want to attach with this pathway? You can attach the file or paste an https link here.`
-        : '';
-    const content = `${intro}\n\n${PATHWAY_DOC_MARKER}\n\nDo you want to make any changes or want to publish it?${assetAsk}`;
-    const message: Message = {
-      role: 'assistant',
-      content,
-      ...(mentions.length ? { toolkitAssetMentionsAsked: mentions.map((m) => assetMentionKey(m.name)) } : {}),
-    };
+    // Resources are asked about on the resource review card (before the
+    // first draft, and whenever new ones turn up), never under the draft.
+    const content = `${intro}\n\n${PATHWAY_DOC_MARKER}\n\nDo you want to make any changes, or send it for review?`;
+    const message: Message = { role: 'assistant', content };
 
     update((c) => ({ ...c, messages: [...c.messages, message] }));
     if (conversationRef.current) void persist(conversationRef.current);
   }
 
   function appendPublishOutcomeMessage(result: { ok: boolean; slug?: string; error?: string }) {
-    const content = result.ok ? `Published — it's live now.\n\n${PATHWAY_DOC_MARKER}` : `I couldn't publish it — ${result.error || 'something went wrong. Try again.'}`;
+    const content = result.ok
+      ? `Sent for review. An administrator will check it before it goes live.\n\n${PATHWAY_DOC_MARKER}`
+      : `I couldn't send it for review — ${result.error || 'something went wrong. Try again.'}`;
     update((c) => ({ ...c, messages: [...c.messages, { role: 'assistant', content }] }));
     if (conversationRef.current) void persist(conversationRef.current);
   }
@@ -708,86 +837,26 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     return `${line}\n\n${TOOLKIT_ASSET_CONSENT_MARKER}`;
   }
 
-  // Contributor-only: one consent card per new toolkit-asset candidate the
-  // companion flagged this turn (see contributorSystemPrompt). Nothing is
-  // uploaded here — only after the contributor answers Yes on the card. A
-  // file candidate must name a file actually uploaded in this conversation,
-  // and a source already asked about is never asked again.
-  function appendToolkitAssetConsentMessages(candidates: ToolkitAssetCandidate[]) {
-    const cur = conversationRef.current;
-    if (!cur) return;
-    const seen = new Set(
-      cur.messages.flatMap((m) => (m.toolkitAssetConsent ? [candidateSourceKey(m.toolkitAssetConsent.candidate)] : []))
-    );
-    const uploaded = new Set(extractUploadedFileNames(cur.messages));
-    // A link must appear verbatim in something the contributor typed — the
-    // model has been seen to "correct" a pasted link into a URL nobody gave,
-    // which would then be published as theirs.
-    const userText = cur.messages
-      .filter((m) => m.role === 'user')
-      .map((m) => m.displayContent ?? m.content)
-      .join('\n');
-    const fresh = candidates.filter((candidate) => {
-      const key = candidateSourceKey(candidate);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return 'fileName' in candidate.source
-        ? uploaded.has(candidate.source.fileName)
-        : userText.includes(candidate.source.url);
-    });
-    if (fresh.length === 0) return;
-
-    const messages: Message[] = fresh.map((candidate) => {
-      const consent: ToolkitAssetConsentState = {
-        id: `consent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        candidate,
-        status: 'pending',
-      };
-      return {
-        role: 'assistant',
-        content: toolkitAssetConsentContent(consent),
-        displayContent: TOOLKIT_ASSET_CONSENT_MARKER,
-        toolkitAssetConsent: consent,
-      };
-    });
-    commitMessages((msgs) => [...msgs, ...messages]);
-  }
-
   function hasToolkitAssetFile(fileName: string): boolean {
     return assetFilesRef.current.has(fileName);
   }
 
-  // The contributor's answer on a consent card. No → nothing is stored. Yes →
-  // signed upload straight to the private bucket (files only), then register
-  // the unpublished contribution_units row. The card shows the error and stays
-  // answerable if anything fails.
-  async function answerToolkitAssetConsent(consentId: string, share: boolean): Promise<{ ok: boolean; error?: string }> {
+  // Re-selecting a file after a reload (the copy held in memory is lost) so
+  // it can still be shared from the resource review card.
+  function rememberToolkitAssetFile(file: File) {
+    if (isAllowedAssetFile(file.name, file.size)) assetFilesRef.current.set(file.name, file);
+  }
+
+  // Uploads (files only, straight to the private bucket via a signed URL)
+  // and registers one asset the contributor agreed to share publicly, as an
+  // unpublished contribution_units row. Nothing is stored before this runs.
+  async function registerToolkitAsset(
+    candidate: ToolkitAssetCandidate
+  ): Promise<{ ok: true; assetId: string } | { ok: false; error: string }> {
     const cur = conversationRef.current;
-    const consent = cur?.messages.find((m) => m.toolkitAssetConsent?.id === consentId)?.toolkitAssetConsent;
-    if (!cur || !consent || consent.status !== 'pending') return { ok: true };
-    if (consentInFlightRef.current.has(consentId)) return { ok: false };
-
-    const setStatus = (status: ToolkitAssetConsentState['status'], assetId?: string) =>
-      commitMessages((msgs) =>
-        msgs.map((m) => {
-          if (m.toolkitAssetConsent?.id !== consentId) return m;
-          const next = { ...m.toolkitAssetConsent, status, assetId };
-          return { ...m, toolkitAssetConsent: next, content: toolkitAssetConsentContent(next) };
-        })
-      );
-    const { candidate } = consent;
+    const pathwayId = cur?.meta.pathwayId;
+    if (!cur || !pathwayId) return { ok: false, error: "This workspace isn't linked to a pathway." };
     const fileName = 'fileName' in candidate.source ? candidate.source.fileName : null;
-
-    if (!share) {
-      if (fileName) assetFilesRef.current.delete(fileName);
-      setStatus('declined');
-      return { ok: true };
-    }
-
-    const pathwayId = cur.meta.pathwayId;
-    if (!pathwayId) return { ok: false, error: "This workspace isn't linked to a pathway." };
-
-    consentInFlightRef.current.add(consentId);
     try {
       const base = {
         pathwayId,
@@ -831,14 +900,307 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       if (!res.ok) return { ok: false, error: data.error ?? 'Could not save the asset. Try again.' };
 
       if (fileName) assetFilesRef.current.delete(fileName);
-      setStatus('shared', data.id);
       setToolkitAssetsVersion((v) => v + 1);
-      return { ok: true };
+      return { ok: true, assetId: data.id as string };
     } catch (err) {
-      console.error('[toolkit-assets] consent submit failed:', err);
+      console.error('[toolkit-assets] share failed:', err);
       return { ok: false, error: 'Something went wrong. Try again.' };
+    }
+  }
+
+  // LEGACY one-candidate consent card (older conversations only). No →
+  // nothing is stored. The card shows the error and stays answerable if
+  // anything fails.
+  async function answerToolkitAssetConsent(consentId: string, share: boolean): Promise<{ ok: boolean; error?: string }> {
+    const cur = conversationRef.current;
+    const consent = cur?.messages.find((m) => m.toolkitAssetConsent?.id === consentId)?.toolkitAssetConsent;
+    if (!cur || !consent || consent.status !== 'pending') return { ok: true };
+    if (consentInFlightRef.current.has(consentId)) return { ok: false };
+
+    const setStatus = (status: ToolkitAssetConsentState['status'], assetId?: string) =>
+      commitMessages((msgs) =>
+        msgs.map((m) => {
+          if (m.toolkitAssetConsent?.id !== consentId) return m;
+          const next = { ...m.toolkitAssetConsent, status, assetId };
+          return { ...m, toolkitAssetConsent: next, content: toolkitAssetConsentContent(next) };
+        })
+      );
+
+    if (!share) {
+      if ('fileName' in consent.candidate.source) assetFilesRef.current.delete(consent.candidate.source.fileName);
+      setStatus('declined');
+      return { ok: true };
+    }
+    consentInFlightRef.current.add(consentId);
+    try {
+      const result = await registerToolkitAsset(consent.candidate);
+      if (!result.ok) return result;
+      setStatus('shared', result.assetId);
+      return { ok: true };
     } finally {
       consentInFlightRef.current.delete(consentId);
+    }
+  }
+
+  // ---- Resource review card -------------------------------------------------
+
+  function findResourceReview(reviewId: string): ResourceReviewState | undefined {
+    return conversationRef.current?.messages.find((m) => m.resourceReview?.id === reviewId)?.resourceReview;
+  }
+
+  function updateResourceReview(reviewId: string, mutate: (review: ResourceReviewState) => ResourceReviewState) {
+    commitMessages((msgs) =>
+      msgs.map((m) => {
+        if (m.resourceReview?.id !== reviewId) return m;
+        const next = mutate(m.resourceReview);
+        return { ...m, resourceReview: next, content: resourceReviewContent(next) };
+      })
+    );
+  }
+
+  function updateResourceItem(reviewId: string, itemKey: string, patch: Partial<ResourceReviewItem>) {
+    updateResourceReview(reviewId, (review) => ({
+      ...review,
+      items: review.items.map((item) => (item.key === itemKey ? { ...item, ...patch } : item)),
+    }));
+  }
+
+  function appendResourceReview(items: ResourceReviewItem[], generateOnComplete: boolean) {
+    const review: ResourceReviewState = {
+      id: `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      items,
+      status: 'open',
+      generateOnComplete,
+    };
+    commitMessages((msgs) => [
+      ...msgs,
+      { role: 'assistant', content: resourceReviewContent(review), displayContent: RESOURCE_REVIEW_MARKER, resourceReview: review },
+    ]);
+  }
+
+  // Contributor-only, after each companion turn: where this turn's resource
+  // findings go. If the turn came from a card (something attached from it is
+  // waiting for this check), that card takes them and settles the
+  // attachment. Otherwise, once the first review has happened — or, in an
+  // older conversation, once a draft exists — they get a fresh card at the
+  // bottom (takeFindingsForFreshReview), even while an older card is still
+  // open. Before that they wait on the message for the first review to
+  // collect.
+  function routeResourceFindings(parsed: ParsedGridUpdate | null) {
+    const msgs = conversationRef.current?.messages ?? [];
+    const candidates = validCandidates(parsed?.toolkitAssetCandidates ?? [], msgs);
+    const mentions = parsed?.toolkitAssetMentions ?? [];
+    const fromCard = [...msgs]
+      .reverse()
+      .find((m) => m.resourceReview?.status === 'open' && m.resourceReview.items.some((i) => i.attachedSource))?.resourceReview;
+    if (fromCard) {
+      const reviewed = reviewedResourceKeys(msgs.filter((m) => m.resourceReview?.id !== fromCard.id));
+      updateResourceReview(fromCard.id, (review) => mergeIntoReview(review, candidates, mentions, reviewed));
+      return;
+    }
+    const reviewStarted = msgs.some(
+      (m) => m.resourceReview || (m.role === 'assistant' && m.content.includes(PATHWAY_DOC_MARKER))
+    );
+    if (!reviewStarted) return;
+    if (takeFindingsForFreshReview(msgs, candidates, mentions).items.length === 0) return;
+    const review: ResourceReviewState = {
+      id: `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      items: [],
+      status: 'open',
+      generateOnComplete: false,
+    };
+    // commitMessages runs this twice (state + persist), so it stays pure —
+    // the id is fixed above.
+    commitMessages((all) => {
+      const { messages, items } = takeFindingsForFreshReview(all, candidates, mentions);
+      if (items.length === 0) return all;
+      const fresh = { ...review, items };
+      return [
+        ...messages,
+        { role: 'assistant', content: resourceReviewContent(fresh), displayContent: RESOURCE_REVIEW_MARKER, resourceReview: fresh },
+      ];
+    });
+  }
+
+  // Stage confirmed: the first review collects everything found so far, and
+  // finishing it generates the first draft.
+  function startFirstResourceReview() {
+    const msgs = conversationRef.current?.messages ?? [];
+    const items = newResourceItems(
+      validCandidates(msgs.flatMap((m) => m.toolkitAssetCandidates ?? []), msgs),
+      msgs.flatMap((m) => m.toolkitAssetMentions ?? []),
+      reviewedResourceKeys(msgs)
+    );
+    appendResourceReview(items, true);
+  }
+
+  // Share or don't share one item. Clicking Share is the consent — the card
+  // states under the buttons that shared resources are public.
+  async function decideResourceItem(
+    reviewId: string,
+    itemKey: string,
+    share: boolean
+  ): Promise<{ ok: boolean; error?: string }> {
+    const item = findResourceReview(reviewId)?.items.find((i) => i.key === itemKey);
+    if (!item || item.status !== 'pending') return { ok: true };
+    if (!share) {
+      if (item.candidate && 'fileName' in item.candidate.source) assetFilesRef.current.delete(item.candidate.source.fileName);
+      updateResourceItem(reviewId, itemKey, { status: 'declined', attachedSource: undefined });
+      return { ok: true };
+    }
+    if (!item.candidate) return { ok: false, error: 'Attach the file or paste its link first.' };
+    const flight = `${reviewId}:${itemKey}`;
+    if (consentInFlightRef.current.has(flight)) return { ok: false };
+    consentInFlightRef.current.add(flight);
+    try {
+      const result = await registerToolkitAsset(item.candidate);
+      if (!result.ok) return result;
+      updateResourceItem(reviewId, itemKey, { status: 'shared', assetId: result.assetId });
+      return { ok: true };
+    } finally {
+      consentInFlightRef.current.delete(flight);
+    }
+  }
+
+  // The text sent to the companion once a file attached from the card has
+  // been read (see the auto-send effect below handleUserSend).
+  const autoSendRef = useRef<string | null>(null);
+
+  // Attach the missing file for an item (itemKey) or another resource (null).
+  // It goes through the normal upload path — staged, read, then sent to the
+  // companion, which checks it like any upload; mergeIntoReview settles it.
+  function attachForResourceItem(reviewId: string, itemKey: string | null, file: File) {
+    const c = conversationRef.current;
+    const review = findResourceReview(reviewId);
+    if (!c || !review || review.status !== 'open') return;
+    const item = itemKey ? review.items.find((i) => i.key === itemKey) : undefined;
+    const source = { fileName: file.name };
+    if (item) {
+      updateResourceItem(reviewId, item.key, { attachedSource: source });
+    } else {
+      updateResourceReview(reviewId, (r) => ({
+        ...r,
+        items: [...r.items, { key: `attached:file:${file.name}`, name: file.name, attachedSource: source, status: 'pending' }],
+      }));
+    }
+    autoSendRef.current = item
+      ? `This is the ${item.name}${item.mentionedIn ? ` mentioned in ${item.mentionedIn}` : ''}.`
+      : 'Here is another resource I want to share.';
+    handleAttachFiles([file], c.meta.flow);
+  }
+
+  function linkForResourceItem(reviewId: string, itemKey: string | null, url: string): { ok: boolean; error?: string } {
+    const review = findResourceReview(reviewId);
+    if (!review || review.status !== 'open') return { ok: false };
+    const link = url.trim();
+    if (!/^https:\/\/\S+$/.test(link)) return { ok: false, error: 'Links must start with https://' };
+    const item = itemKey ? review.items.find((i) => i.key === itemKey) : undefined;
+    if (item) {
+      updateResourceItem(reviewId, item.key, { attachedSource: { url: link } });
+    } else {
+      updateResourceReview(reviewId, (r) => ({
+        ...r,
+        items: [...r.items, { key: `attached:url:${link}`, name: link, attachedSource: { url: link }, status: 'pending' }],
+      }));
+    }
+    void handleUserSend(item ? `Here's the link for the ${item.name}: ${link}` : `Here's another resource I want to share: ${link}`);
+    return { ok: true };
+  }
+
+  // Undo the "waiting for check" state of items whose file never got sent
+  // (e.g. an unsupported type).
+  function revertUnsentAttachments() {
+    const msgs = conversationRef.current?.messages ?? [];
+    const sent = new Set(extractUploadedFileNames(msgs));
+    for (const m of msgs) {
+      const review = m.resourceReview;
+      if (review?.status !== 'open') continue;
+      const stale = review.items.filter((i) => i.attachedSource && 'fileName' in i.attachedSource && !sent.has(i.attachedSource.fileName));
+      if (stale.length === 0) continue;
+      updateResourceReview(review.id, (r) => ({
+        ...r,
+        items: r.items
+          .filter((i) => !(stale.some((s) => s.key === i.key) && i.key.startsWith('attached:')))
+          .map((i) => (stale.some((s) => s.key === i.key) ? { ...i, attachedSource: undefined } : i)),
+      }));
+    }
+  }
+
+  // "No other resources" — closes the review. The first review then
+  // generates the first draft.
+  async function finishResourceReview(reviewId: string) {
+    const review = findResourceReview(reviewId);
+    if (!review || review.status !== 'open' || review.items.some((i) => i.status === 'pending')) return;
+    updateResourceReview(reviewId, (r) => ({ ...r, status: 'complete' }));
+    if (!review.generateOnComplete) return;
+    setLoading(true);
+    try {
+      const markdown = await generatePathwayDraft();
+      if (markdown) appendPathwayDocMessage(markdown, { includeGaps: true });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ---- "May this pathway be published?" ------------------------------------
+
+  // Asked before every Send for Review, whether it came from the document
+  // pane's button or the contributor asking in chat.
+  async function requestPublishConsent(): Promise<{ ok: boolean; error?: string }> {
+    const msgs = conversationRef.current?.messages ?? [];
+    if (msgs.some((m) => m.publishConsent?.status === 'pending')) return { ok: true };
+    const consent: PublishConsentState = { id: `publish-${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'pending' };
+    commitMessages((all) => [
+      ...all,
+      { role: 'assistant', content: publishConsentContent(consent), displayContent: PUBLISH_CONSENT_MARKER, publishConsent: consent },
+    ]);
+    return { ok: true };
+  }
+
+  async function answerPublishConsent(
+    consentId: string,
+    choice: 'send' | 'keep' | 'delete'
+  ): Promise<{ ok: boolean; error?: string }> {
+    const cur = conversationRef.current;
+    const consent = cur?.messages.find((m) => m.publishConsent?.id === consentId)?.publishConsent;
+    if (!cur || !consent || consent.status !== 'pending') return { ok: true };
+    const setStatus = (status: PublishConsentState['status'], persistIt = true) => {
+      const mutate = (msgs: Message[]) =>
+        msgs.map((m) => {
+          if (m.publishConsent?.id !== consentId) return m;
+          const next = { ...m.publishConsent, status };
+          return { ...m, publishConsent: next, content: publishConsentContent(next) };
+        });
+      if (persistIt) commitMessages(mutate);
+      else update((c) => ({ ...c, messages: mutate(c.messages) }));
+    };
+
+    if (choice === 'keep') {
+      setStatus('kept');
+      return { ok: true };
+    }
+    if (choice === 'delete') {
+      try {
+        const res = await fetch(`/api/contributions/${cur.id}`, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return { ok: false, error: data.error ?? 'Could not delete this contribution. Try again.' };
+      } catch {
+        return { ok: false, error: 'Could not reach the server. Try again.' };
+      }
+      // The row is gone — nothing left to persist into.
+      setStatus('deleted', false);
+      return { ok: true };
+    }
+
+    setLoading(true);
+    try {
+      const result = await publishPathwayDocument();
+      if (!result.ok) return { ok: false, error: result.error };
+      setStatus('sent');
+      appendPublishOutcomeMessage(result);
+      return { ok: true };
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -982,14 +1344,22 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   // extra draft-generation round trip too.
   async function handlePathwayAction(action: NonNullable<ParsedGridUpdate['pathwayAction']>) {
     if (action.type === 'generate') {
+      // Resources are reviewed before the first draft: the review card
+      // generates it when the contributor finishes. A second "generate"
+      // while that review is open is ignored.
+      const msgs = conversationRef.current?.messages ?? [];
+      if (!msgs.some((m) => m.resourceReview)) {
+        startFirstResourceReview();
+        return;
+      }
+      if (msgs.some((m) => m.resourceReview?.status === 'open' && m.resourceReview.generateOnComplete)) return;
       const markdown = await generatePathwayDraft();
       if (markdown) appendPathwayDocMessage(markdown, { includeGaps: true });
     } else if (action.type === 'revise') {
       const markdown = await generatePathwayDraft(action.instruction || 'Apply the requested change.');
       if (markdown) appendPathwayDocMessage(markdown, { includeGaps: false });
     } else if (action.type === 'publish') {
-      const result = await publishPathwayDocument();
-      appendPublishOutcomeMessage(result);
+      await requestPublishConsent();
     }
   }
 
@@ -1108,18 +1478,17 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       // Explorer-only: toolkit assets offered this turn — kept on the message
       // (like pathwaysReferenced) so the download cards survive reload.
       const finalAssets = flow === 'explorer' ? lastParsed?.toolkitAssetsReferenced : undefined;
-      // Contributor-only: artifacts the material named but didn't attach, and
-      // a "nothing to attach" answer — kept on the message so the asks under
-      // the pathway draft (appendPathwayDocMessage) survive reload.
+      // Contributor-only: this turn's resource findings — kept on the message
+      // so the first resource review can collect them, across reloads.
+      const finalCandidates = flow === 'contributor' ? lastParsed?.toolkitAssetCandidates : undefined;
       const finalMentions = flow === 'contributor' ? lastParsed?.toolkitAssetMentions : undefined;
-      const finalDeclined = flow === 'contributor' && lastParsed?.toolkitAssetAskDeclined === true;
       const finalMsg = {
         role: 'assistant' as const,
         content: finalContent,
         ...(finalRefs?.length ? { pathwaysReferenced: finalRefs } : {}),
         ...(finalAssets?.length ? { toolkitAssetsReferenced: finalAssets } : {}),
+        ...(finalCandidates?.length ? { toolkitAssetCandidates: finalCandidates } : {}),
         ...(finalMentions?.length ? { toolkitAssetMentions: finalMentions } : {}),
-        ...(finalDeclined ? { toolkitAssetAskDeclined: true } : {}),
       };
       update((c) => {
         const msgs = [...c.messages];
@@ -1136,13 +1505,16 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         const msgs = [...cur.messages];
         msgs[msgs.length - 1] = finalMsg;
         void persist({ ...cur, messages: msgs });
+        // Keep the ref current for the synchronous follow-ups below
+        // (routeResourceFindings, handlePathwayAction) — the update above may
+        // not have run yet.
+        conversationRef.current = { ...cur, messages: msgs };
       }
 
-      // Contributor-only: consent cards for any toolkit-asset candidates the
-      // companion flagged this turn (nothing is uploaded until a Yes).
-      if (flow === 'contributor' && lastParsed?.toolkitAssetCandidates?.length) {
-        appendToolkitAssetConsentMessages(lastParsed.toolkitAssetCandidates);
-      }
+      // Contributor-only: this turn's resources go to the review card (see
+      // routeResourceFindings) — nothing is uploaded until the contributor
+      // agrees on it.
+      if (flow === 'contributor') routeResourceFindings(lastParsed);
 
       // Contributor-only: react to the companion's pathwayAction, if any —
       // done before setLoading(false) so the "Thinking…" indicator covers
@@ -1328,6 +1700,20 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     [pendingAttachments, sendMessage]
   );
 
+  // A file attached from the resource review card is sent to the companion
+  // as soon as it's been read (attachForResourceItem sets the text). If it
+  // couldn't be read or isn't an allowed type, nothing is sent and the item
+  // goes back to waiting for a file.
+  useEffect(() => {
+    const text = autoSendRef.current;
+    if (!text || loading || pendingAttachments.length === 0) return;
+    if (pendingAttachments.some((a) => a.state === 'reading')) return;
+    autoSendRef.current = null;
+    if (pendingAttachments.some((a) => a.state === 'ready')) void handleUserSend(text);
+    else revertUnsentAttachments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAttachments, loading, handleUserSend]);
+
   function handleAttachFiles(files: File[], flow: AdoptionFlow = '', intent: ExplorerIntent = '') {
     const isContributor = (conversationRef.current?.meta.flow || flow) === 'contributor';
     for (const file of files) {
@@ -1435,7 +1821,14 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     handleAttachFiles,
     removeAttachment,
     hasToolkitAssetFile,
+    rememberToolkitAssetFile,
     answerToolkitAssetConsent,
+    decideResourceItem,
+    attachForResourceItem,
+    linkForResourceItem,
+    finishResourceReview,
+    requestPublishConsent,
+    answerPublishConsent,
     toolkitAssetsVersion,
     pathwayDoc,
     pathwayPreview,

@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { applyToolkitAssetBlock, assetIdsInDocument, isAssetId } from '@/lib/toolkit-assets'
+import { isAssetId } from '@/lib/toolkit-assets'
 import {
   authorizePathwayContributor,
-  loadPathwayToolkitAssets,
+  dropAssetsFromReviewCopy,
   loadToolkitAsset,
   removeAssetObjects,
-  toBlockEntry,
 } from '@/lib/toolkit-assets-server'
 
 function notFound() {
@@ -61,26 +60,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
 
   await removeAssetObjects(deleted.flatMap((d) => (d.storage_path ? [d.storage_path as string] : [])))
-  await dropFromReviewCopy(asset.pathway_id, id)
+  await dropAssetsFromReviewCopy(asset.pathway_id, [id])
   return NextResponse.json({ ok: true })
-}
-
-// Best-effort: the asset is already gone either way, and publish only
-// publishes ids that still have a row.
-async function dropFromReviewCopy(pathwayId: string, assetId: string) {
-  try {
-    const admin = createAdminClient()
-    const { data: pathway } = await admin.from('pathways').select('content_cache').eq('id', pathwayId).maybeSingle()
-    const content = pathway?.content_cache as string | null | undefined
-    if (!content) return
-    const listed = assetIdsInDocument(content)
-    if (!listed.includes(assetId)) return
-    const remaining = (await loadPathwayToolkitAssets(pathwayId)).filter((a) => listed.includes(a.unit_internal_id))
-    await admin
-      .from('pathways')
-      .update({ content_cache: applyToolkitAssetBlock(content, remaining.map(toBlockEntry)) })
-      .eq('id', pathwayId)
-  } catch (err) {
-    console.error('[toolkit-assets] review copy update failed:', err)
-  }
 }

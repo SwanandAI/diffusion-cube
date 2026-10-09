@@ -7,6 +7,7 @@ import HeatmapGrid from '@/components/HeatmapGrid';
 import AttachmentsPanel from '@/components/AttachmentsPanel';
 import PathwayDocumentPane from '@/components/PathwayDocumentPane';
 import AdoptionPlanModal from '@/components/AdoptionPlanModal';
+import VoiceInputButton from '@/components/VoiceInputButton';
 import {
   AdoptionConversation,
   AdoptionFlow,
@@ -25,7 +26,8 @@ import { ATTACH_ACCEPT, CONTRIBUTOR_ATTACH_ACCEPT } from '@/lib/extract-text';
 
 const CONTRIBUTOR_OPENING_MESSAGE: Message = {
   role: 'assistant',
-  content: "Please share your deployment related documents (pdf, docx). I'll read through them and put together a draft pathway for you to check.",
+  content:
+    "Please share your deployment documents (PDF, Word, PowerPoint and so on), or describe the project here — you can add more at any point. I'll read them, ask a few questions to understand the journey, check with you which reusable resources you'd like to share, and then draft the pathway for you to review.\n\nNothing becomes public unless you agree and an administrator approves it. Your progress is saved, so you can leave and come back any time.",
 };
 
 const STRENGTHEN_OPENING_MESSAGE: Message = {
@@ -115,14 +117,20 @@ export default function AdoptionWorkspace({
     handleAttachFiles,
     removeAttachment,
     hasToolkitAssetFile,
+    rememberToolkitAssetFile,
     answerToolkitAssetConsent,
+    decideResourceItem,
+    attachForResourceItem,
+    linkForResourceItem,
+    finishResourceReview,
+    requestPublishConsent,
+    answerPublishConsent,
     toolkitAssetsVersion,
     pathwayDoc,
     pathwayPreview,
     openPathwayDocument,
     closePathwayDocument,
     selectPathwayDocVersion,
-    publishPathwayDocument,
     explorerDoc,
     openExplorerDocument,
     closeExplorerDocument,
@@ -135,6 +143,7 @@ export default function AdoptionWorkspace({
   const [isDragging, setIsDragging] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [headerExpanded, setHeaderExpanded] = useState(true);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
 
   // Resizable right panel — shared across all workspace states.
   const [rightPanel, setRightPanel] = useState<RightPanelTab>('none');
@@ -344,7 +353,7 @@ export default function AdoptionWorkspace({
                 markdown={pathwayDocMarkdown}
                 loading={pathwayDoc.loading}
                 error={pathwayDoc.error}
-                onPublish={publishPathwayDocument}
+                onPublish={requestPublishConsent}
                 status={pathwayDocStatus}
                 versions={(() => {
                   const all = pathwayDoc.versions;
@@ -490,6 +499,7 @@ export default function AdoptionWorkspace({
                 placeholder="Describe your adoption, ask a question, or attach a document…"
                 disabled={loading}
               />
+              <VoiceInputButton value={welcomeInput} onChange={setWelcomeInput} disabled={loading} className="h-10 w-10" />
               <button
                 type="button"
                 onClick={handleStart}
@@ -754,6 +764,7 @@ export default function AdoptionWorkspace({
                 placeholder="Describe your adoption, or drop a document…"
                 disabled={loading}
               />
+              <VoiceInputButton value={welcomeInput} onChange={setWelcomeInput} disabled={loading} className="h-10 w-10" />
               {fixedFlow && (
                 <button
                   onClick={() =>
@@ -937,25 +948,44 @@ export default function AdoptionWorkspace({
                   </button>
                   {headerExpanded && (
                     <>
-                      {[
-                        conversation.meta.sector,
-                        conversation.meta.geography,
-                        conversation.meta.stage,
-                      ].some(Boolean) && (
-                        <p className="mt-0.5 text-xs font-medium text-coral">
-                          {[
-                            conversation.meta.sector,
-                            conversation.meta.geography,
-                            conversation.meta.stage,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </p>
+                      {/* Sector · geography · stage as quiet tags — same mono
+                          treatment as the Contribute cards' sector line. */}
+                      {[conversation.meta.sector, conversation.meta.geography, conversation.meta.stage].some(Boolean) && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {[conversation.meta.sector, conversation.meta.geography].filter(Boolean).map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded-full bg-navy/5 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {conversation.meta.stage && (
+                            <span className="rounded-full bg-coral-soft px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-coral">
+                              {conversation.meta.stage}
+                            </span>
+                          )}
+                        </div>
                       )}
                       {conversation.meta.summary && (
-                        <p className="mt-2 max-h-24 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-ink">
-                          {conversation.meta.summary}
-                        </p>
+                        <div className="mt-2 max-w-3xl">
+                          <p
+                            className={`whitespace-pre-line text-[13px] leading-relaxed text-ink-soft ${
+                              summaryExpanded ? 'max-h-40 overflow-y-auto' : 'line-clamp-2'
+                            }`}
+                          >
+                            {conversation.meta.summary}
+                          </p>
+                          {conversation.meta.summary.length > 160 && (
+                            <button
+                              type="button"
+                              onClick={() => setSummaryExpanded((v) => !v)}
+                              className="mt-0.5 text-xs font-medium text-navy/70 transition hover:text-coral"
+                            >
+                              {summaryExpanded ? 'Show less' : 'Show more'}
+                            </button>
+                          )}
+                        </div>
                       )}
                     </>
                   )}
@@ -990,6 +1020,18 @@ export default function AdoptionWorkspace({
               pathwayLookup={pathwayLookup}
               onToolkitAssetConsent={flow === 'contributor' ? answerToolkitAssetConsent : undefined}
               hasToolkitAssetFile={hasToolkitAssetFile}
+              resourceReviewActions={
+                flow === 'contributor'
+                  ? {
+                      decide: decideResourceItem,
+                      attach: attachForResourceItem,
+                      link: linkForResourceItem,
+                      finish: (reviewId) => void finishResourceReview(reviewId),
+                      rememberFile: rememberToolkitAssetFile,
+                    }
+                  : undefined
+              }
+              onPublishConsent={flow === 'contributor' ? answerPublishConsent : undefined}
               hideAccuracyDisclaimer={flow === 'contributor'}
             />
           </div>

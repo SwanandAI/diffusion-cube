@@ -11,9 +11,18 @@ import {
 } from '@/lib/grid-update';
 import type { DocType } from '@/lib/design-documents';
 import { ATTACH_ACCEPT } from '@/lib/extract-text';
-import type { ToolkitAssetConsentState, ToolkitAssetMention } from '@/lib/toolkit-assets';
+import type {
+  PublishConsentState,
+  ResourceReviewState,
+  ToolkitAssetCandidate,
+  ToolkitAssetConsentState,
+  ToolkitAssetMention,
+} from '@/lib/toolkit-assets';
 import ToolkitAssetConsentCard from '@/components/ToolkitAssetConsentCard';
+import ResourceReviewCard from '@/components/ResourceReviewCard';
+import PublishConsentCard from '@/components/PublishConsentCard';
 import ToolkitAssetCards from '@/components/ToolkitAssetCards';
+import VoiceInputButton from '@/components/VoiceInputButton';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -38,15 +47,18 @@ export interface Message {
   // consent card (see TOOLKIT_ASSET_CONSENT_MARKER). Persisted with the
   // conversation so the outcome survives reload.
   toolkitAssetConsent?: ToolkitAssetConsentState;
-  // Contributor flow, on the companion's reply: reusable artifacts the
-  // material named but didn't attach (from <grid_update>), and whether the
-  // contributor declined attaching anything this turn. Read back by
-  // appendPathwayDocMessage to decide what to ask under the draft.
+  // Contributor flow, on the companion's reply: files/links it judged
+  // reusable and things the material named but didn't attach (both from
+  // <grid_update>). Collected into the resource review card — kept here so
+  // the first review (started at stage confirmation) can gather everything
+  // found earlier, across reloads.
+  toolkitAssetCandidates?: ToolkitAssetCandidate[];
   toolkitAssetMentions?: ToolkitAssetMention[];
-  toolkitAssetAskDeclined?: boolean;
-  // Contributor flow, on a pathway-draft message: assetMentionKey of every
-  // artifact asked about in it, so none is asked about twice.
-  toolkitAssetMentionsAsked?: string[];
+  // Contributor flow: client-constructed resource review card
+  // (RESOURCE_REVIEW_MARKER) and "may this be published?" card
+  // (PUBLISH_CONSENT_MARKER).
+  resourceReview?: ResourceReviewState;
+  publishConsent?: PublishConsentState;
   // Explorer flow: ids of published toolkit assets this assistant message
   // offered (from <grid_update>) — rendered as download cards under it.
   toolkitAssetsReferenced?: string[];
@@ -414,6 +426,17 @@ interface Props {
   // still held in memory. Explorer callers omit both.
   onToolkitAssetConsent?: (consentId: string, share: boolean) => Promise<{ ok: boolean; error?: string }>;
   hasToolkitAssetFile?: (fileName: string) => boolean;
+  // Contributor-flow only: the resource review card (Message.resourceReview)
+  // and the "may this be published?" card (Message.publishConsent) — see
+  // useAdoptionConversation for what each does. Explorer callers omit them.
+  resourceReviewActions?: {
+    decide: (reviewId: string, itemKey: string, share: boolean) => Promise<{ ok: boolean; error?: string }>;
+    attach: (reviewId: string, itemKey: string | null, file: File) => void;
+    link: (reviewId: string, itemKey: string | null, url: string) => { ok: boolean; error?: string };
+    finish: (reviewId: string) => void;
+    rememberFile: (file: File) => void;
+  };
+  onPublishConsent?: (consentId: string, choice: 'send' | 'keep' | 'delete') => Promise<{ ok: boolean; error?: string }>;
   // Hides the "pathway information isn't independently verified" note under
   // the first assistant message — relevant for an Explorer reading someone
   // else's documented pathway, but not for the Contributor who's the one
@@ -440,6 +463,8 @@ export default function ChatPanel({
   pathwayLookup,
   onToolkitAssetConsent,
   hasToolkitAssetFile,
+  resourceReviewActions,
+  onPublishConsent,
   hideAccuracyDisclaimer,
 }: Props) {
   const [input, setInput] = useState('');
@@ -491,6 +516,40 @@ export default function ChatPanel({
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 sm:px-6">
         <div className="mx-auto max-w-5xl space-y-5">
         {messages.map((m, i) => {
+          const review = m.resourceReview;
+          if (review) {
+            if (!resourceReviewActions) return null;
+            return (
+              <div key={i} className="flex justify-start">
+                <div className="w-full max-w-xl">
+                  <ResourceReviewCard
+                    review={review}
+                    busy={loading}
+                    fileAvailable={(fileName) => hasToolkitAssetFile?.(fileName) ?? false}
+                    onRememberFile={resourceReviewActions.rememberFile}
+                    onDecide={(itemKey, share) => resourceReviewActions.decide(review.id, itemKey, share)}
+                    onAttach={(itemKey, file) => resourceReviewActions.attach(review.id, itemKey, file)}
+                    onLink={(itemKey, url) => resourceReviewActions.link(review.id, itemKey, url)}
+                    onFinish={() => resourceReviewActions.finish(review.id)}
+                  />
+                </div>
+              </div>
+            );
+          }
+          const publishConsent = m.publishConsent;
+          if (publishConsent) {
+            if (!onPublishConsent) return null;
+            return (
+              <div key={i} className="flex justify-start">
+                <div className="w-full max-w-xl">
+                  <PublishConsentCard
+                    consent={publishConsent}
+                    onAnswer={(choice) => onPublishConsent(publishConsent.id, choice)}
+                  />
+                </div>
+              </div>
+            );
+          }
           const consent = m.toolkitAssetConsent;
           if (consent) {
             if (!onToolkitAssetConsent) return null;
@@ -676,6 +735,7 @@ export default function ChatPanel({
             placeholder={placeholder ?? 'Type a message…'}
             disabled={loading}
           />
+          <VoiceInputButton value={input} onChange={setInput} disabled={loading} />
           <button
             onClick={handleSend}
             disabled={!canSend}

@@ -75,6 +75,7 @@ Existing columns of `contribution_units` (`id`, `unit_internal_id`, `pathway_id`
 | GET | `/api/toolkit-assets?ids=` | Public (published only) | Built (TA-07), not live-tested |
 | GET | `/api/toolkit-assets/[id]/download` | Public if published; uploader/admin otherwise | Built (TA-07), not live-tested |
 | DELETE | `/api/toolkit-assets/[id]` | Uploader only (`pathway_contributor` + pathway member), unpublished only | Built (2026-10-08), not live-tested |
+| DELETE | `/api/contributions/[designId]` | Owner of the workspace (session RLS) | Built (2026-10-08), not live-tested |
 | POST | `/api/pathways/assemble` | Changed: asset block, slug validation, `designId` ownership | Built (TA-05), not live-tested |
 | POST | `/api/admin/pathways/publish` | Changed: publishes the reviewed assets | Built (TA-06), not live-tested |
 | POST | `/api/chat` | Changed: assets in explorer/library prompts, library `pathwayId` validation | Built (TA-08/09), not live-tested |
@@ -134,7 +135,11 @@ Existing columns of `contribution_units` (`id`, `unit_internal_id`, `pathway_id`
 | `app/api/toolkit-assets/[id]/route.ts` (DELETE: contributor removes an unpublished asset) | Flow-chart fixes | New |
 | `components/ToolkitAssetStatusList.tsx` (Remove action) | Flow-chart fixes | Changed |
 | `lib/toolkit-assets.ts` (`noToolkitAssetsRule`, `ToolkitAssetMention`, `buildAssetMentionAsk`) | Flow-chart fixes | Changed |
-| `lib/grid-update.ts`, `lib/system-prompts.ts`, `lib/adoption-conversation.ts`, `components/ChatPanel.tsx` (`toolkitAssetMentions` / `toolkitAssetAskDeclined`, asks under the draft) | Flow-chart fixes | Changed |
+| `lib/grid-update.ts`, `lib/system-prompts.ts`, `lib/adoption-conversation.ts`, `components/ChatPanel.tsx` (`toolkitAssetMentions`) | Flow-chart fixes | Changed |
+| `components/ResourceReviewCard.tsx`, `components/PublishConsentCard.tsx` | New contributor flow | New |
+| `app/api/contributions/[designId]/route.ts` (delete a contribution) | New contributor flow | New |
+| `lib/adoption-conversation.ts` (resource review + publish-consent actions, `routeResourceFindings`), `lib/toolkit-assets.ts` (`ResourceReviewState`, `PublishConsentState`), `lib/system-prompts.ts` (5-step contributor flow, `sensitiveNote`), `lib/grid-update.ts`, `components/ChatPanel.tsx`, `components/AdoptionWorkspace.tsx`, `components/PathwayDocumentPane.tsx` | New contributor flow | Changed |
+| `app/api/admin/pathways/publish/route.ts`, `lib/email.ts` (`sendContributionEmail`) | New contributor flow | Changed |
 
 ## 10. Progress log
 
@@ -524,3 +529,155 @@ A node-by-node check of the code against the contributor and adopter flow charts
   - asking for templates on a curated `/explore` pathway gets the "No shared toolkit files" line
   - Remove on a sent asset updates the admin review card
 
+### 2026-10-08 · New contributor flow implemented (code complete, not live-tested; no migration)
+The owner redrew the contributor flow (see `requirement.md` → Flow charts) and asked for it to be built.
+
+**Owner decisions**
+- Upfront consent is a notice only. The Terms acceptance at registration is the consent of record.
+- Assets stay **all-or-nothing** with the pathway (N3 unchanged).
+- The admin review round-trip was dropped after a first draft. Not built: an events table, in-app change requests or rejection, the reply time limit and reminders, and contributor withdrawal. The admin side stays Publish / Delete, with change requests handled out of band; the contributor can Remove an asset.
+
+**Done**
+- **Opening notice:** `CONTRIBUTOR_OPENING_MESSAGE` explains how material is used, that nothing goes public without consent and admin approval, and that progress is saved.
+- **Contributor prompt, now 5 steps:**
+  1. Wait for material.
+  2. Sufficiency check.
+  3. Questions about the journey, one per turn. No fixed number (an initial cap of 5 was removed at the owner's request): Cube asks only what the material leaves unclear, and stops when the journey is understood or the contributor asks to skip. "Don't know" or "rather not say" is recorded as a gap and never re-asked.
+  4. Stage confirmation.
+  5. `pathwayAction: "generate"`.
+
+  The publish ack now points to the confirmation card. The draft prompt gains rule 7: declined answers become "Not documented in the source" and Section 2 open questions.
+- **Resource review card** (`ResourceReviewCard`, state on `Message.resourceReview`):
+  - Candidates and mentions are kept on each companion reply (`Message.toolkitAssetCandidates` / `toolkitAssetMentions`). The stage confirmation's "generate" opens the first review instead of drafting, and finishing that review generates the first draft.
+  - Per item: **Share** with the consent statement (right to share, plus public download once approved) → upload and register. **Attach it / paste a link** for a mentioned item: the file goes through the normal upload path and is sent automatically once read, the companion checks it, and `mergeIntoReview` either attaches the resulting candidate or marks the item "background material only". **Don't share** records the decision.
+  - When everything is decided, the card asks once for any other resource. Resources found after the first review get a new card with only the new items. Nothing is asked about twice (`reviewedResourceKeys` also counts legacy consent cards).
+- **Personal-data flag:** candidates carry `sensitiveNote`, shown on the resource review card before the contributor agrees. It is not stored: a draft migration 0035 (`contribution_units.sensitive_note`, to show it to the admin) was dropped at the owner's request, so the feature needs no database change.
+- **Publish consent** (`PublishConsentCard`): every Send for Review (pane button or chat) first asks "accurate, and may it be published to help future adopters?" with three answers:
+  - Yes → sent for review.
+  - Keep private → nothing sent.
+  - Delete → `DELETE /api/contributions/[designId]` removes the workspace, its drafts, and the contributor's not-yet-live assets (files, rows, and review copy), and clears the pathway's pointers to the drafts, including any pending review.
+  
+  The outcome message now says "Sent for review" (it said "Published — it's live now", which was wrong).
+- **Publish email:** when an admin publishes, the contributor whose draft was approved is emailed which assets went live and which wait for the next round. Best-effort; a failure is logged only.
+- **Replaced:** the per-candidate consent cards (kept only to render older conversations), the by-name ask under the draft, and `toolkitAssetAskDeclined`.
+
+**Verified**
+- `tsc` clean and `npm run build` passes.
+- `eslint`: no new errors. The 2 `set-state-in-effect` errors and the unused-variable warning in `AdoptionWorkspace.tsx`, and the `exhaustive-deps` warnings in `adoption-conversation.ts`, were already there.
+- Scratch checks:
+  - `sensitiveNote` parsing
+  - a candidate wins over a same-name mention
+  - an attached file takes its candidate
+  - an attached link the check didn't list → background
+  - already-reviewed keys are never re-added
+  - the history text for a review card
+- The requirement flowchart parses with `mermaid`.
+
+**Open**
+- Live test (💲 model behaviour):
+  - the question loop (stops on its own, and on "skip") and gaps
+  - a report that names a checklist → mention item → attach → check → share
+  - an unreadable file
+  - a link
+  - a resource added after the draft
+  - keep-private and delete
+  - the publish email
+
+
+### 2026-10-08 · Contribute grid: Publish and Delete on each card (code complete, not live-tested; no migration)
+
+**Asked:** the owner wanted Delete on each `/contribute` card, and a Publish option too.
+
+**Done**
+- **Status badge on each card:**
+  - *Published*: the slug is in `published_pathways`.
+  - *Published · update in review*: published, and `review_requested` is set.
+  - *In review*: not published yet, and `review_requested` is set.
+  - *Draft*: the contributor has a workspace and neither of the above applies.
+- `GET /api/pathways` now returns `isPublished` and `reviewRequested`.
+- **Publish / Republish:** shown when the contributor has a workspace and nothing is waiting for review. It opens the chat with the existing "Ready to send for review?" card already raised (the new `requestPublishOnOpen` prop on `AdoptionWorkspace`), so it goes through the same consent → admin-review path. Nothing goes live directly.
+- **Delete:** opens a confirm dialog. It then:
+  1. calls `DELETE /api/contributions/[designId]` for each of the contributor's workspaces on that pathway;
+  2. calls the new `DELETE /api/pathways/[id]/join` to leave the pathway, so the card disappears. This uses the service role because 0021 has no delete policy on `pathway_contributors`, and it is scoped to the caller's own row.
+
+  Published content stays live.
+- When you go back from a chat to the grid, the pathways list is fetched again, so the badges update.
+
+**Verified**
+- `tsc` clean.
+- `eslint`: no new findings. The `set-state-in-effect` errors in `AdoptionWorkspace.tsx` and the unused `req` warning in `pathways/route.ts` were already there.
+
+**Open**
+- Live test:
+  - Delete on a card with a workspace, and on a "Not started yet" card
+  - Publish when there is no draft yet (the consent card should show the assemble error)
+  - Republish on a published pathway
+- Decision for the owner: leaving a published pathway removes the contributor's org badge from it, because org attribution comes from `pathway_contributors`.
+
+### 2026-10-08 · Contribute grid follow-up: Publish removed; no Delete on published cards
+
+**Asked:** the owner asked to remove the Publish/Republish card button, keep only Delete, and not offer Delete on a published pathway.
+
+**Done**
+- Removed the card's Publish/Republish button. Removed the `requestPublishOnOpen` prop from `AdoptionWorkspace` too, since nothing uses it now. Publishing works as before, from inside the chat.
+- Delete is hidden on any card with `isPublished`. That includes *Published · update in review*.
+- Status badges are unchanged.
+- This resolves the earlier attribution question: a published pathway can no longer be left from the grid.
+
+**Verified**
+- `tsc` clean.
+- `eslint` clean on `ContributeGrid.tsx`.
+
+### 2026-10-08 · Workspace header tidied (UI only)
+
+**Asked:** the owner said the deployment description at the top of the chat didn't look good. It was a coral sentence plus a large block of scrolling text.
+
+**Done** (`AdoptionWorkspace.tsx`)
+- Sector and geography are now small grey mono tags. Stage is a coral tag.
+- The summary is now smaller muted text, cut to 2 lines, with a *Show more / Show less* link when it runs past about 160 characters.
+- The title and its ▾ collapse toggle are unchanged.
+
+**Verified**
+- `tsc` clean.
+- `eslint`: only the existing errors and warning in this file.
+- Not checked visually yet.
+
+### 2026-10-08 · A resource uploaded in chat now gets its own new card (code complete, not live-tested; no migration)
+
+**Owner's report:** after the draft, they uploaded 2 files in chat. The Cube correctly picked up `01_A4KIOSK_Printing_Troubleshooting_Guide.pdf` as reusable, but it went into the older review card further up, which was still open. It should have been a fresh "share or don't share?" ask right below the upload.
+
+**Cause:** `routeResourceFindings` folded every turn's findings into whichever review card was still open, however far up it was.
+
+**Fix** (`lib/adoption-conversation.ts`)
+- An open card only takes this turn's findings when the turn came from that card, meaning something attached from the card is waiting for this check (`attachedSource`).
+- Otherwise, once a review has started, findings go into a **new card at the bottom**, even if an older card is still open. This uses the new pure helper `takeFindingsForFreshReview`.
+- If an older open card has a pending mention whose name matches this turn's file or link, that item moves to the new card with the file attached, so it is never asked about twice.
+- Already-decided resources are still never re-asked.
+- The new card is written in a single `commitMessages` call that stays pure.
+
+**Verified**
+- `tsc` clean.
+- `eslint`: only the existing `exhaustive-deps` warnings.
+- Scratch test (`tsx`), 5/5 pass:
+  - a chat upload gets a new item
+  - the old card is left untouched
+  - a pending same-name mention moves with its candidate and `mentionedIn`
+  - it is removed from the old card
+  - an already-declined file is not re-asked
+
+**Open**
+- Live re-test of the owner's scenario.
+- Requirement.md line 46 already says a resource that turns up after the draft gets a new card for just those items, so the code now matches it. No doc change needed.
+
+### 2026-10-08 · Share is now one click, with a one-line public note (UI only)
+
+**Asked:** the owner didn't want to be asked twice (Share, then "Yes, share publicly"). They wanted a single Share click and a one-line note saying shared items are public.
+
+**Done**
+- In `ResourceReviewCard.tsx`, the Share button now shares straight away and shows *Sharing…* while it works. The confirm step and its Back button are gone.
+- A one-line note under Share / Don't share keeps the rights and public-download wording: "Shared resources are public: anyone can download them once an admin approves this pathway. Only share what you have the right to share."
+- Updated the comment on `decideResourceItem`.
+
+**Verified**
+- `tsc` clean.
+- `eslint` clean on the card.
