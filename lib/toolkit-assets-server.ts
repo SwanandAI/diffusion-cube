@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { hasRole } from '@/lib/roles';
 import {
   TOOLKIT_ASSET_BUCKET,
+  applyToolkitAssetBlock,
+  assetIdsInDocument,
   linkDomain,
   sanitizeAssetFileName,
   type ToolkitAssetBlockEntry,
@@ -24,6 +26,32 @@ import {
 
 const ASSET_COLUMNS =
   'unit_internal_id, pathway_id, user_id, asset_kind, asset_name, purpose, reuse_condition, storage_path, file_name, mime_type, size_bytes, link_url, published_at, created_at';
+
+// After assets were removed (contributor Remove, or a deleted contribution):
+// take them out of the document the admin reviews and publishes
+// (pathways.content_cache), keeping the ones that still exist, so the admin
+// never approves an asset that's gone. The copy committed to GitHub catches
+// up on the next Send for Review. Best-effort — logged, never thrown.
+export async function dropAssetsFromReviewCopy(pathwayId: string, assetIds: string[]): Promise<void> {
+  if (assetIds.length === 0) return;
+  try {
+    const admin = createAdminClient();
+    const { data: pathway } = await admin.from('pathways').select('content_cache').eq('id', pathwayId).maybeSingle();
+    const content = pathway?.content_cache as string | null | undefined;
+    if (!content) return;
+    const listed = assetIdsInDocument(content);
+    if (!assetIds.some((id) => listed.includes(id))) return;
+    const remaining = (await loadPathwayToolkitAssets(pathwayId)).filter(
+      (a) => listed.includes(a.unit_internal_id) && !assetIds.includes(a.unit_internal_id)
+    );
+    await admin
+      .from('pathways')
+      .update({ content_cache: applyToolkitAssetBlock(content, remaining.map(toBlockEntry)) })
+      .eq('id', pathwayId);
+  } catch (err) {
+    console.error('[toolkit-assets] review copy update failed:', err);
+  }
+}
 
 export interface ToolkitAssetRow {
   unit_internal_id: string;

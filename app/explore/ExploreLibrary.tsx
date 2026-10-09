@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { libraryPathways, libraryStages, type Accent, type LibraryPathway, type Stage } from '@/lib/library-pathways';
 import { parseToolkitAssetsTag, stripToolkitAssetsTag } from '@/lib/toolkit-assets';
 import ToolkitAssetCards from '@/components/ToolkitAssetCards';
+import VoiceInputButton from '@/components/VoiceInputButton';
 
 // toolkitAssets: ids of published toolkit assets an assistant reply offered
 // (parsed from its trailing <toolkit_assets> tag, which is never shown) —
@@ -306,6 +307,7 @@ export default function ExploreLibrary({
             minHeight={24}
             maxHeight={120}
           />
+          <VoiceInputButton value={draft} onChange={setDraft} className="h-12 w-12" />
           <SendButton disabled={!draft.trim() || isThinking} size="lg" />
         </form>
         <p className="mt-3 text-xs text-ink-soft">Start with a question, then follow the thread into a specific pathway.</p>
@@ -607,6 +609,7 @@ function ChatView({
             minHeight={24}
             maxHeight={160}
           />
+          <VoiceInputButton value={draft} onChange={setDraft} />
           <SendButton disabled={!draft.trim() || isThinking} />
         </form>
       </div>

@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin } from '@/lib/roles';
 import { assetIdsInDocument } from '@/lib/toolkit-assets';
+import { loadPathwayToolkitAssets } from '@/lib/toolkit-assets-server';
+import { CUBE_APP_URL, sendContributionEmail } from '@/lib/email';
 
 // Parses YAML frontmatter from a pathway document's content string.
 // Handles scalar values and simple inline arrays: [Tag1, Tag2].
@@ -123,5 +125,58 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  await notifyContributor(admin, {
+    pathwayId: pathway_id,
+    title,
+    assembledDocId: pathway.assembled_design_doc_id,
+    assetIds,
+  });
+
   return NextResponse.json({ ok: true, slug: pathway.slug, assetsPublished });
+}
+
+// Tells the contributor whose draft was just approved that it's live, which
+// toolkit assets went live with it, and which shared ones didn't (shared
+// after they last sent it for review — they go live with the next approved
+// round). Best-effort: the pathway is already published, so an email failure
+// is logged, never returned.
+async function notifyContributor(
+  admin: ReturnType<typeof createAdminClient>,
+  opts: { pathwayId: string; title: string; assembledDocId: string | null; assetIds: string[] }
+) {
+  try {
+    if (!opts.assembledDocId) return;
+    const { data: doc } = await admin
+      .from('design_documents')
+      .select('design_id, user_id')
+      .eq('id', opts.assembledDocId)
+      .maybeSingle();
+    if (!doc?.user_id) return;
+    const { data: contributor } = await admin.auth.admin.getUserById(doc.user_id);
+    const email = contributor?.user?.email;
+    if (!email) return;
+
+    const assets = await loadPathwayToolkitAssets(opts.pathwayId);
+    const live = assets.filter((a) => opts.assetIds.includes(a.unit_internal_id)).map((a) => a.asset_name);
+    const waiting = assets.filter((a) => !a.published_at && !opts.assetIds.includes(a.unit_internal_id)).map((a) => a.asset_name);
+
+    const paragraphs = [`Your pathway "${opts.title}" has been approved and is now part of 100 Pathways, where it can help future adopters.`];
+    if (live.length) paragraphs.push(`Published with it, and downloadable by anyone: ${live.join(', ')}.`);
+    if (waiting.length) {
+      paragraphs.push(
+        `Not published yet: ${waiting.join(', ')}. You shared these after you last sent the pathway for review; they go live the next time it's sent for review and approved.`
+      );
+    }
+    await sendContributionEmail({
+      to: email,
+      subject: `Your pathway "${opts.title}" is published`,
+      heading: 'Your pathway is published',
+      paragraphs,
+      // Straight into the contributor's own workspace for this pathway
+      // (ContributeGrid's ?open= deep link; they sign in first if needed).
+      link: { url: `${CUBE_APP_URL}/contribute?open=${doc.design_id}`, label: 'Open your contribution' },
+    });
+  } catch (err) {
+    console.error('[admin/pathways/publish] contributor email:', err);
+  }
 }

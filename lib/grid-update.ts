@@ -32,6 +32,12 @@ export const EXEC_SUMMARY_MARKER = '<exec_summary/>';
 // (Message.toolkitAssetConsent), see lib/adoption-conversation.ts.
 export const TOOLKIT_ASSET_CONSENT_MARKER = '<toolkit_asset_consent/>';
 
+// Contributor flow: the resource review card (Message.resourceReview) and
+// the "may this be published?" card (Message.publishConsent). Client-
+// constructed like the markers above — the card data travels on the message.
+export const RESOURCE_REVIEW_MARKER = '<resource_review/>';
+export const PUBLISH_CONSENT_MARKER = '<publish_consent/>';
+
 // Split out from lib/adoption-conversation.ts so it can be imported from
 // server code (app/api/chat/route.ts) without pulling in that file's React
 // hooks — Next.js refuses to bundle a route handler that transitively
@@ -103,13 +109,9 @@ export interface ParsedGridUpdate {
   // contributor for public-sharing consent before anything is stored.
   toolkitAssetCandidates?: ToolkitAssetCandidate[];
   // Contributor-only: reusable artifacts the material shared this turn names
-  // but didn't attach (see ToolkitAssetMention) — the client asks about them
-  // under the next pathway draft.
+  // but didn't attach (see ToolkitAssetMention) — each becomes an item on the
+  // resource review card.
   toolkitAssetMentions?: ToolkitAssetMention[];
-  // Contributor-only: true on the turn the contributor answered an ask about
-  // attaching assets with "nothing / don't want to share" — the client then
-  // never asks again in this conversation.
-  toolkitAssetAskDeclined?: boolean;
   // Explorer-only: ids of published toolkit assets the companion offered this
   // turn — the client validates them against GET /api/toolkit-assets and
   // renders download cards (see explorerSystemPrompt).
@@ -153,6 +155,7 @@ function parseToolkitAssetCandidates(value: unknown): ToolkitAssetCandidate[] | 
       reuseCondition: str(entry.reuseCondition),
       dimension: str(entry.dimension).toLowerCase(),
       stage: str(entry.stage).toLowerCase(),
+      sensitiveNote: str(entry.sensitiveNote ?? entry.sensitiveData).slice(0, 500),
     });
   }
   return out;
@@ -192,7 +195,6 @@ export function parseGridUpdate(text: string): ParsedGridUpdate | null {
       explorerAction: parsed.explorerAction,
       toolkitAssetCandidates: parseToolkitAssetCandidates(parsed.toolkitAssetCandidates),
       toolkitAssetMentions: parseToolkitAssetMentions(parsed.toolkitAssetMentions),
-      toolkitAssetAskDeclined: parsed.toolkitAssetAskDeclined === true,
       toolkitAssetsReferenced: Array.isArray(parsed.toolkitAssetsReferenced)
         ? [...new Set<string>(parsed.toolkitAssetsReferenced.filter(isAssetId))]
         : undefined,

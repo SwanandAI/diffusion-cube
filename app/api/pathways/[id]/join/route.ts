@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { hasRole } from '@/lib/roles'
 import { ensureOrganisation } from '@/lib/organisations'
 
@@ -66,5 +67,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
+
+// Leave a pathway — the Contribute grid's Delete, after it has deleted this
+// person's own workspace(s) for it via /api/contributions/[designId]. Only
+// removes their own membership row; the pathway and anything already
+// published for it stay. Service-role because 0021 has no delete policy on
+// pathway_contributors.
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id: pathwayId } = await params
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { error } = await createAdminClient()
+    .from('pathway_contributors')
+    .delete()
+    .eq('pathway_id', pathwayId)
+    .eq('user_id', user.id)
+  if (error) {
+    console.error('[pathways/leave]', error)
+    return NextResponse.json({ error: 'Could not remove this contribution. Try again.' }, { status: 500 })
+  }
   return NextResponse.json({ ok: true })
 }

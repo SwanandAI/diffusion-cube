@@ -188,6 +188,43 @@ export async function sendAuthLinkEmail(opts: {
   });
 }
 
+// ── Contribution review emails ───────────────────────────────────────────
+// Sent to the contributor whose draft an administrator just published
+// (app/api/admin/pathways/publish). `paragraphs` are plain text, escaped
+// here.
+
+// Links in contribution emails always point at the production app, whatever
+// host the admin who triggered the email happened to be on (localhost, a
+// Vercel preview URL) — the contributor reads the email later, outside it.
+export const CUBE_APP_URL = 'https://cube.100pathways.com';
+
+export async function sendContributionEmail(opts: {
+  to: string | string[];
+  subject: string;
+  heading: string;
+  paragraphs: string[];
+  link?: { url: string; label: string };
+}) {
+  const paragraphs = opts.paragraphs
+    .map((p) => `<p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(p)}</p>`)
+    .join('');
+  await sendEmail({
+    to: opts.to,
+    subject: opts.subject,
+    html: contributionEmailLayout(opts.heading, `${paragraphs}${opts.link ? linkButton(opts.link.url, escapeHtml(opts.link.label)) : ''}`),
+  });
+}
+
+function contributionEmailLayout(heading: string, body: string): string {
+  return `
+    <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#363538;background:#faf9f6">
+      <p style="font-family:monospace;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#ff6543;margin:0 0 16px">100 Pathways</p>
+      <h1 style="font-size:20px;font-weight:600;color:#1b1b42;margin:0 0 16px">${escapeHtml(heading)}</h1>
+      ${body}
+    </div>
+  `;
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }

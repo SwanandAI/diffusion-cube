@@ -1,8 +1,9 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AdoptionWorkspace from '@/components/AdoptionWorkspace';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import PathwaySelector from '@/components/PathwaySelector';
 import { AdoptionConversation } from '@/lib/adoption-conversation';
 import { fetchAdoptionsList, setAdoptionsListCache } from '@/lib/adoptions-cache';
@@ -15,7 +16,21 @@ interface PathwaySummary {
   description: string | null;
   created_at: string;
   isContributor: boolean;
+  isPublished: boolean;
+  reviewRequested: boolean;
   orgs: string[];
+}
+
+function statusLabel(p: PathwaySummary, hasChat: boolean): { text: string; className: string } | null {
+  if (p.isPublished) {
+    return {
+      text: p.reviewRequested ? 'Published · update in review' : 'Published',
+      className: 'bg-blue-soft text-blue',
+    };
+  }
+  if (p.reviewRequested) return { text: 'In review', className: 'bg-yellow-soft text-[#8a6b00]' };
+  if (hasChat) return { text: 'Draft', className: 'bg-navy/10 text-navy' };
+  return null;
 }
 
 type Accent = 'coral' | 'yellow' | 'blue' | 'navy';
@@ -65,6 +80,7 @@ type View =
   | { kind: 'existing'; id: string };
 
 function ContributeGridContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const openId = searchParams.get('open');
 
@@ -75,6 +91,9 @@ function ContributeGridContent() {
   const [view, setView] = useState<View>({ kind: 'pathways' });
   const [appliedOpenId, setAppliedOpenId] = useState<string | null>(null);
   const [activeOrg, setActiveOrg] = useState<string>('All');
+  const [deleteTarget, setDeleteTarget] = useState<PathwaySummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function refreshPathways() {
     return fetch('/api/pathways')
@@ -178,7 +197,11 @@ function ContributeGridContent() {
       <AdoptionWorkspace
         key={view.id}
         initial={existing}
-        onBack={() => setView({ kind: 'pathways' })}
+        onBack={() => {
+          // Publish status may have moved while the chat was open.
+          void refreshPathways().catch(() => {});
+          setView({ kind: 'pathways' });
+        }}
         onChange={(c) =>
           setAdoptions((prev) => {
             const next = prev.map((a) => (a.id === c.id ? c : a));
@@ -196,6 +219,43 @@ function ContributeGridContent() {
   function openPathway(pathwayId: string) {
     const chat = contributions.find((a) => a.meta.pathwayId === pathwayId);
     setView(chat ? { kind: 'existing', id: chat.id } : { kind: 'new', pathwayId });
+  }
+
+  // Delete = delete every one of this person's workspaces for the pathway
+  // (drafts and not-yet-live asset files go with them), then leave it so the
+  // card disappears. Anything already published stays live.
+  async function deleteContribution(p: PathwaySummary) {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const chats = contributions.filter((a) => a.meta.pathwayId === p.id);
+      for (const chat of chats) {
+        const res = await fetch(`/api/contributions/${chat.id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? 'Could not delete this contribution. Try again.');
+        }
+      }
+      const res = await fetch(`/api/pathways/${p.id}/join`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? 'Could not delete this contribution. Try again.');
+      }
+      const deletedIds = new Set(chats.map((c) => c.id));
+      setAdoptions((prev) => {
+        const next = prev.filter((a) => !deletedIds.has(a.id));
+        setAdoptionsListCache(next);
+        return next;
+      });
+      setPathways((prev) => prev.map((x) => (x.id === p.id ? { ...x, isContributor: false } : x)));
+      setDeleteTarget(null);
+      // The sidebar's adoptions list is server-rendered by AppShell.
+      router.refresh();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not reach the server. Try again.');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -267,6 +327,7 @@ function ContributeGridContent() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {visiblePathways.map((p) => {
               const chat = contributions.find((a) => a.meta.pathwayId === p.id);
+              const status = statusLabel(p, !!chat);
               return (
                 <div
                   key={p.id}
@@ -298,8 +359,32 @@ function ContributeGridContent() {
                     </div>
                   )}
                   {p.description && <p className="line-clamp-3 text-sm leading-relaxed text-ink-soft">{p.description}</p>}
-                  <div className="mt-auto pt-2 text-[10px] text-ink-soft/70">
-                    {chat ? `Updated ${formatRelativeTime(chat.updatedAt)}` : p.isContributor ? 'Not started yet' : 'Join to contribute'}
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-2">
+                    <div className="flex items-center gap-2">
+                      {status && (
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${status.className}`}>
+                          {status.text}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-ink-soft/70">
+                        {chat ? `Updated ${formatRelativeTime(chat.updatedAt)}` : p.isContributor ? 'Not started yet' : 'Join to contribute'}
+                      </span>
+                    </div>
+                    {/* A live pathway can't be deleted from here. */}
+                    {!p.isPublished && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteError(null);
+                          setDeleteTarget(p);
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="rounded-lg border border-navy/15 px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:border-coral hover:text-coral"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -308,6 +393,21 @@ function ContributeGridContent() {
         </>
       )}
       </div>
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete this contribution?"
+          confirmLabel={deleting ? 'Deleting…' : 'Delete contribution'}
+          danger
+          busy={deleting}
+          error={deleteError}
+          onConfirm={() => deleteContribution(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
+        >
+          This deletes your workspace for <strong>{deleteTarget.title}</strong>, its pathway drafts, and every toolkit
+          asset file you shared from it that isn&apos;t live yet, and removes it from this list.
+          This can&apos;t be undone.
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

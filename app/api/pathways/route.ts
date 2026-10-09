@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 
   const { data: pathways, error } = await supabase
     .from('pathways')
-    .select('id, slug, title, sector, description, created_at')
+    .select('id, slug, title, sector, description, created_at, review_requested')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -47,10 +47,14 @@ export async function GET(req: NextRequest) {
   // Also fetch which pathways this user contributes to so the grid can mark
   // them as "already joined" without a second client-side query, and every
   // contributing org per pathway so the grid can offer an org filter.
-  const [{ data: myContribs }, { data: orgContribs }] = await Promise.all([
+  // Live slugs drive each card's Published badge — published_pathways is
+  // readable by any approved user (0012).
+  const [{ data: myContribs }, { data: orgContribs }, { data: live }] = await Promise.all([
     supabase.from('pathway_contributors').select('pathway_id').eq('user_id', user.id),
     supabase.from('pathway_contributors').select('pathway_id, organisations(name)'),
+    supabase.from('published_pathways').select('slug'),
   ])
+  const liveSlugs = new Set((live ?? []).map((r) => r.slug as string))
 
   const mySet = new Set((myContribs ?? []).map((r) => r.pathway_id as string))
   const orgsByPathway = new Map<string, Set<string>>()
@@ -63,8 +67,10 @@ export async function GET(req: NextRequest) {
     orgsByPathway.get(pathwayId)!.add(orgName)
   }
 
-  const result = (pathways ?? []).map((p) => ({
+  const result = (pathways ?? []).map(({ review_requested, ...p }) => ({
     ...p,
+    isPublished: liveSlugs.has(p.slug),
+    reviewRequested: review_requested ?? false,
     isContributor: mySet.has(p.id),
     orgs: Array.from(orgsByPathway.get(p.id) ?? []),
   }))

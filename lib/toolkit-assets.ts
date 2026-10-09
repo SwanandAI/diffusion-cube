@@ -86,11 +86,16 @@ export interface ToolkitAssetCandidate {
   reuseCondition?: string;
   dimension?: string;
   stage?: string;
+  // What may be personal or confidential data the companion noticed in the
+  // file's readable contents — shown on the resource review card before the
+  // contributor agrees. Not stored with the asset. Empty when none.
+  sensitiveNote?: string;
 }
 
-// A consent card in the contributor's chat — carried on a client-constructed
-// message (never model-authored), one per candidate, and persisted with the
-// conversation so a reload shows the outcome instead of asking again.
+// LEGACY: a one-candidate consent card, from before the resource review card
+// replaced it. Old conversations still carry these (and can still answer a
+// pending one), so they're rendered and counted as decided; nothing new
+// creates them.
 export interface ToolkitAssetConsentState {
   id: string;
   candidate: ToolkitAssetCandidate;
@@ -107,8 +112,7 @@ export function candidateSourceKey(candidate: ToolkitAssetCandidate): string {
 // checklist", or "we ran it on <open-source tool>". The contributor
 // companion reports these in toolkitAssetMentions, even when it judged the
 // document itself to be background material. Nothing is stored from this;
-// the app asks once, by name, under the pathway draft
-// (lib/adoption-conversation.ts appendPathwayDocMessage).
+// each becomes an item on the resource review card, asked about once.
 export interface ToolkitAssetMention {
   name: string;
   // The uploaded file it was named in, or '' when it was the contributor's
@@ -116,31 +120,91 @@ export interface ToolkitAssetMention {
   mentionedIn: string;
 }
 
-// How a mention is matched against earlier asks and consent cards, so the
-// same artifact is never asked about twice.
+// How a mention is matched against items already reviewed, so the same
+// artifact is never asked about twice.
 export function assetMentionKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// At most this many artifacts named in one ask; any more wait for the next
-// draft update.
-export const MAX_ASSET_MENTIONS_PER_ASK = 5;
+// ---------------------------------------------------------------------------
+// The resource review card (contributor flow)
+// ---------------------------------------------------------------------------
+//
+// One client-constructed chat message listing every potentially reusable
+// resource not yet decided: files and links the companion judged reusable
+// (toolkitAssetCandidates) plus things the material names but didn't attach
+// (toolkitAssetMentions). The contributor decides each item — share (with
+// the public-sharing + right-to-share consent), attach the missing file or
+// link, or don't share — and then answers "any other resource?". The first
+// review is started by the stage confirmation and generates the first draft
+// when finished; later ones appear whenever new resources turn up. Lives on
+// Message.resourceReview, persisted with the conversation. See
+// lib/adoption-conversation.ts for the actions.
 
-// The ask under a pathway draft. `includeOthers` (first draft only) folds
-// the general "any asset to attach?" question into it, so the contributor
-// gets one question rather than two. Neutral wording on purpose: never that
-// sharing would make the pathway better.
-export function buildAssetMentionAsk(mentions: ToolkitAssetMention[], includeOthers: boolean): string {
-  const clean = (text: string) => oneLine(text).replace(/[*_`]/g, '');
-  const items = mentions.map((m) => `- **${clean(m.name)}**${m.mentionedIn ? ` (in ${clean(m.mentionedIn)})` : ''}`);
-  const single = mentions.length === 1;
-  const what = single ? 'it' : 'any of them';
-  return [
-    `Your material mentions ${single ? 'this' : 'these'}, but ${single ? "it wasn't" : "they weren't"} attached:`,
-    ...items,
-    '',
-    `Do you want to attach ${what}${includeOthers ? ', or any other asset,' : ''} with this pathway? You can attach the file or paste an https link here.`,
-  ].join('\n');
+export type ResourceItemStatus = 'pending' | 'shared' | 'declined' | 'background';
+
+export interface ResourceReviewItem {
+  // candidateSourceKey for a file or link, `mention:<assetMentionKey>` for
+  // something named but not attached.
+  key: string;
+  name: string;
+  // Set once there's a real file or link the companion judged reusable.
+  candidate?: ToolkitAssetCandidate;
+  // A mention: the uploaded file it was named in ('' = their own message).
+  mentionedIn?: string;
+  // Attached or linked from this card, waiting for the companion's check.
+  // Cleared when the check lists it; if it doesn't, the item becomes
+  // 'background' (kept as source material only).
+  attachedSource?: { fileName: string } | { url: string };
+  status: ResourceItemStatus;
+  assetId?: string;
+}
+
+export interface ResourceReviewState {
+  id: string;
+  items: ResourceReviewItem[];
+  status: 'open' | 'complete';
+  // The review the stage confirmation started: finishing it generates the
+  // first pathway draft.
+  generateOnComplete: boolean;
+}
+
+export function mentionItemKey(name: string): string {
+  return `mention:${assetMentionKey(name)}`;
+}
+
+// What the companion reads back in history for a review card — the outcome
+// of every item, so it never lists a decided file or link again.
+export function resourceReviewContent(review: ResourceReviewState): string {
+  const label: Record<ResourceItemStatus, string> = {
+    pending: 'not decided yet',
+    shared: 'the contributor agreed to share it publicly as a toolkit asset; it goes live when this pathway is approved',
+    declined: 'the contributor chose not to share it',
+    background: "it reads as background material rather than a reusable resource, so it's used for the pathway only",
+  };
+  const lines = review.items.map((item) => {
+    const source = item.candidate
+      ? 'fileName' in item.candidate.source
+        ? `file ${item.candidate.source.fileName}`
+        : `link ${item.candidate.source.url}`
+      : item.key.startsWith('attached:')
+        ? 'attached from the card'
+        : item.mentionedIn
+          ? `mentioned in ${item.mentionedIn}`
+          : 'mentioned by the contributor';
+    return `- **${oneLine(item.name)}** (${source}): ${label[item.status]}`;
+  });
+  const head =
+    review.status === 'complete'
+      ? 'Resource review (finished):'
+      : 'Resource review shown to the contributor (they decide each item on the card):';
+  return [head, ...(lines.length ? lines : ['- nothing identified; the contributor was asked whether they have any resource to share'])].join('\n');
+}
+
+// The "may this be published?" step before a pathway is sent for review.
+export interface PublishConsentState {
+  id: string;
+  status: 'pending' | 'sent' | 'kept' | 'deleted';
 }
 
 // Public metadata for a published asset — what GET /api/toolkit-assets
