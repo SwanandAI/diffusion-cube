@@ -43,10 +43,29 @@ function isRateLimited(err: { status?: number; code?: string } | null) {
   return err?.status === 429 || err?.code === 'over_email_send_rate_limit' || err?.code === 'over_request_rate_limit';
 }
 
+// `next` comes straight from the URL, so only same-site paths are honoured —
+// otherwise /login?next=https://evil.example would hand a freshly signed-in
+// user to another site. "//host" and "/\host" are protocol-relative URLs to
+// a browser, so a single leading slash isn't enough on its own.
+function safeNextPath(value: string | null): string {
+  if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return '/';
+  return value;
+}
+
+// Settles the one-time default 'adopter' grant (see
+// app/api/auth/grant-default-role). Run on every sign-in as well as sign-up,
+// so a grant that failed at sign-up (network blip, tab closed before the
+// call) self-heals on the next sign-in rather than leaving the account on
+// "Awaiting approval". The route is a no-op once the grant is settled, and
+// never re-grants a role an admin removed. Never blocks navigation.
+async function settleDefaultRole() {
+  await fetch('/api/auth/grant-default-role', { method: 'POST' }).catch(() => {});
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next') || '/';
+  const next = safeNextPath(searchParams.get('next'));
 
   // Sign-up and password reset are both code-based and run on this page (see
   // specs/SIGNUP_OTP_SPEC.md):
@@ -149,6 +168,7 @@ function LoginForm() {
       return;
     }
 
+    await settleDefaultRole();
     showToast('Signed in successfully.');
     router.replace(next);
     router.refresh();
@@ -213,9 +233,8 @@ function LoginForm() {
     // Grant the adopter role now that there's a verified session, so the
     // account can use Analyse without an admin approval step. A failure here
     // is non-fatal — the user still ends up on /explore (which needs no
-    // role), and an admin can grant it manually later; they'd just see the
-    // "Ask an admin" screen on /analyse in the meantime.
-    await fetch('/api/auth/grant-default-role', { method: 'POST' }).catch(() => { });
+    // role), and the grant is retried on their next sign-in.
+    await settleDefaultRole();
 
     // A fresh signup always lands on /explore — it's open with no approval
     // needed, so it's the one place a pending account has something to do
@@ -286,6 +305,7 @@ function LoginForm() {
       return;
     }
 
+    await settleDefaultRole();
     showToast("Password updated successfully. You're signed in.");
     router.replace(next);
     router.refresh();

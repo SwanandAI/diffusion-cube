@@ -37,11 +37,11 @@ export default function ResourceReviewCard({
 
   return (
     <div className="rounded-xl border border-navy/15 bg-white px-4 py-3">
-      <p className="text-sm font-medium text-navy">Reusable resources</p>
+      <p className="text-sm font-medium text-navy">Files other teams can reuse</p>
       <p className="mt-0.5 text-xs text-ink-soft">
         {review.items.length > 0
-          ? 'These came up in your material. Decide for each one whether to share it with future adopters.'
-          : "Nothing in your material looked like a reusable resource (a template, checklist, cost model, tool and so on)."}
+          ? "We found these in your documents. Choose Share or Don't share for each one."
+          : "We didn't find any reusable files (like a template, checklist or tool) in your documents."}
       </p>
 
       {review.items.length > 0 && (
@@ -62,12 +62,14 @@ export default function ResourceReviewCard({
         </ul>
       )}
 
+      {/* Its own box: a separate question from the items above. */}
       {open && undecided === 0 && (
-        <div className="mt-3 border-t border-navy/10 pt-3">
-          <p className="text-sm text-navy">Do you have any other resource you&apos;d like to share with this pathway?</p>
+        <div className="mt-3 rounded-lg bg-paper-dim px-3 py-2.5">
+          <p className="text-sm font-medium text-navy">Anything else to share?</p>
+          <p className="mt-0.5 text-xs text-ink-soft">A template, checklist, tool or link that other teams could use.</p>
           <AttachControls
             busy={busy}
-            attachLabel="Attach a file"
+            attachLabel="Add a file"
             onAttach={(file) => onAttach(null, file)}
             onLink={(url) => onLink(null, url)}
           >
@@ -77,17 +79,17 @@ export default function ResourceReviewCard({
               disabled={busy}
               className="rounded-lg bg-navy px-3 py-1.5 text-xs font-medium text-white transition hover:bg-coral disabled:opacity-40"
             >
-              {review.generateOnComplete ? 'No, draft my pathway' : "No, that's all"}
+              {review.generateOnComplete ? 'No, draft my pathway' : "No, I'm done"}
             </button>
           </AttachControls>
         </div>
       )}
       {open && undecided > 0 && (
         <p className="mt-3 border-t border-navy/10 pt-3 text-xs text-ink-soft">
-          {undecided} still to decide.
+          {undecided} left to decide.
         </p>
       )}
-      {!open && <p className="mt-3 border-t border-navy/10 pt-3 text-xs text-ink-soft">Resource review complete.</p>}
+      {!open && <p className="mt-3 border-t border-navy/10 pt-3 text-xs text-ink-soft">All done.</p>}
     </div>
   );
 }
@@ -123,8 +125,8 @@ function ResourceRow({
       ? candidate.source.fileName
       : (linkDomain(candidate.source.url) ?? candidate.source.url)
     : item.mentionedIn
-      ? `Mentioned in ${item.mentionedIn}, not attached`
-      : 'Mentioned in your messages, not attached';
+      ? `Named in ${item.mentionedIn}, but not attached`
+      : 'Named in your message, but not attached';
   const missingFile =
     candidate && 'fileName' in candidate.source && !reattached && !fileAvailable(candidate.source.fileName);
 
@@ -158,7 +160,7 @@ function ResourceRow({
           {candidate?.purpose && <p className="mt-1 text-xs text-ink">{candidate.purpose}</p>}
           {candidate?.sensitiveNote && item.status === 'pending' && (
             <p className="mt-1 rounded bg-yellow/20 px-2 py-1 text-xs text-navy">
-              ⚠ Possible personal or confidential data: {candidate.sensitiveNote} Remove it before sharing if it
+              ⚠ This may contain personal or private data: {candidate.sensitiveNote} Remove it before sharing if it
               shouldn&apos;t be public.
             </p>
           )}
@@ -166,10 +168,10 @@ function ResourceRow({
         {item.status !== 'pending' && (
           <span className="flex-shrink-0 rounded-full bg-paper-dim px-2 py-0.5 text-[11px] text-ink-soft">
             {item.status === 'shared'
-              ? 'Shared · goes live when approved'
+              ? 'Shared · public after approval'
               : item.status === 'declined'
                 ? 'Not shared'
-                : 'Background material only'}
+                : 'Used for the pathway only'}
           </span>
         )}
       </div>
@@ -177,7 +179,7 @@ function ResourceRow({
       {open && item.status === 'pending' && (
         <div className="mt-2">
           {item.attachedSource ? (
-            <p className="animate-pulse text-xs text-ink-soft">Checking what you attached…</p>
+            <p className="animate-pulse text-xs text-ink-soft">Checking the file…</p>
           ) : candidate ? (
             <>
               <div className="flex flex-wrap items-center gap-2">
@@ -197,7 +199,7 @@ function ResourceRow({
                       onClick={() => reattachRef.current?.click()}
                       className="rounded-lg border border-navy/15 px-3 py-1.5 text-xs font-medium text-navy transition hover:border-navy/40"
                     >
-                      Re-select the file to share it
+                      Select the file again to share it
                     </button>
                   </>
                 ) : (
@@ -221,12 +223,12 @@ function ResourceRow({
               </div>
               {/* Clicking Share is the consent — this line is what it agrees to. */}
               <p className="mt-1.5 text-[11px] text-ink-soft">
-                Shared resources are public: anyone can download them once an admin approves this pathway. Only
-                share what you have the right to share.
+                Once an admin approves this pathway, anyone can download what you share. Only share files
+                you&apos;re allowed to share.
               </p>
             </>
           ) : (
-            <AttachControls busy={busy} attachLabel="Attach it" onAttach={onAttach} onLink={onLink}>
+            <AttachControls busy={busy} attachLabel="Add the file" onAttach={onAttach} onLink={onLink}>
               <button
                 type="button"
                 onClick={() => decide(false)}
@@ -305,7 +307,7 @@ function AttachControls({
             disabled={busy || !url.trim()}
             className="rounded-lg bg-navy px-3 py-1.5 text-xs font-medium text-white transition hover:bg-coral disabled:opacity-40"
           >
-            Add link
+            Add
           </button>
           <button
             type="button"
@@ -331,7 +333,7 @@ function AttachControls({
             disabled={busy}
             className="rounded-lg border border-navy/15 px-3 py-1.5 text-xs font-medium text-navy transition hover:border-navy/40 disabled:opacity-40"
           >
-            Paste a link
+            Add a link
           </button>
           {children}
         </div>

@@ -30,6 +30,10 @@ export interface Message {
   // Shown in the chat bubble instead of `content` — used for uploads, where
   // `content` carries the full extracted document text sent to the agent.
   displayContent?: string;
+  // Sent to the model but never shown: an app-authored note in the
+  // contributor's turn (e.g. "the first draft is ready") that lets the
+  // companion speak next without the contributor typing anything.
+  hidden?: boolean;
   // Set when the message carries one or more uploaded images — `content` then
   // holds a short instruction (plus any text-attachment content) and this
   // carries the actual bytes sent to the model.
@@ -50,8 +54,8 @@ export interface Message {
   // Contributor flow, on the companion's reply: files/links it judged
   // reusable and things the material named but didn't attach (both from
   // <grid_update>). Collected into the resource review card — kept here so
-  // the first review (started at stage confirmation) can gather everything
-  // found earlier, across reloads.
+  // the first review (shown after the questions that follow the first
+  // draft) can gather everything found earlier, across reloads.
   toolkitAssetCandidates?: ToolkitAssetCandidate[];
   toolkitAssetMentions?: ToolkitAssetMention[];
   // Contributor flow: client-constructed resource review card
@@ -392,6 +396,9 @@ interface Props {
   // document generation is in flight (both take noticeably longer than a
   // normal chat turn, so the more specific label is worth showing).
   generatingDoc?: boolean;
+  // Contributor: a pathway draft is being written in the background. The
+  // chat stays usable; this only shows a note at the bottom.
+  writingDraft?: boolean;
   placeholder?: string;
   // Only needed by Contributor-flow callers, to render a PathwayDocCard
   // wherever a message contains PATHWAY_DOC_MARKER — Explorer callers omit
@@ -454,6 +461,7 @@ export default function ChatPanel({
   pendingAttachments = [],
   loading,
   generatingDoc = false,
+  writingDraft = false,
   placeholder,
   onOpenPathwayDocument,
   onOpenExplorerDocument,
@@ -516,6 +524,7 @@ export default function ChatPanel({
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 sm:px-6">
         <div className="mx-auto max-w-5xl space-y-5">
         {messages.map((m, i) => {
+          if (m.hidden) return null;
           const review = m.resourceReview;
           if (review) {
             if (!resourceReviewActions) return null;
@@ -664,6 +673,13 @@ export default function ChatPanel({
             </div>
           );
         })}
+        {writingDraft && (
+          <div className="flex justify-start">
+            <div className="bg-paper-dim text-ink-soft rounded-2xl px-5 py-3 text-[15px] animate-pulse">
+              Writing the pathway document… you can keep going meanwhile.
+            </div>
+          </div>
+        )}
         {loading && (
           <div className="flex justify-start">
             <div className="bg-paper-dim text-ink-soft rounded-2xl px-5 py-3 text-[15px] animate-pulse">

@@ -1,13 +1,8 @@
 import { createClient, createStatelessClient } from '@/lib/supabase/server';
-import { removeAssetObjects } from '@/lib/toolkit-assets-server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { deleteAccount } from '@/lib/account-deletion-server';
 
-// Self-serve permanent account deletion. Deleting the auth user cascades
-// away everything personal — roles, contributor registration, every
-// conversation (designs → design_documents/adoption_queries, and
-// library_conversations), pathway_contributors links. Published content
-// stays: published_pathways / pathways / published contribution_units keep
-// their rows with the user reference nulled (migration 0033). Requires the
+// Self-serve permanent account deletion — what gets removed and what stays
+// is in deleteAccount() (lib/account-deletion-server.ts). Requires the
 // account password, re-verified here. See specs/ACCOUNT_DELETION_SPEC.md.
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -38,52 +33,7 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Could not verify your password. Please try again.' }, { status: 500 });
   }
 
-  const admin = createAdminClient();
-
-  // Detach published units explicitly rather than trusting the FK: without
-  // migration 0033 user_id is still NOT NULL + ON DELETE CASCADE, and
-  // deleteUser below would silently take published units with it. This
-  // update fails loudly in that case instead — first, before anything is lost.
-  const { error: unitsError } = await admin
-    .from('contribution_units')
-    .update({ user_id: null })
-    .eq('user_id', user.id)
-    .not('published_at', 'is', null);
-  if (unitsError) {
-    console.error('[account/delete] published units — is migration 0033 applied?', unitsError);
-    return Response.json({ error: 'Could not delete your account.' }, { status: 500 });
-  }
-
-  // Unpublished toolkit asset files go with the account (published ones stay
-  // downloadable, like every other published unit). Removed before their
-  // rows, so no file is left behind without a row pointing at it; a storage
-  // failure is logged, never blocks the deletion.
-  const { data: draftAssetFiles } = await admin
-    .from('contribution_units')
-    .select('storage_path')
-    .eq('user_id', user.id)
-    .eq('unit_type', 'toolkit-asset')
-    .is('published_at', null)
-    .not('storage_path', 'is', null);
-  await removeAssetObjects((draftAssetFiles ?? []).map((a) => a.storage_path as string));
-
-  // Unpublished drafts go with the account.
-  const { error: draftsError } = await admin
-    .from('contribution_units')
-    .delete()
-    .eq('user_id', user.id)
-    .is('published_at', null);
-  if (draftsError) {
-    console.error('[account/delete] drafts', draftsError);
-    return Response.json({ error: 'Could not delete your account.' }, { status: 500 });
-  }
-
-  const { error } = await admin.auth.admin.deleteUser(user.id);
-  if (error) {
-    // A concurrent request (double-click, two tabs) may have already deleted
-    // this account — that's a successful end state, not a failure.
-    if (error.code === 'user_not_found') return Response.json({ ok: true });
-    console.error('[account/delete] deleteUser', error);
+  if (!(await deleteAccount(user.id, 'account/delete'))) {
     return Response.json({ error: 'Could not delete your account.' }, { status: 500 });
   }
 
