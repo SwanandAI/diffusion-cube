@@ -164,9 +164,14 @@ export interface ResourceReviewState {
   id: string;
   items: ResourceReviewItem[];
   status: 'open' | 'complete';
-  // The review the stage confirmation started: finishing it generates the
-  // first pathway draft.
+  // Legacy (conversations from before 2026-10-09, when resources were
+  // reviewed before the first draft): finishing it generates the first draft.
+  // New reviews always set false.
   generateOnComplete: boolean;
+  // The first review, shown once the questions after the first draft end:
+  // finishing it asks the contributor whether to change the draft or send
+  // it for review.
+  followsFirstDraft?: boolean;
 }
 
 export function mentionItemKey(name: string): string {

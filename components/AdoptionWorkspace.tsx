@@ -27,7 +27,7 @@ import { ATTACH_ACCEPT, CONTRIBUTOR_ATTACH_ACCEPT } from '@/lib/extract-text';
 const CONTRIBUTOR_OPENING_MESSAGE: Message = {
   role: 'assistant',
   content:
-    "Please share your deployment documents (PDF, Word, PowerPoint and so on), or describe the project here — you can add more at any point. I'll read them, ask a few questions to understand the journey, check with you which reusable resources you'd like to share, and then draft the pathway for you to review.\n\nNothing becomes public unless you agree and an administrator approves it. Your progress is saved, so you can leave and come back any time.",
+    "Please share your deployment documents (PDF, Word, PowerPoint and so on), or describe the project here — you can add more at any point. I'll read them (and check the stage with you if they don't say it), draft the pathway, ask a few questions to fill in the journey, then check with you which reusable resources (templates, checklists, tools and so on) you'd like to share alongside it.\n\nNothing becomes public unless you agree and an administrator approves it. Your progress is saved, so you can leave and come back any time.",
 };
 
 const STRENGTHEN_OPENING_MESSAGE: Message = {
@@ -607,7 +607,8 @@ export default function AdoptionWorkspace({
                 onRemoveAttachment={removeAttachment}
                 pendingAttachments={pendingAttachments}
                 loading={loading}
-                generatingDoc={pathwayDoc.loading || explorerDoc.generating !== null}
+                generatingDoc={explorerDoc.generating !== null}
+                writingDraft={pathwayDoc.loading}
                 placeholder="Ask, share, or think out loud…"
                 pathwayLookup={pathwayLookup}
                 hideAccuracyDisclaimer
@@ -1004,7 +1005,8 @@ export default function AdoptionWorkspace({
               onRemoveAttachment={removeAttachment}
               pendingAttachments={pendingAttachments}
               loading={loading}
-              generatingDoc={pathwayDoc.loading || explorerDoc.generating !== null}
+              generatingDoc={explorerDoc.generating !== null}
+              writingDraft={pathwayDoc.loading}
               placeholder="Ask, share, or think out loud…"
               onOpenPathwayDocument={
                 flow === 'contributor' ? () => openRightPanel('document') : undefined

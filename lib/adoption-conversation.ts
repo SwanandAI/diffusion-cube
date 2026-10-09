@@ -135,6 +135,12 @@ export const EMPTY_META: AdoptionMeta = {
 
 export { EMPTY_GRID };
 
+// Contributor: the hidden note sent once the first draft is shown, so the
+// companion asks its first journey question right under it (step 5 of
+// contributorSystemPrompt). Never shown in the chat (Message.hidden).
+const FIRST_DRAFT_READY_NOTE =
+  '[App note, not typed by the contributor] The first pathway draft is ready and shown to the contributor above. Go on with step 5: ask your first question to fill in the journey, or end the questions if nothing important is unclear.';
+
 const UPLOAD_LINE = /(?:📄|🖼️|📎)\s*Uploaded\s+\*\*(.+?)\*\*/g;
 
 // Files already sent in past turns aren't tracked separately — they're
@@ -474,6 +480,13 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   const [conversation, setConversation] = useState<AdoptionConversation | null>(initial);
   const conversationRef = useRef<AdoptionConversation | null>(initial);
   const [loading, setLoading] = useState(false);
+  // The companion turn in flight, if any (see sendMessage). A turn streams
+  // into the last message, so nothing else may append to the chat while it
+  // runs — see afterCurrentTurn.
+  const turnRef = useRef<Promise<void> | null>(null);
+  // Contributor pathway drafts run in the background, one at a time, so the
+  // chat stays usable while one is written — see runDraftJob.
+  const draftQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [pendingAttachments, setPendingAttachments] = useState<StagedAttachment[]>([]);
   // Dedupes concurrent ensureCreated() calls (e.g. several files dropped at
   // once, each triggering extraction) so they share one row-creation insert
@@ -793,17 +806,60 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   // the rendering side. Used for both the first draft (with its real gap
   // list, parsed straight from the generated document's own Section 2 — see
   // lib/pathway-gaps.ts) and every later revision (no gap list restated).
-  function appendPathwayDocMessage(markdown: string, opts: { includeGaps: boolean }) {
-    const gaps = opts.includeGaps ? extractGapsFromPathwayDraft(markdown) : [];
+  // kind: 'first' = the first draft, with its gap list (the questions come
+  // next, so no closing question); 'answers' = the draft updated with the
+  // answers to those questions (the resource review card comes next);
+  // 'revised' = any other revision.
+  function pathwayDocMessage(markdown: string, kind: 'first' | 'answers' | 'revised'): Message {
+    const gaps = kind === 'first' ? extractGapsFromPathwayDraft(markdown) : [];
     const gapsLine = gaps.length ? `\n\nA few things I couldn't find in the documents:\n${gaps.map((g) => `- ${g}`).join('\n')}` : '';
-    const intro = opts.includeGaps ? `Here is the pathway document drafted from your documents.${gapsLine}` : "Here's the updated pathway document.";
-    // Resources are asked about on the resource review card (before the
-    // first draft, and whenever new ones turn up), never under the draft.
-    const content = `${intro}\n\n${PATHWAY_DOC_MARKER}\n\nDo you want to make any changes, or send it for review?`;
-    const message: Message = { role: 'assistant', content };
+    const intro =
+      kind === 'first'
+        ? `Here is the pathway document drafted from your documents.${gapsLine}`
+        : kind === 'answers'
+          ? "Here's the pathway document updated with your answers."
+          : "Here's the updated pathway document.";
+    const close =
+      kind === 'first'
+        ? ''
+        : kind === 'answers'
+          ? '\n\nNext, a quick check below on the reusable resources in your material.'
+          : '\n\nDo you want to make any changes, or send it for review?';
+    return { role: 'assistant', content: `${intro}\n\n${PATHWAY_DOC_MARKER}${close}` };
+  }
 
-    update((c) => ({ ...c, messages: [...c.messages, message] }));
-    if (conversationRef.current) void persist(conversationRef.current);
+  function appendPathwayDocMessage(markdown: string, kind: 'first' | 'answers' | 'revised') {
+    commitMessages((msgs) => [...msgs, pathwayDocMessage(markdown, kind)]);
+  }
+
+  // The questions after the first draft have ended: the draft updated with
+  // the answers (when they added anything), then the first resource review —
+  // every reusable file or link found so far and every resource the
+  // material names but didn't attach. One commit, so the persisted copy
+  // never holds one without the other.
+  function appendFirstResourceReview(updatedDraft: string | null) {
+    const review: ResourceReviewState = {
+      id: `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      items: [],
+      status: 'open',
+      generateOnComplete: false,
+      followsFirstDraft: true,
+    };
+    // commitMessages runs this twice (state + persist), so it stays pure —
+    // the id is fixed above.
+    commitMessages((msgs) => {
+      const items = newResourceItems(
+        validCandidates(msgs.flatMap((m) => m.toolkitAssetCandidates ?? []), msgs),
+        msgs.flatMap((m) => m.toolkitAssetMentions ?? []),
+        reviewedResourceKeys(msgs)
+      );
+      const first = { ...review, items };
+      return [
+        ...msgs,
+        ...(updatedDraft ? [pathwayDocMessage(updatedDraft, 'answers')] : []),
+        { role: 'assistant', content: resourceReviewContent(first), displayContent: RESOURCE_REVIEW_MARKER, resourceReview: first },
+      ];
+    });
   }
 
   function appendPublishOutcomeMessage(result: { ok: boolean; slug?: string; error?: string }) {
@@ -820,8 +876,12 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   function commitMessages(mutate: (messages: Message[]) => Message[]) {
     const cur = conversationRef.current;
     if (!cur) return;
+    const next = { ...cur, messages: mutate(cur.messages) };
     update((c) => ({ ...c, messages: mutate(c.messages) }));
-    void persist({ ...cur, messages: mutate(cur.messages) });
+    // Keep the ref current for a synchronous follow-up (e.g. the hidden turn
+    // after the first draft) — the update above may not have run yet.
+    conversationRef.current = next;
+    void persist(next);
   }
 
   // What the model reads back in history for a consent card — states the
@@ -965,27 +1025,13 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     }));
   }
 
-  function appendResourceReview(items: ResourceReviewItem[], generateOnComplete: boolean) {
-    const review: ResourceReviewState = {
-      id: `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      items,
-      status: 'open',
-      generateOnComplete,
-    };
-    commitMessages((msgs) => [
-      ...msgs,
-      { role: 'assistant', content: resourceReviewContent(review), displayContent: RESOURCE_REVIEW_MARKER, resourceReview: review },
-    ]);
-  }
-
   // Contributor-only, after each companion turn: where this turn's resource
   // findings go. If the turn came from a card (something attached from it is
   // waiting for this check), that card takes them and settles the
-  // attachment. Otherwise, once the first review has happened — or, in an
-  // older conversation, once a draft exists — they get a fresh card at the
-  // bottom (takeFindingsForFreshReview), even while an older card is still
-  // open. Before that they wait on the message for the first review to
-  // collect.
+  // attachment. Otherwise, once the first review has happened, they get a
+  // fresh card at the bottom (takeFindingsForFreshReview), even while an
+  // older card is still open. Before that they wait on the message for the
+  // first review to collect.
   function routeResourceFindings(parsed: ParsedGridUpdate | null) {
     const msgs = conversationRef.current?.messages ?? [];
     const candidates = validCandidates(parsed?.toolkitAssetCandidates ?? [], msgs);
@@ -998,10 +1044,9 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       updateResourceReview(fromCard.id, (review) => mergeIntoReview(review, candidates, mentions, reviewed));
       return;
     }
-    const reviewStarted = msgs.some(
-      (m) => m.resourceReview || (m.role === 'assistant' && m.content.includes(PATHWAY_DOC_MARKER))
-    );
-    if (!reviewStarted) return;
+    // Until the first review exists (it comes after the questions that
+    // follow the first draft), findings wait on their message for it.
+    if (!msgs.some((m) => m.resourceReview)) return;
     if (takeFindingsForFreshReview(msgs, candidates, mentions).items.length === 0) return;
     const review: ResourceReviewState = {
       id: `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -1020,18 +1065,6 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         { role: 'assistant', content: resourceReviewContent(fresh), displayContent: RESOURCE_REVIEW_MARKER, resourceReview: fresh },
       ];
     });
-  }
-
-  // Stage confirmed: the first review collects everything found so far, and
-  // finishing it generates the first draft.
-  function startFirstResourceReview() {
-    const msgs = conversationRef.current?.messages ?? [];
-    const items = newResourceItems(
-      validCandidates(msgs.flatMap((m) => m.toolkitAssetCandidates ?? []), msgs),
-      msgs.flatMap((m) => m.toolkitAssetMentions ?? []),
-      reviewedResourceKeys(msgs)
-    );
-    appendResourceReview(items, true);
   }
 
   // Share or don't share one item. Clicking Share is the consent — the card
@@ -1126,20 +1159,36 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     }
   }
 
-  // "No other resources" — closes the review. The first review then
-  // generates the first draft.
+  // "No other resources" — closes the review. The review under the first
+  // draft then asks what's next; a legacy pre-draft review (older
+  // conversations) generates the first draft.
   async function finishResourceReview(reviewId: string) {
     const review = findResourceReview(reviewId);
     if (!review || review.status !== 'open' || review.items.some((i) => i.status === 'pending')) return;
+    if (review.followsFirstDraft) {
+      const shared = review.items.some((i) => i.status === 'shared');
+      const next: Message = {
+        role: 'assistant',
+        content: `${shared ? "Thanks — what you've shared will be listed with this pathway." : 'Thanks.'} Do you want to make any changes to the draft, or send it for review?`,
+      };
+      commitMessages((msgs) => [
+        ...msgs.map((m) => {
+          if (m.resourceReview?.id !== reviewId) return m;
+          const done = { ...m.resourceReview, status: 'complete' as const };
+          return { ...m, resourceReview: done, content: resourceReviewContent(done) };
+        }),
+        next,
+      ]);
+      return;
+    }
     updateResourceReview(reviewId, (r) => ({ ...r, status: 'complete' }));
     if (!review.generateOnComplete) return;
-    setLoading(true);
-    try {
+    void runDraftJob(async () => {
       const markdown = await generatePathwayDraft();
-      if (markdown) appendPathwayDocMessage(markdown, { includeGaps: true });
-    } finally {
-      setLoading(false);
-    }
+      if (!markdown) return;
+      await afterCurrentTurn();
+      appendPathwayDocMessage(markdown, 'revised');
+    });
   }
 
   // ---- "May this pathway be published?" ------------------------------------
@@ -1194,6 +1243,8 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
 
     setLoading(true);
     try {
+      // A draft still being written goes out, not the one before it.
+      await draftQueueRef.current;
       const result = await publishPathwayDocument();
       if (!result.ok) return { ok: false, error: result.error };
       setStatus('sent');
@@ -1337,6 +1388,20 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     if (row) appendExplorerDocMessage(docType, { isFirstGeneration });
   }
 
+  // Resolves once no companion turn is streaming. Whatever follows in the
+  // same tick can append to the chat safely.
+  async function afterCurrentTurn() {
+    while (turnRef.current) await turnRef.current;
+  }
+
+  // Queues a draft job behind any already running. Not awaited by the chat
+  // turn that started it, so typing and the cards stay usable meanwhile.
+  function runDraftJob(job: () => Promise<void>): Promise<void> {
+    const next = draftQueueRef.current.then(job).catch(() => {});
+    draftQueueRef.current = next;
+    return next;
+  }
+
   // Reacts to the Contributor companion's pathwayAction — see
   // contributorSystemPrompt's JSON contract in lib/system-prompts.ts. Runs
   // after the companion's own reply has finished streaming, from inside
@@ -1344,27 +1409,56 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   // extra draft-generation round trip too.
   async function handlePathwayAction(action: NonNullable<ParsedGridUpdate['pathwayAction']>) {
     if (action.type === 'generate') {
-      // Resources are reviewed before the first draft: the review card
-      // generates it when the contributor finishes. A second "generate"
-      // while that review is open is ignored.
+      // A legacy pre-draft review still open drafts when it's finished, so
+      // "generate" waits for it.
       const msgs = conversationRef.current?.messages ?? [];
-      if (!msgs.some((m) => m.resourceReview)) {
-        startFirstResourceReview();
-        return;
-      }
       if (msgs.some((m) => m.resourceReview?.status === 'open' && m.resourceReview.generateOnComplete)) return;
       const markdown = await generatePathwayDraft();
-      if (markdown) appendPathwayDocMessage(markdown, { includeGaps: true });
+      if (!markdown) return;
+      await afterCurrentTurn();
+      // The first real draft is followed by the journey questions: a hidden
+      // note tells the companion the draft is ready, so it asks the first
+      // one right under it. The drafter's "not enough to draft" fallback
+      // isn't a draft.
+      const notADraft = markdown.trim().startsWith('Not enough of this adoption');
+      const hadDraft = msgs.some((m) => m.role === 'assistant' && m.content.includes(PATHWAY_DOC_MARKER));
+      const first = !notADraft && !hadDraft && !msgs.some((m) => m.resourceReview);
+      appendPathwayDocMessage(markdown, first ? 'first' : 'revised');
+      const c = conversationRef.current;
+      if (first && c) {
+        await sendMessage(c.id, c.messages, { role: 'user', content: FIRST_DRAFT_READY_NOTE, hidden: true }, c.meta.flow, c.grid, c.meta);
+      }
+    } else if (action.type === 'questions-done') {
+      // One revision with everything the answers added, then the first
+      // resource review. In an older conversation that already reviewed its
+      // resources, it's just a revision.
+      const instruction = action.instruction?.trim();
+      const markdown = instruction ? await generatePathwayDraft(instruction) : null;
+      await afterCurrentTurn();
+      const msgs = conversationRef.current?.messages ?? [];
+      if (msgs.some((m) => m.resourceReview)) {
+        if (markdown) appendPathwayDocMessage(markdown, 'revised');
+        return;
+      }
+      appendFirstResourceReview(markdown);
     } else if (action.type === 'revise') {
       const markdown = await generatePathwayDraft(action.instruction || 'Apply the requested change.');
-      if (markdown) appendPathwayDocMessage(markdown, { includeGaps: false });
+      if (!markdown) return;
+      await afterCurrentTurn();
+      appendPathwayDocMessage(markdown, 'revised');
     } else if (action.type === 'publish') {
       await requestPublishConsent();
     }
   }
 
-  const sendMessage = useCallback(
+  const runTurn = useCallback(
     async (id: string, history: Message[], userMessage: Message, flow: AdoptionFlow, grid: GridState, meta: AdoptionMeta) => {
+      // Contributor: once a resource review exists the questions are over,
+      // so the companion is in the open loop (step 6) — also covers older
+      // conversations numbered before the questions moved after the draft.
+      if (flow === 'contributor' && meta.flowStep < 6 && history.some((m) => m.resourceReview)) {
+        meta = { ...meta, flowStep: 6 };
+      }
       const next: Message[] = [...history, userMessage];
       update((c) => ({ ...c, messages: next }));
       setLoading(true);
@@ -1516,12 +1610,14 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       // agrees on it.
       if (flow === 'contributor') routeResourceFindings(lastParsed);
 
-      // Contributor-only: react to the companion's pathwayAction, if any —
-      // done before setLoading(false) so the "Thinking…" indicator covers
-      // the extra draft-generation round trip this can trigger (see
-      // handlePathwayAction above).
-      if (flow === 'contributor' && lastParsed?.pathwayAction && lastParsed.pathwayAction.type !== 'none') {
-        await handlePathwayAction(lastParsed.pathwayAction);
+      // Contributor-only: react to the companion's pathwayAction, if any.
+      // Drafting runs in the background (runDraftJob) so the chat and the
+      // cards stay usable while it's written; the pane and a note in the
+      // chat show it's running. "publish" only raises a card, so it's quick.
+      const pathwayAction = lastParsed?.pathwayAction;
+      if (flow === 'contributor' && pathwayAction && pathwayAction.type !== 'none') {
+        if (pathwayAction.type === 'publish') await handlePathwayAction(pathwayAction);
+        else void runDraftJob(() => handlePathwayAction(pathwayAction));
       }
 
       // Explorer-only equivalent: the Guidance intent's Analysis Document /
@@ -1533,6 +1629,22 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       setLoading(false);
     },
     [update]
+  );
+
+  // One companion turn, tracked in turnRef so background work (drafts) never
+  // appends to the chat while it streams.
+  const sendMessage = useCallback(
+    (id: string, history: Message[], userMessage: Message, flow: AdoptionFlow, grid: GridState, meta: AdoptionMeta) => {
+      const turn = runTurn(id, history, userMessage, flow, grid, meta);
+      const tracked: Promise<void> = turn
+        .catch(() => {})
+        .finally(() => {
+          if (turnRef.current === tracked) turnRef.current = null;
+        });
+      turnRef.current = tracked;
+      return turn;
+    },
+    [runTurn]
   );
 
   // Creates the row on first use; a no-op if the conversation already exists

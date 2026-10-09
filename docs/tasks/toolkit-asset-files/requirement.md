@@ -38,11 +38,12 @@ Other rules:
 - The assistant never comments on whether a file is good. It never asks about sharing in its own words; the resource review card does that.
 - A file or link is only ever asked about once.
 
-**The contributor reviews resources before the draft (updated 2026-10-08).** Many contributors won't think to attach the actual files, so:
-- Before drafting, the assistant asks questions, one at a time, to understand the journey. There's no fixed number: it asks only what the contributor's material leaves unclear, and stops when the journey is understood or the contributor asks to skip. Anything the contributor doesn't know or would rather not say is recorded as a gap in the pathway, never filled in.
-- Once the stage is confirmed, a **resource review card** lists every reusable file or link they shared, and every resource their material names but didn't attach (for example, "we built a vendor evaluation checklist"). This includes resources named inside a document that is itself only background material.
+**Draft first, then questions, then the resource review (updated 2026-10-09).** Many contributors won't think to attach the actual files, so:
+- Once the uploaded material is enough to build a pathway, the assistant settles the stage. If the documents state it, it doesn't ask. If they don't, it asks the contributor to confirm its read, or to pick from the four stages when it has no clear read. Then it drafts the pathway straight away.
+- Under the first draft, the assistant asks questions, one at a time, to understand the journey. There's no fixed number: it asks only what the material leaves unclear, and stops when the journey is understood or the contributor asks to skip. Anything the contributor doesn't know or would rather not say stays a gap in the pathway, never filled in. The answers are added to the draft in one revision when the questions end.
+- Then a **resource review card** lists every reusable file or link they shared, and every resource their material names but didn't attach (for example, "we built a vendor evaluation checklist"). This includes resources named inside a document that is itself only background material.
 - For each item the contributor chooses: **Share** (one click; a one-line note under the buttons says shared resources are public once approved and to share only what they have the right to), **attach it / paste a link** (the assistant then checks it is reusable; if not, it's kept as background material only), or **Don't share**. A note is shown if the assistant noticed possible personal or confidential data in the file.
-- When every item is decided, the card asks once whether there's any other resource to share. Answering no drafts the pathway.
+- When every item is decided, the card asks once whether there's any other resource to share. Answering no closes the card, and the assistant asks whether to change the draft or send it for review.
 - Resources that turn up after the draft get a new card for just those items. Nothing is asked about twice.
 - Before the pathway is sent for review, the contributor confirms the version is accurate and that it may be published to help future adopters. If not, they can keep it as a private draft, or delete the contribution (the workspace, drafts, and asset files not yet live).
 - Asking is never a condition for publishing, and the assistant never says sharing would make the pathway "better" or "more complete".
@@ -72,9 +73,9 @@ The assistant only knows an asset's name, purpose, reuse condition and when it w
 
 ## Flow charts
 
-### Contributor side (Login → Material → Questions → Resource review → Draft → Consent → Review → Publish)
+### Contributor side (Login → Material → Stage → Draft → Questions → Resource review → Consent → Review → Publish)
 
-Updated 2026-10-08 to the flow as built. Admin change requests stay out of band (no in-app request or rejection, no reminders), and assets stay all-or-nothing with the pathway.
+Updated 2026-10-09: the stage is asked only when the documents don't state it; the draft comes next, then the journey questions, then the resource review. Admin change requests stay out of band (no in-app request or rejection, no reminders), and assets stay all-or-nothing with the pathway.
 
 ```mermaid
 flowchart TD
@@ -88,17 +89,21 @@ flowchart TD
     E --> G["Cube reads the material<br/>(flags reusable files and links, and resources<br/>the material names but didn't attach)"]
     G --> P{"Enough to build a pathway?"}
     P -->|"No"| X1(["Cube says so; progress saved,<br/>contributor can return with more"])
-    P -->|"Yes"| O{"Something important about<br/>the journey still unclear?<br/>(Cube decides from the full context;<br/>contributor can skip)"}
+    P -->|"Yes"| ST{"Stage stated<br/>in the documents?"}
+    ST -->|"Yes"| D["First draft generated"]
+    ST -->|"No"| S1["Cube asks the contributor<br/>to confirm or pick the stage"]
+    S1 --> D
+    D --> O{"Something important about<br/>the journey still unclear?<br/>(contributor can skip)"}
     O -->|"Yes"| L["Cube asks one question"]
     L --> M{"Contributor answers?"}
-    M -->|"Answers / shares more"| G
+    M -->|"Answers / shares more"| O
     M -->|"Doesn't know / prefers not to say"| N["Recorded as a gap"]
     N --> O
-    O -->|"No"| S1["Cube asks the contributor to confirm the stage"]
-    S1 --> R["Resource review card: every reusable file/link<br/>and every resource mentioned but not attached"]
+    O -->|"No"| QD["Draft updated once<br/>with all the answers"]
+    QD --> R["Resource review card: every reusable<br/>file/link and every resource mentioned but not attached"]
     R --> U{"For each item"}
     U -->|"Don't share"| V["Recorded; never asked again"]
-    U -->|"Attach it / paste link"| CHK{"Cube checks it:<br/>reusable as-is?"}
+    U -->|"Add the file / link"| CHK{"Cube checks it:<br/>reusable as-is?"}
     CHK -->|"No"| BG["Background material only"]
     CHK -->|"Yes"| U
     U -->|"Share (one click; note under it:<br/>public once approved, right to share)"| XX["Stored privately,<br/>proposed for the Toolkit"]
@@ -106,9 +111,9 @@ flowchart TD
     BG --> W
     XX --> W{"All decided: any other<br/>resource to share?"}
     W -->|"Yes: attach / link"| CHK
-    W -->|"No"| D["First draft generated"]
-    D --> AM{"Contributor reviews the draft:<br/>change anything?"}
-    AM -->|"Change request"| RV["Draft revised"]
+    W -->|"No"| AM
+    AM{"Contributor reviews the draft:<br/>change anything?"}
+    AM -->|"Change request / fills a gap /<br/>corrects the stage"| RV["Draft revised"]
     RV --> AM
     AM -->|"New document"| G
     AM -->|"Send for review"| AR{"Version accurate, and may it be<br/>published to help future adopters?"}
@@ -127,9 +132,9 @@ flowchart TD
     classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
 
     class S,A start
-    class T,P,O,M,U,CHK,W,AM,AV decision
+    class T,P,ST,O,M,U,CHK,W,AM,AV decision
     class AR consent
-    class U0,V0,C,E,G,L,N,S1,R,V,BG,XX,D,RV,AU step
+    class U0,V0,C,E,G,S1,D,L,N,QD,R,V,BG,XX,RV,AU step
     class PUB done
     class X1,KP,DEL stop
 ```

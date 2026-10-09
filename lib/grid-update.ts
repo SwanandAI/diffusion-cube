@@ -89,11 +89,12 @@ export interface ParsedGridUpdate {
   // Contributor-only: what the model wants the client to do about the
   // pathway document this turn — see contributorSystemPrompt's JSON
   // contract. "generate"/"revise" trigger an automatic pathway-draft mode
-  // call; "publish" triggers the push route directly from chat; "none" is
+  // call; "questions-done" ends the questions after the first draft (one
+  // revision with the answers, then the first resource review card); "publish" triggers the push route directly from chat; "none" is
   // every other turn (still waiting on documents, a paused insufficient-info
   // state, or a genuine tangent).
   pathwayAction?: {
-    type: 'none' | 'generate' | 'revise' | 'publish';
+    type: 'none' | 'generate' | 'questions-done' | 'revise' | 'publish';
     instruction?: string;
   };
   // Explorer-only: what the model wants the client to generate this turn —

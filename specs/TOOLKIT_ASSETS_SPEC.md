@@ -1,6 +1,6 @@
 # Spec: Toolkit Asset Files
 
-Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-09-30 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
+Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-09 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
 
 Planning artifacts (requirement, clarifications, approved plan, task list with acceptance criteria and test plans): [`docs/tasks/toolkit-asset-files/`](../docs/tasks/toolkit-asset-files/). This spec records **what is being built and what has actually been done**. The progress log (§10) is updated after every task.
 
@@ -25,6 +25,10 @@ Planning artifacts (requirement, clarifications, approved plan, task list with a
 
 ## 3. User flows
 
+0. **Draft, then questions, then resources (since 2026-10-09).**
+   - Once the material is enough, the companion settles the stage. It asks only when the documents don't state it.
+   - It then sets `pathwayAction: "generate"`. The first draft appears, and a hidden note makes the companion ask its first journey question right under the draft.
+   - When the questions end, `"questions-done"` revises the draft once with all the answers. The resource review card (steps 2–3) follows.
 1. **Contributor attaches.** In a `/contribute` workspace the contributor uploads a file or pastes an https link.
 2. **AI identifies.** The contributor companion flags it in `<grid_update>.toolkitAssetCandidates` if it's a genuine reusable artifact.
 3. **Consent.** A card asks *"OK to share this publicly? Anyone using 100 Pathways, including visitors who aren't signed in, will be able to download it."*
@@ -681,3 +685,122 @@ The owner redrew the contributor flow (see `requirement.md` → Flow charts) and
 **Verified**
 - `tsc` clean.
 - `eslint` clean on the card.
+
+### 2026-10-09 · Draft first, then questions, then the resource review (code complete, not live-tested; no migration)
+
+**Asked:** the owner wanted the pathway drafted from the uploaded documents before anything about reusable assets.
+- A first pass drafted with no questions or stage check at all.
+- The owner then set the order. The Cube reads the documents and asks for the stage only if they don't state it. It drafts the pathway, then asks the journey questions it used to ask before the draft, then shows the reusable-resources card.
+- **Owner decisions:**
+  - Questions come before the resources card.
+  - Answers are folded into the draft in one revision when the questions end, not after each answer.
+
+**Done**
+- **Contributor prompt** (`contributorSystemPrompt`, `lib/system-prompts.ts`) has 6 steps:
+  1. Wait for material.
+  2. Sufficiency check.
+  3. Stage. If the material states it explicitly (or the existing published document does, and nothing contradicts it), there's no question. Otherwise the Cube offers its read to confirm, or the four options when it has none.
+  4. `"generate"`.
+  5. Journey questions under the first draft. One per turn, `pathwayAction: "none"` while they run, the same rules as the old pre-draft loop, and skippable. They end with the new `pathwayAction: "questions-done"`, whose instruction paraphrases what the answers add (empty if nothing).
+  6. The revise/publish loop. Filling a gap or correcting the stage → `revise`.
+- **`ParsedGridUpdate.pathwayAction`** (`lib/grid-update.ts`) gains `'questions-done'`. The contract text defines it, and "generate" now fires once the stage is settled.
+- **Client** (`lib/adoption-conversation.ts`):
+  - **`"generate"`:** drafts, then shows the draft with its gap list and no closing question.
+    - For the first real draft, it then sends `FIRST_DRAFT_READY_NOTE` as a **hidden** user message (new `Message.hidden`; `ChatPanel` skips it). The companion then asks question 1 right under the draft, with no typing from the contributor.
+    - The drafter's "Not enough…" fallback doesn't count as a first draft.
+  - **`"questions-done"`:** if the instruction isn't empty, revises once ("Here's the pathway document updated with your answers. Next, a quick check below on the reusable resources…"). It then adds the first resource review (`appendFirstResourceReview`) in the same `commitMessages`.
+    - That review collects every candidate and mention found so far.
+    - If a review already exists (older conversation), it only revises.
+  - **The first review card's "No, that's all"** (`followsFirstDraft`) closes it and asks "Do you want to make any changes to the draft, or send it for review?". It thanks the contributor first if they shared anything.
+  - **Findings wait:** findings from chat turns wait on their message until the first review exists. Before this, a file uploaded mid-questions got its own card early, and the main review never appeared.
+  - **`commitMessages` keeps `conversationRef` current synchronously**, so the hidden turn's history includes the draft message.
+  - **A contributor conversation that already has a resource review** is sent to the companion as step 6, at least. This covers older conversations whose numbering had the loop at step 5, which is now the questions step.
+  - **Removed:** `startFirstResourceReview` and `appendResourceReview`.
+- **`ResourceReviewState.followsFirstDraft`** (`lib/toolkit-assets.ts`) is new and optional. `generateOnComplete` is kept for older conversations: an open pre-draft card still drafts when finished, and `"generate"` waits for it.
+- **Copy:**
+  - The opening notice describes the new order.
+  - The card subtitle says the items could be reused by other teams.
+- **`requirement.md`:** the contributor rules and the flow chart are updated (Material → Stage → Draft → Questions → Resource review → Consent → Review → Publish).
+
+**Verified**
+- `tsc` clean.
+- `eslint`: no new findings. The 2 `set-state-in-effect` errors and the unused-variable warning in `AdoptionWorkspace.tsx`, and the 2 `exhaustive-deps` warnings in `adoption-conversation.ts`, were already there.
+- Scratch check (`tsx`), 10/10 pass:
+  - "step 4 of 6"
+  - six-step heading
+  - stage asked only when not stated
+  - questions after the first draft
+  - no per-answer revise
+  - `questions-done` in the contract, and `parseGridUpdate` passes it through with its instruction
+  - `flowStep` range 1–6
+  - the existing-document stage clause appears only when there is a published document
+  - the old text is gone
+- All 3 flow charts in `requirement.md` parse with `mermaid` 11.4.1.
+
+**Open**
+- Live test (💲 model behaviour):
+  - a document stating "Pilot" → no stage question
+  - a document without a stage → confirm question
+  - the draft, then question 1 appearing under it with no visible user message
+  - "skip" → `questions-done` with no revision, then the card
+  - answers → one revision, then the card
+  - a file uploaded mid-questions → shows up on the first card, not its own
+  - "No, that's all" → the closing question
+  - an older conversation in the loop isn't asked questions
+- The hidden turn adds one companion call after every first draft (💲 small).
+- Wiki refresh: `integrations/ai-llm.md` and `business/workflows.md` still describe the old pre-draft question flow.
+
+### 2026-10-09 · Resource review card: simpler wording, "anything else" in its own box (UI only)
+
+**Owner's report:** the "Do you have any other resource…" question sat right under the item list and read as part of it, and the card's wording was confusing.
+
+**Done** (`ResourceReviewCard.tsx`)
+- "Anything else to share?" is now a separate shaded box, with one help line: "A template, checklist, tool or link that other teams could use."
+- **Plainer wording:**
+
+  | Element | Was | Now |
+  |---|---|---|
+  | Title | Reusable resources | Files other teams can reuse |
+  | Subtitle | — | "We found these in your documents. Choose Share or Don't share for each one." |
+  | Empty state | — | "We didn't find any reusable files (like a template, checklist or tool) in your documents." |
+  | Note under Share | — | "Once an admin approves this pathway, anyone can download what you share. Only share files you're allowed to share." |
+  | Badges | — | *Shared · public after approval*, *Not shared*, *Used for the pathway only* |
+  | Buttons | Attach a file / Attach it, Paste a link | *Add a file* / *Add the file*, *Add a link* |
+  | Finish button | No, that's all | No, I'm done |
+  | Footer | Resource review complete. | All done. |
+
+- The Cube's line after a file is attached from the card is now "Thanks — choose Share or Don't share for it below." (prompt example in `system-prompts.ts`).
+- The history text the model reads (`resourceReviewContent`) is unchanged.
+
+**Verified**
+- `tsc` clean. `eslint` clean on the card and the prompt file.
+- The `requirement.md` flow chart label was updated to match ("Add the file / link").
+- Not checked visually yet.
+
+### 2026-10-09 · Drafting no longer freezes the chat (code complete, not live-tested; no migration)
+
+**Owner's report:** while "Generating document…" showed, everything was stuck: typing, the card's buttons ("Anything else to share?"), all of it.
+
+**Cause:** `sendMessage` awaited the whole draft generation (`handlePathwayAction`) before `setLoading(false)`, and `loading` disables the composer and every card. Drafting is the slowest call in the app.
+
+**Done**
+- **`lib/adoption-conversation.ts`**
+  - `generate`, `questions-done` and `revise` now run through `runDraftJob`, a queue that is not awaited by the chat turn, so the chat unlocks as soon as the Cube's reply ends. Drafts still run one at a time.
+  - `publish` stays awaited, since it only raises a card.
+  - `sendMessage` now wraps the old body (`runTurn`) and tracks the turn in flight in `turnRef`. A finished draft is added to the chat only after `afterCurrentTurn()`, because a turn streams into the last message and would otherwise overwrite the draft message.
+  - The hidden "first draft is ready" turn starts the same way.
+  - Send for Review (`answerPublishConsent` → send) waits for any draft still being written, so the latest version is sent.
+  - The legacy pre-draft card's "draft my pathway" also runs in the background now.
+- **`ChatPanel` / `AdoptionWorkspace`:** the new `writingDraft` prop shows "Writing the pathway document… you can keep going meanwhile." as a non-blocking note. `generatingDoc` now covers explorer documents only, which still block as before.
+
+**Verified**
+- `tsc` clean.
+- `eslint`: no new findings. Only the existing 2 errors and 1 warning in `AdoptionWorkspace.tsx` and the 2 `exhaustive-deps` warnings remain.
+
+**Open**
+- Live test:
+  - type and send while a draft is being written
+  - click card buttons meanwhile
+  - a revise requested during a draft queues behind it
+  - Send for Review clicked mid-draft sends the new draft
+  - the first-draft question still appears under the draft
