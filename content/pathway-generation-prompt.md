@@ -73,7 +73,7 @@ Each unit:
 
 ### Section 4 — Toolkits and playbooks
 
-Table listing units tagged Toolkit Asset or Playbook, cross-referenced by unit number, with a one-line reuse condition each. Limit to 6 entries; if more qualify, include the most reusable.
+Table (`| # | Title | Type | Reuse condition |`) listing only units whose Type is Toolkit Asset or Playbook, cross-referenced by unit number, with a one-line reuse condition each. Never list a Strategic Decision, Tactical Decision, or Failure and Fix unit here, even when it sounds reusable. If no unit qualifies, write "No reusable resources documented." instead of a table — never fill the table to reach a number. Section 4 is what the contributor is later asked to share files for, so list only genuine artifacts; write titles as plain text (no links).
 
 ### Section 5 — Problem→solution patterns
 

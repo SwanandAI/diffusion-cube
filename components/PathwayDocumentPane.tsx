@@ -25,8 +25,9 @@ interface Props {
   onSelectVersion: (versionNumber: number) => void;
   // Optional name used as the PDF filename prefix.
   deploymentName?: string;
-  // The pathway this workspace contributes to — shows its toolkit assets and
-  // their status below the document. refreshKey re-fetches that list.
+  // The pathway this workspace contributes to — its toolkit assets are
+  // tracked (not listed: Section 4 shows them) so Send for Review is offered
+  // again when new ones haven't been sent. refreshKey re-fetches.
   pathwayId?: string;
   toolkitAssetsRefreshKey?: number;
 }
@@ -130,6 +131,7 @@ export default function PathwayDocumentPane({
             pathwayId={pathwayId}
             refreshKey={toolkitAssetsRefreshKey}
             onUnsentCountChange={handleUnsentCount}
+            countOnly
           />
         )}
       </div>

@@ -7,7 +7,8 @@ type Result = { ok: boolean; error?: string };
 
 // The contributor's resource review (see ResourceReviewState in
 // lib/toolkit-assets.ts): every potentially reusable resource found in their
-// material, decided one by one, then "any other resource to share?". The
+// material, decided one by one, then "anything else to share?" (any number
+// of files at once) and Done, which updates the draft once. The
 // actions live in useAdoptionConversation; this card only renders the state
 // and collects answers. Rendered by ChatPanel for a client-constructed
 // message carrying RESOURCE_REVIEW_MARKER.
@@ -28,7 +29,7 @@ export default function ResourceReviewCard({
   fileAvailable: (fileName: string) => boolean;
   onRememberFile: (file: File) => void;
   onDecide: (itemKey: string, share: boolean) => Promise<Result>;
-  onAttach: (itemKey: string | null, file: File) => void;
+  onAttach: (itemKey: string | null, files: File[]) => void;
   onLink: (itemKey: string | null, url: string) => Result;
   onFinish: () => void;
 }) {
@@ -55,7 +56,7 @@ export default function ResourceReviewCard({
               fileAvailable={fileAvailable}
               onRememberFile={onRememberFile}
               onDecide={(share) => onDecide(item.key, share)}
-              onAttach={(file) => onAttach(item.key, file)}
+              onAttach={(files) => onAttach(item.key, files)}
               onLink={(url) => onLink(item.key, url)}
             />
           ))}
@@ -66,11 +67,15 @@ export default function ResourceReviewCard({
       {open && undecided === 0 && (
         <div className="mt-3 rounded-lg bg-paper-dim px-3 py-2.5">
           <p className="text-sm font-medium text-navy">Anything else to share?</p>
-          <p className="mt-0.5 text-xs text-ink-soft">A template, checklist, tool or link that other teams could use.</p>
+          <p className="mt-0.5 text-xs text-ink-soft">
+            A template, checklist, tool or link that other teams could use. Add as many as you like, then click Done
+            and I&apos;ll update the pathway once.
+          </p>
           <AttachControls
             busy={busy}
-            attachLabel="Add a file"
-            onAttach={(file) => onAttach(null, file)}
+            attachLabel="Add files"
+            multiple
+            onAttach={(files) => onAttach(null, files)}
             onLink={(url) => onLink(null, url)}
           >
             <button
@@ -79,7 +84,7 @@ export default function ResourceReviewCard({
               disabled={busy}
               className="rounded-lg bg-navy px-3 py-1.5 text-xs font-medium text-white transition hover:bg-coral disabled:opacity-40"
             >
-              {review.generateOnComplete ? 'No, draft my pathway' : "No, I'm done"}
+              {review.generateOnComplete ? 'Done — draft my pathway' : 'Done'}
             </button>
           </AttachControls>
         </div>
@@ -110,7 +115,7 @@ function ResourceRow({
   fileAvailable: (fileName: string) => boolean;
   onRememberFile: (file: File) => void;
   onDecide: (share: boolean) => Promise<Result>;
-  onAttach: (file: File) => void;
+  onAttach: (files: File[]) => void;
   onLink: (url: string) => Result;
 }) {
   const [working, setWorking] = useState(false);
@@ -251,13 +256,16 @@ function ResourceRow({
 function AttachControls({
   busy,
   attachLabel,
+  multiple = false,
   onAttach,
   onLink,
   children,
 }: {
   busy: boolean;
   attachLabel: string;
-  onAttach: (file: File) => void;
+  // Lets the picker take several files at once.
+  multiple?: boolean;
+  onAttach: (files: File[]) => void;
   onLink: (url: string) => Result;
   children?: ReactNode;
 }) {
@@ -282,10 +290,11 @@ function AttachControls({
       <input
         ref={fileRef}
         type="file"
+        multiple={multiple}
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onAttach(file);
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) onAttach(files);
           e.target.value = '';
         }}
       />

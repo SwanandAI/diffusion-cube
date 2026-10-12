@@ -1,5 +1,5 @@
 // Toolkit asset files — the pure, browser-safe half: types, file-type rules,
-// the asset block written into pathway documents, and the library-chat
+// the shared-asset links written into pathway documents' Section 4, and the library-chat
 // <toolkit_assets> tag. Storage and database access (service-role only) live
 // in lib/toolkit-assets-server.ts so importing this from a client component
 // never pulls the admin client into the browser bundle — the same split
@@ -8,6 +8,8 @@
 // An asset is one contribution_units row (unit_type='toolkit-asset',
 // unit_internal_id='asset-<uuid>'); see
 // supabase/migrations/0034_contribution_units_toolkit_assets.sql.
+
+import { linkSection4Assets, section4AssetIds, type Section4Link } from '@/lib/pathway-section4';
 
 export const TOOLKIT_ASSET_BUCKET = 'toolkit-assets';
 
@@ -168,10 +170,6 @@ export interface ResourceReviewState {
   // reviewed before the first draft): finishing it generates the first draft.
   // New reviews always set false.
   generateOnComplete: boolean;
-  // The first review, shown once the questions after the first draft end:
-  // finishing it asks the contributor whether to change the draft or send
-  // it for review.
-  followsFirstDraft?: boolean;
 }
 
 export function mentionItemKey(name: string): string {
@@ -204,6 +202,69 @@ export function resourceReviewContent(review: ResourceReviewState): string {
       ? 'Resource review (finished):'
       : 'Resource review shown to the contributor (they decide each item on the card):';
   return [head, ...(lines.length ? lines : ['- nothing identified; the contributor was asked whether they have any resource to share'])].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// The asset card (contributor flow, since 2026-10-12)
+// ---------------------------------------------------------------------------
+//
+// Shown under the pathway draft. Its items are the draft's Section 4 rows
+// (section4Rows in lib/pathway-section4.ts); when Section 4 lists none, it
+// asks whether the contributor has any to share and they add their own.
+// For each one they upload a file or add a link — no model call in between:
+// a file is attached to its row by the app. Nothing is stored until
+// Confirm: then every chosen file or link is registered (consent is the
+// note on the card), and the app links each title in Section 4. Lives on
+// Message.assetShare, persisted with the conversation. Replaces the resource
+// review card (ResourceReviewState) for new conversations.
+
+export type AssetSource = { fileName: string } | { url: string };
+
+export interface AssetShareItem {
+  // `row:<assetMentionKey>` for a Section 4 row, `new:<file or url>` for one
+  // the contributor added.
+  key: string;
+  name: string;
+  fromSection4: boolean;
+  reuseCondition?: string;
+  // A file uploaded earlier in this conversation that looks like this asset
+  // — offered as "Use the file you already uploaded".
+  suggestedFile?: string;
+  // Chosen on the card, registered on Confirm.
+  staged?: AssetSource;
+  // Registered on an earlier Confirm.
+  shared?: { assetId: string; source: AssetSource };
+  error?: string;
+}
+
+export interface AssetShareState {
+  id: string;
+  items: AssetShareItem[];
+  status: 'open' | 'confirmed';
+  // Section 4 listed no assets when the card was made: it asks whether the
+  // contributor has any.
+  noneInSection4: boolean;
+}
+
+export function sourceLabel(source: AssetSource): string {
+  return 'fileName' in source ? displayAssetFileName(source.fileName) : (linkDomain(source.url) ?? source.url);
+}
+
+// What the companion reads back in history for an asset card.
+export function assetShareContent(card: AssetShareState): string {
+  const lines = card.items.map((item) => {
+    const state = item.shared
+      ? `shared (${sourceLabel(item.shared.source)}); linked in Section 4, goes live when this pathway is approved`
+      : item.staged
+        ? `chosen (${sourceLabel(item.staged)}), not confirmed yet`
+        : 'nothing shared';
+    return `- **${oneLine(item.name)}**: ${state}`;
+  });
+  const head = card.noneInSection4
+    ? 'Asked the contributor whether they have any reusable assets to share (Section 4 listed none).'
+    : 'Asked the contributor to upload a file or add a link for each reusable asset in Section 4.';
+  const tail = card.status === 'confirmed' ? 'They confirmed they have shared everything they want to.' : 'Not confirmed yet.';
+  return [head, ...lines, tail].join('\n');
 }
 
 // The "may this be published?" step before a pathway is sent for review.
@@ -248,6 +309,7 @@ export interface ToolkitAssetBlockEntry {
   kind: 'file' | 'link';
   fileName: string | null;
   linkDomain: string | null;
+  linkUrl: string | null;
   purpose: string;
   reuseCondition: string;
 }
@@ -261,16 +323,23 @@ export function linkDomain(url: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// The asset block inside a pathway document
+// Shared files inside a pathway document
 // ---------------------------------------------------------------------------
 //
-// Regenerated by the app on every assemble (app/api/pathways/assemble) from
-// contribution_units, never written by the model — pathwayDraftSystemPrompt
-// tells it to leave this block out. Each entry carries an
-// <!-- asset-id: … --> marker; admin publish (app/api/admin/pathways/publish)
-// publishes exactly the asset ids present in the reviewed document, so an
-// asset attached after the last assemble never rides along unreviewed.
-// Deliberately no URL in here: downloads only happen through the app.
+// Shared assets are links on their Section 4 row titles, which the app —
+// never the model — writes when the contributor confirms the asset card and
+// again on every assemble (app/api/pathways/assemble) from
+// contribution_units (pathwayDraftSystemPrompt tells the model to write no
+// links or markers there; linkSection4Assets strips whatever it wrote). Each
+// linked title carries an <!-- asset-id: … --> marker; admin publish
+// (app/api/admin/pathways/publish) publishes exactly the asset ids present
+// in the reviewed document, so an asset added after the last assemble never
+// rides along unreviewed. A file links to the app's download route, never to
+// storage; a link asset to the contributor's own https URL.
+//
+// Documents assembled before 2026-10-12 carry a separate "Toolkit asset
+// files" block between these markers instead; it is still read, and removed
+// the next time the document is assembled.
 
 export const ASSET_BLOCK_START = '<!-- toolkit-assets:start -->';
 export const ASSET_BLOCK_END = '<!-- toolkit-assets:end -->';
@@ -280,34 +349,7 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-export function renderToolkitAssetBlock(assets: ToolkitAssetBlockEntry[]): string {
-  if (assets.length === 0) return '';
-  const lines = assets.map((a) => {
-    const where = a.kind === 'file' ? `File: ${a.fileName ?? 'attached file'}` : `Link: ${a.linkDomain ?? 'external link'}`;
-    const purpose = a.purpose ? ` — ${oneLine(a.purpose)}` : '';
-    const reuse = a.reuseCondition ? ` Reuse when: ${oneLine(a.reuseCondition)}` : '';
-    return `- **${oneLine(a.name)}** (${where})${purpose}${reuse} <!-- asset-id: ${a.id} -->`;
-  });
-  return [
-    ASSET_BLOCK_START,
-    '### Toolkit asset files',
-    '',
-    'Files and links the contributor has shared for reuse.',
-    '',
-    ...lines,
-    ASSET_BLOCK_END,
-  ].join('\n');
-}
-
-// Headings that mark the end of Section 4 — pathway documents number and
-// word these inconsistently ("# 4. Toolkits and Playbooks" then
-// "## 6. Retrieval guide"; drafts use "## Section 5"), so match on meaning,
-// not heading level.
-const AFTER_SECTION_4 = /^#{1,6}\s*(?:section\s*)?(?:[5-9]\b|problem|retrieval|source trace|provenance)/i;
-const SECTION_4 = /^#{1,6}\s*(?:section\s*)?4\b/i;
-const SOURCE_TRACE = /^#{1,6}\s*.*(?:source trace|provenance)/i;
-
-function removeBlock(markdown: string): string {
+function removeLegacyBlock(markdown: string): string {
   const start = markdown.indexOf(ASSET_BLOCK_START);
   if (start === -1) return markdown;
   const end = markdown.indexOf(ASSET_BLOCK_END, start);
@@ -315,43 +357,33 @@ function removeBlock(markdown: string): string {
   return (markdown.slice(0, start).replace(/\n+$/, '\n') + markdown.slice(cut).replace(/^\n+/, '\n')).replace(/\n{3,}/g, '\n\n');
 }
 
-// Line index to insert before: back up over a "---" rule and blank lines
-// sitting just above the heading, so the block stays inside the section it
-// belongs to rather than landing after its separator.
-function insertionIndexBefore(lines: string[], headingIndex: number): number {
-  let i = headingIndex;
-  while (i > 0 && (lines[i - 1].trim() === '' || lines[i - 1].trim() === '---')) i--;
-  return i;
+// Where a shared asset's Section 4 title links to.
+export function assetHref(asset: { id: string; kind: 'file' | 'link'; linkUrl?: string | null }): string {
+  return asset.kind === 'link' && asset.linkUrl ? asset.linkUrl : `/api/toolkit-assets/${asset.id}/download`;
 }
 
-export function applyToolkitAssetBlock(markdown: string, assets: ToolkitAssetBlockEntry[]): string {
-  const base = removeBlock(markdown);
-  const block = renderToolkitAssetBlock(assets);
-  if (!block) return base;
-
-  const lines = base.split('\n');
-  const s4 = lines.findIndex((l) => SECTION_4.test(l.trim()));
-  let at = -1;
-  if (s4 !== -1) {
-    const next = lines.findIndex((l, i) => i > s4 && AFTER_SECTION_4.test(l.trim()));
-    at = next === -1 ? lines.length : insertionIndexBefore(lines, next);
-  } else {
-    const trace = lines.findIndex((l) => SOURCE_TRACE.test(l.trim()));
-    if (trace !== -1) at = insertionIndexBefore(lines, trace);
-  }
-  if (at === -1) return `${base.replace(/\n+$/, '')}\n\n${block}\n`;
-
-  const before = lines.slice(0, at).join('\n').replace(/\n+$/, '');
-  const after = lines.slice(at).join('\n').replace(/^\n+/, '');
-  return `${before}\n\n${block}\n\n${after}`;
+// Links each shared asset from its Section 4 row; an asset no row names
+// gets a row of its own.
+export function applyToolkitAssetFiles(markdown: string, assets: ToolkitAssetBlockEntry[]): string {
+  const links: Section4Link[] = assets.map((a) => ({
+    name: oneLine(a.name),
+    href: assetHref(a),
+    assetId: a.id,
+    reuseCondition: oneLine(a.reuseCondition),
+  }));
+  return linkSection4Assets(removeLegacyBlock(markdown), links);
 }
 
 export function assetIdsInDocument(markdown: string): string[] {
+  const ids: string[] = [];
   const start = markdown.indexOf(ASSET_BLOCK_START);
-  if (start === -1) return [];
-  const end = markdown.indexOf(ASSET_BLOCK_END, start);
-  const block = markdown.slice(start, end === -1 ? undefined : end);
-  return [...new Set([...block.matchAll(ASSET_ID_MARKER)].map((m) => m[1]).filter(isAssetId))];
+  if (start !== -1) {
+    const end = markdown.indexOf(ASSET_BLOCK_END, start);
+    const block = markdown.slice(start, end === -1 ? undefined : end);
+    ids.push(...[...block.matchAll(ASSET_ID_MARKER)].map((m) => m[1]));
+  }
+  ids.push(...section4AssetIds(markdown));
+  return [...new Set(ids.filter(isAssetId))];
 }
 
 // ---------------------------------------------------------------------------

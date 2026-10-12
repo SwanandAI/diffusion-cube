@@ -27,7 +27,7 @@ import { ATTACH_ACCEPT, CONTRIBUTOR_ATTACH_ACCEPT } from '@/lib/extract-text';
 const CONTRIBUTOR_OPENING_MESSAGE: Message = {
   role: 'assistant',
   content:
-    "Please share your deployment documents (PDF, Word, PowerPoint and so on), or describe the project here — you can add more at any point. I'll read them (and check the stage with you if they don't say it), draft the pathway, ask a few questions to fill in the journey, then check with you which reusable resources (templates, checklists, tools and so on) you'd like to share alongside it.\n\nNothing becomes public unless you agree and an administrator approves it. Your progress is saved, so you can leave and come back any time.",
+    "Please share your deployment documents (PDF, Word, PowerPoint and so on), or describe the project here — you can add more at any point. I'll read them (and check the stage with you only if they don't say it), draft the pathway, then check with you which reusable resources (templates, checklists, tools and so on) you'd like to share with it.\n\nNothing becomes public unless you agree and an administrator approves it. Your progress is saved, so you can leave and come back any time.",
 };
 
 const STRENGTHEN_OPENING_MESSAGE: Message = {
@@ -123,6 +123,14 @@ export default function AdoptionWorkspace({
     attachForResourceItem,
     linkForResourceItem,
     finishResourceReview,
+    stageAssetFiles,
+    stageAssetLink,
+    takeSuggestedAssetFile,
+    unstageAsset,
+    renameAsset,
+    removeSharedAsset,
+    confirmAssetCard,
+    reopenAssetCard,
     requestPublishConsent,
     answerPublishConsent,
     toolkitAssetsVersion,
@@ -143,7 +151,6 @@ export default function AdoptionWorkspace({
   const [isDragging, setIsDragging] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [headerExpanded, setHeaderExpanded] = useState(true);
-  const [summaryExpanded, setSummaryExpanded] = useState(false);
 
   // Resizable right panel — shared across all workspace states.
   const [rightPanel, setRightPanel] = useState<RightPanelTab>('none');
@@ -949,44 +956,25 @@ export default function AdoptionWorkspace({
                   </button>
                   {headerExpanded && (
                     <>
-                      {/* Sector · geography · stage as quiet tags — same mono
-                          treatment as the Contribute cards' sector line. */}
-                      {[conversation.meta.sector, conversation.meta.geography, conversation.meta.stage].some(Boolean) && (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          {[conversation.meta.sector, conversation.meta.geography].filter(Boolean).map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full bg-navy/5 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                          {conversation.meta.stage && (
-                            <span className="rounded-full bg-coral-soft px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-coral">
-                              {conversation.meta.stage}
-                            </span>
-                          )}
-                        </div>
+                      {[
+                        conversation.meta.sector,
+                        conversation.meta.geography,
+                        conversation.meta.stage,
+                      ].some(Boolean) && (
+                        <p className="mt-0.5 text-xs font-medium text-coral">
+                          {[
+                            conversation.meta.sector,
+                            conversation.meta.geography,
+                            conversation.meta.stage,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
                       )}
                       {conversation.meta.summary && (
-                        <div className="mt-2 max-w-3xl">
-                          <p
-                            className={`whitespace-pre-line text-[13px] leading-relaxed text-ink-soft ${
-                              summaryExpanded ? 'max-h-40 overflow-y-auto' : 'line-clamp-2'
-                            }`}
-                          >
-                            {conversation.meta.summary}
-                          </p>
-                          {conversation.meta.summary.length > 160 && (
-                            <button
-                              type="button"
-                              onClick={() => setSummaryExpanded((v) => !v)}
-                              className="mt-0.5 text-xs font-medium text-navy/70 transition hover:text-coral"
-                            >
-                              {summaryExpanded ? 'Show less' : 'Show more'}
-                            </button>
-                          )}
-                        </div>
+                        <p className="mt-2 max-h-24 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-ink">
+                          {conversation.meta.summary}
+                        </p>
                       )}
                     </>
                   )}
@@ -1030,6 +1018,20 @@ export default function AdoptionWorkspace({
                       link: linkForResourceItem,
                       finish: (reviewId) => void finishResourceReview(reviewId),
                       rememberFile: rememberToolkitAssetFile,
+                    }
+                  : undefined
+              }
+              assetShareActions={
+                flow === 'contributor'
+                  ? {
+                      stageFiles: stageAssetFiles,
+                      stageLink: stageAssetLink,
+                      takeSuggested: takeSuggestedAssetFile,
+                      unstage: unstageAsset,
+                      rename: renameAsset,
+                      remove: removeSharedAsset,
+                      confirm: confirmAssetCard,
+                      reopen: reopenAssetCard,
                     }
                   : undefined
               }

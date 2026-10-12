@@ -36,6 +36,8 @@ export const TOOLKIT_ASSET_CONSENT_MARKER = '<toolkit_asset_consent/>';
 // the "may this be published?" card (Message.publishConsent). Client-
 // constructed like the markers above — the card data travels on the message.
 export const RESOURCE_REVIEW_MARKER = '<resource_review/>';
+// Contributor: the asset card under the draft (Message.assetShare).
+export const ASSET_SHARE_MARKER = '<asset_share/>';
 export const PUBLISH_CONSENT_MARKER = '<publish_consent/>';
 
 // Split out from lib/adoption-conversation.ts so it can be imported from
@@ -89,12 +91,11 @@ export interface ParsedGridUpdate {
   // Contributor-only: what the model wants the client to do about the
   // pathway document this turn — see contributorSystemPrompt's JSON
   // contract. "generate"/"revise" trigger an automatic pathway-draft mode
-  // call; "questions-done" ends the questions after the first draft (one
-  // revision with the answers, then the first resource review card); "publish" triggers the push route directly from chat; "none" is
+  // call; "publish" triggers the push route directly from chat; "none" is
   // every other turn (still waiting on documents, a paused insufficient-info
   // state, or a genuine tangent).
   pathwayAction?: {
-    type: 'none' | 'generate' | 'questions-done' | 'revise' | 'publish';
+    type: 'none' | 'generate' | 'revise' | 'publish';
     instruction?: string;
   };
   // Explorer-only: what the model wants the client to generate this turn —

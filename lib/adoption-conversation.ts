@@ -9,8 +9,13 @@ import {
   assetMentionKey,
   candidateSourceKey,
   isAllowedAssetFile,
+  linkDomain,
   mentionItemKey,
   resourceReviewContent,
+  assetHref,
+  assetShareContent,
+  type AssetShareItem,
+  type AssetShareState,
   type PublishConsentState,
   type ResourceReviewItem,
   type ResourceReviewState,
@@ -27,10 +32,12 @@ import {
   PATHWAY_DOC_MARKER,
   PUBLISH_CONSENT_MARKER,
   RESOURCE_REVIEW_MARKER,
+  ASSET_SHARE_MARKER,
   TOOLKIT_ASSET_CONSENT_MARKER,
   type ParsedGridUpdate,
 } from '@/lib/grid-update';
 import { extractGapsFromPathwayDraft } from '@/lib/pathway-gaps';
+import { linkSection4Assets, sameResourceName, section4Rows, type Section4Link } from '@/lib/pathway-section4';
 import type { ExplorerIntent } from '@/lib/explorer-intents';
 import {
   DesignDocumentRow,
@@ -134,12 +141,6 @@ export const EMPTY_META: AdoptionMeta = {
 };
 
 export { EMPTY_GRID };
-
-// Contributor: the hidden note sent once the first draft is shown, so the
-// companion asks its first journey question right under it (step 5 of
-// contributorSystemPrompt). Never shown in the chat (Message.hidden).
-const FIRST_DRAFT_READY_NOTE =
-  '[App note, not typed by the contributor] The first pathway draft is ready and shown to the contributor above. Go on with step 5: ask your first question to fill in the journey, or end the questions if nothing important is unclear.';
 
 const UPLOAD_LINE = /(?:📄|🖼️|📎)\s*Uploaded\s+\*\*(.+?)\*\*/g;
 
@@ -306,6 +307,112 @@ function reviewedResourceKeys(messages: Message[]): Set<string> {
   return keys;
 }
 
+// Names of everything on any resource review card so far.
+function reviewedResourceNames(messages: Message[]): string[] {
+  return messages.flatMap((m) => (m.resourceReview?.items ?? []).map((i) => i.name));
+}
+
+// Every reusable resource this contribution has, the one list Section 4 is
+// built from: items on any card (except ones that turned out to be
+// background material, or an attachment still waiting for its check) plus
+// findings not on a card yet — the same items the next card would show.
+export function currentResourceItems(messages: Message[]): ResourceReviewItem[] {
+  const carded = messages
+    .flatMap((m) => m.resourceReview?.items ?? [])
+    .filter((i) => i.status !== 'background' && !(i.key.startsWith('attached:') && !i.candidate));
+  const fresh = newResourceItems(
+    validCandidates(messages.flatMap((m) => m.toolkitAssetCandidates ?? []), messages),
+    messages.flatMap((m) => m.toolkitAssetMentions ?? []),
+    reviewedResourceKeys(messages),
+    reviewedResourceNames(messages)
+  );
+  return [...carded, ...fresh];
+}
+
+// The "Reusable resources" list handed to the drafter with every
+// generate/revise, so Section 4 names exactly what the card asks about.
+function resourceListForDraft(items: ResourceReviewItem[]): string {
+  if (items.length === 0) return 'Reusable resources the contributor\'s material names: none found.';
+  const lines = items.map((item) => {
+    const c = item.candidate;
+    const where = c
+      ? 'fileName' in c.source
+        ? `file ${c.source.fileName}`
+        : `link ${c.source.url}`
+      : item.mentionedIn
+        ? `named in ${item.mentionedIn}, not attached`
+        : 'named by the contributor, not attached';
+    const purpose = c?.purpose ? ` — ${c.purpose}` : '';
+    const reuse = c?.reuseCondition ? ` Reuse when: ${c.reuseCondition}` : '';
+    return `- ${item.name}${purpose} (${where}).${reuse}`;
+  });
+  return `Reusable resources the contributor's material names (hints for Section 4: list one only if it is a genuinely reusable artifact, as a Section 3 unit typed Toolkit Asset with a Section 4 row titled as named here):\n${lines.join('\n')}`;
+}
+
+// ---- Asset card (since 2026-10-12) — pure helpers, see AssetShareState ----
+
+// "03_A4KIOSK_Print_Job_Test_Cases.pdf" → "A4KIOSK Print Job Test Cases".
+export function assetNameFromFile(fileName: string): string {
+  const base = fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/^\s*\d+\s+/, '').trim();
+  return base || fileName;
+}
+
+// The card's items for a draft: its Section 4 rows not already on an earlier
+// asset card. Each gets a suggestion when a file uploaded earlier looks like
+// it — one the companion flagged as reusable under that name first, else
+// one whose file name names it.
+export function assetCardItems(markdown: string, messages: Message[]): AssetShareItem[] {
+  const onCards = messages.flatMap((m) => m.assetShare?.items ?? []).map((i) => i.name);
+  const candidates = validCandidates(messages.flatMap((m) => m.toolkitAssetCandidates ?? []), messages);
+  const uploaded = extractUploadedFileNames(messages);
+  const items: AssetShareItem[] = [];
+  for (const row of section4Rows(markdown)) {
+    if ([...onCards, ...items.map((i) => i.name)].some((n) => sameResourceName(n, row.title))) continue;
+    const flagged = candidates.find((c) => 'fileName' in c.source && sameResourceName(c.name, row.title));
+    const suggestedFile =
+      (flagged && 'fileName' in flagged.source ? flagged.source.fileName : undefined) ??
+      uploaded.find((f) => sameResourceName(assetNameFromFile(f), row.title));
+    items.push({
+      key: `row:${assetMentionKey(row.title)}`,
+      name: row.title,
+      fromSection4: true,
+      reuseCondition: row.reuseCondition || undefined,
+      ...(suggestedFile ? { suggestedFile } : {}),
+    });
+  }
+  return items;
+}
+
+// Every asset the contributor has shared in this conversation, as Section 4
+// links: asset-card items, plus resource review items from older
+// conversations.
+export function sharedAssetLinks(messages: Message[]): Section4Link[] {
+  const links: Section4Link[] = [];
+  for (const m of messages) {
+    for (const item of m.assetShare?.items ?? []) {
+      if (!item.shared) continue;
+      const { assetId, source } = item.shared;
+      links.push({
+        name: item.name,
+        href: assetHref({ id: assetId, kind: 'url' in source ? 'link' : 'file', linkUrl: 'url' in source ? source.url : null }),
+        assetId,
+        reuseCondition: item.reuseCondition,
+      });
+    }
+    for (const item of m.resourceReview?.items ?? []) {
+      if (item.status !== 'shared' || !item.assetId || !item.candidate) continue;
+      const source = item.candidate.source;
+      links.push({
+        name: item.name,
+        href: assetHref({ id: item.assetId, kind: 'url' in source ? 'link' : 'file', linkUrl: 'url' in source ? source.url : null }),
+        assetId: item.assetId,
+        reuseCondition: item.candidate.reuseCondition,
+      });
+    }
+  }
+  return links;
+}
+
 // A file candidate must name a file actually uploaded in this conversation,
 // and a link must appear verbatim in something the contributor typed — the
 // model has been seen to "correct" a pasted link into a URL nobody gave,
@@ -323,10 +430,15 @@ function validCandidates(candidates: ToolkitAssetCandidate[], messages: Message[
 
 // New review items for candidates and mentions not reviewed yet. A mention
 // whose name matches a candidate is dropped: the real file or link wins.
+//
+// A mention that names the same thing as an item already listed or reviewed
+// (knownNames) in other words is dropped too (sameResourceName), so the card
+// never shows one artifact twice.
 export function newResourceItems(
   candidates: ToolkitAssetCandidate[],
   mentions: ToolkitAssetMention[],
-  reviewed: Set<string>
+  reviewed: Set<string>,
+  knownNames: string[] = []
 ): ResourceReviewItem[] {
   const seen = new Set(reviewed);
   const items: ResourceReviewItem[] = [];
@@ -340,6 +452,7 @@ export function newResourceItems(
   for (const mention of mentions) {
     const key = mentionItemKey(mention.name);
     if (!assetMentionKey(mention.name) || seen.has(key)) continue;
+    if ([...knownNames, ...items.map((i) => i.name)].some((n) => sameResourceName(n, mention.name))) continue;
     seen.add(key);
     items.push({ key, name: mention.name, mentionedIn: mention.mentionedIn, status: 'pending' });
   }
@@ -386,7 +499,7 @@ export function mergeIntoReview(
     item.status = 'background';
   }
   const known = new Set([...reviewed, ...items.map((i) => i.key)]);
-  return { ...review, items: [...items, ...newResourceItems(leftover, mentions, known)] };
+  return { ...review, items: [...items, ...newResourceItems(leftover, mentions, known, items.map((i) => i.name))] };
 }
 
 // Findings from a turn the contributor started in chat (an upload or a link,
@@ -433,7 +546,10 @@ export function takeFindingsForFreshReview(
     reviewed.add(item.key);
     if (item.candidate) reviewed.add(candidateSourceKey(item.candidate));
   }
-  return { messages: next, items: [...moved, ...newResourceItems(remaining, mentions, reviewed)] };
+  return {
+    messages: next,
+    items: [...moved, ...newResourceItems(remaining, mentions, reviewed, [...reviewedResourceNames(next), ...moved.map((i) => i.name)])],
+  };
 }
 
 function publishConsentContent(consent: PublishConsentState): string {
@@ -655,9 +771,14 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
 
     updatePathwayDoc((prev) => ({ ...prev, loading: true, error: null }));
 
-    const trailingMessage = revisionInstruction
-      ? `Please revise the pathway draft as follows: ${revisionInstruction}. Return the full revised document in the same Sections 0-6 + Source Trace appendix format.`
-      : 'Draft my adoption as a pathway page now.';
+    // The resources the material names are hints for Section 4; the asset
+    // card is then built from Section 4 itself (assetCardItems).
+    const resources = currentResourceItems(c.messages);
+    const trailingMessage = `${
+      revisionInstruction
+        ? `Please revise the pathway draft as follows: ${revisionInstruction}. Return the full revised document in the same Sections 0-6 + Source Trace appendix format.`
+        : 'Draft my adoption as a pathway page now.'
+    }\n\n${resourceListForDraft(resources)}`;
 
     try {
       const latestDraft = pathwayDocRef.current.content;
@@ -707,6 +828,12 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         const { done, value } = await reader.read();
         if (done) break;
         text += decoder.decode(value, { stream: true });
+      }
+
+      // Section 4 without decision/fix rows, and with the shared assets'
+      // links (the model never writes those) — kept across every revision.
+      if (!text.trim().startsWith('Not enough of this adoption')) {
+        text = linkSection4Assets(text, sharedAssetLinks(c.messages));
       }
 
       // Every generate/revise is its own version — this is what backs the
@@ -806,59 +933,62 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   // the rendering side. Used for both the first draft (with its real gap
   // list, parsed straight from the generated document's own Section 2 — see
   // lib/pathway-gaps.ts) and every later revision (no gap list restated).
-  // kind: 'first' = the first draft, with its gap list (the questions come
-  // next, so no closing question); 'answers' = the draft updated with the
-  // answers to those questions (the resource review card comes next);
-  // 'revised' = any other revision.
-  function pathwayDocMessage(markdown: string, kind: 'first' | 'answers' | 'revised'): Message {
+  // kind: 'first' = the first draft, with its gap list — the asset card
+  // follows it, and its Confirm asks what's next; 'linked' = the draft with
+  // the shared assets just linked in Section 4; 'revised' = any other version.
+  function pathwayDocMessage(markdown: string, kind: 'first' | 'linked' | 'revised', cardNext?: AssetShareState): Message {
     const gaps = kind === 'first' ? extractGapsFromPathwayDraft(markdown) : [];
     const gapsLine = gaps.length ? `\n\nA few things I couldn't find in the documents:\n${gaps.map((g) => `- ${g}`).join('\n')}` : '';
     const intro =
       kind === 'first'
         ? `Here is the pathway document drafted from your documents.${gapsLine}`
-        : kind === 'answers'
-          ? "Here's the pathway document updated with your answers."
+        : kind === 'linked'
+          ? "Here's the pathway document with your assets linked in Section 4."
           : "Here's the updated pathway document.";
-    const close =
-      kind === 'first'
-        ? ''
-        : kind === 'answers'
-          ? '\n\nNext, a quick check below on the reusable resources in your material.'
-          : '\n\nDo you want to make any changes, or send it for review?';
-    return { role: 'assistant', content: `${intro}\n\n${PATHWAY_DOC_MARKER}${close}` };
+    const close = !cardNext
+      ? 'Do you want to make any changes, or send it for review?'
+      : cardNext.noneInSection4
+        ? 'Next, one question below about reusable assets.'
+        : 'Next, share the reusable assets listed in Section 4 below.';
+    return { role: 'assistant', content: `${intro}\n\n${PATHWAY_DOC_MARKER}\n\n${close}` };
   }
 
-  function appendPathwayDocMessage(markdown: string, kind: 'first' | 'answers' | 'revised') {
+  function appendPathwayDocMessage(markdown: string, kind: 'first' | 'linked' | 'revised') {
     commitMessages((msgs) => [...msgs, pathwayDocMessage(markdown, kind)]);
   }
 
-  // The questions after the first draft have ended: the draft updated with
-  // the answers (when they added anything), then the first resource review —
-  // every reusable file or link found so far and every resource the
-  // material names but didn't attach. One commit, so the persisted copy
-  // never holds one without the other.
-  function appendFirstResourceReview(updatedDraft: string | null) {
-    const review: ResourceReviewState = {
-      id: `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      items: [],
-      status: 'open',
-      generateOnComplete: false,
-      followsFirstDraft: true,
-    };
+  function assetCardMessage(card: AssetShareState): Message {
+    return { role: 'assistant', content: assetShareContent(card), displayContent: ASSET_SHARE_MARKER, assetShare: card };
+  }
+
+  function newAssetCardId(): string {
+    return `assets-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  // The first draft and, right under it, the asset card: Section 4's assets
+  // to upload or link, or — when it lists none — whether they have any. One
+  // commit, so the persisted copy never holds one without the other.
+  function appendFirstDraftWithAssetCard(markdown: string) {
+    const id = newAssetCardId();
     // commitMessages runs this twice (state + persist), so it stays pure —
     // the id is fixed above.
     commitMessages((msgs) => {
-      const items = newResourceItems(
-        validCandidates(msgs.flatMap((m) => m.toolkitAssetCandidates ?? []), msgs),
-        msgs.flatMap((m) => m.toolkitAssetMentions ?? []),
-        reviewedResourceKeys(msgs)
-      );
-      const first = { ...review, items };
-      return [
-        ...msgs,
-        ...(updatedDraft ? [pathwayDocMessage(updatedDraft, 'answers')] : []),
-        { role: 'assistant', content: resourceReviewContent(first), displayContent: RESOURCE_REVIEW_MARKER, resourceReview: first },
-      ];
+      const items = assetCardItems(markdown, msgs);
+      const card: AssetShareState = { id, items, status: 'open', noneInSection4: items.length === 0 };
+      return [...msgs, pathwayDocMessage(markdown, 'first', card), assetCardMessage(card)];
+    });
+  }
+
+  // A later version. In a conversation using asset cards, Section 4 rows no
+  // card has asked about yet get a new card right under it.
+  function appendRevisedDraft(markdown: string) {
+    const id = newAssetCardId();
+    commitMessages((msgs) => {
+      const usesCards = msgs.some((m) => m.assetShare);
+      const items = usesCards ? assetCardItems(markdown, msgs) : [];
+      if (items.length === 0) return [...msgs, pathwayDocMessage(markdown, 'revised')];
+      const card: AssetShareState = { id, items, status: 'open', noneInSection4: false };
+      return [...msgs, pathwayDocMessage(markdown, 'revised', card), assetCardMessage(card)];
     });
   }
 
@@ -878,8 +1008,8 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     if (!cur) return;
     const next = { ...cur, messages: mutate(cur.messages) };
     update((c) => ({ ...c, messages: mutate(c.messages) }));
-    // Keep the ref current for a synchronous follow-up (e.g. the hidden turn
-    // after the first draft) — the update above may not have run yet.
+    // Keep the ref current for a synchronous follow-up — the update above
+    // may not have run yet.
     conversationRef.current = next;
     void persist(next);
   }
@@ -1086,7 +1216,9 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     if (consentInFlightRef.current.has(flight)) return { ok: false };
     consentInFlightRef.current.add(flight);
     try {
-      const result = await registerToolkitAsset(item.candidate);
+      // Registered under the name the card (and Section 4) uses, so the
+      // published document's File column finds its row.
+      const result = await registerToolkitAsset({ ...item.candidate, name: item.name });
       if (!result.ok) return result;
       updateResourceItem(reviewId, itemKey, { status: 'shared', assetId: result.assetId });
       return { ok: true };
@@ -1099,27 +1231,41 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   // been read (see the auto-send effect below handleUserSend).
   const autoSendRef = useRef<string | null>(null);
 
-  // Attach the missing file for an item (itemKey) or another resource (null).
-  // It goes through the normal upload path — staged, read, then sent to the
-  // companion, which checks it like any upload; mergeIntoReview settles it.
-  function attachForResourceItem(reviewId: string, itemKey: string | null, file: File) {
+  // Attach the missing file for an item (itemKey, one file) or other
+  // resources (null, any number at once). They go through the normal upload
+  // path — staged, read, then sent to the companion in one message, which
+  // checks them like any upload; mergeIntoReview settles them. Nothing here
+  // revises the draft: the card's Done does that once.
+  function attachForResourceItem(reviewId: string, itemKey: string | null, files: File[]) {
     const c = conversationRef.current;
     const review = findResourceReview(reviewId);
-    if (!c || !review || review.status !== 'open') return;
+    if (!c || !review || review.status !== 'open' || files.length === 0) return;
     const item = itemKey ? review.items.find((i) => i.key === itemKey) : undefined;
-    const source = { fileName: file.name };
+    const picked = item ? files.slice(0, 1) : files;
     if (item) {
-      updateResourceItem(reviewId, item.key, { attachedSource: source });
+      updateResourceItem(reviewId, item.key, { attachedSource: { fileName: picked[0].name } });
     } else {
       updateResourceReview(reviewId, (r) => ({
         ...r,
-        items: [...r.items, { key: `attached:file:${file.name}`, name: file.name, attachedSource: source, status: 'pending' }],
+        items: [
+          ...r.items,
+          ...picked
+            .filter((f) => !r.items.some((i) => i.key === `attached:file:${f.name}`))
+            .map((f) => ({
+              key: `attached:file:${f.name}`,
+              name: f.name,
+              attachedSource: { fileName: f.name },
+              status: 'pending' as const,
+            })),
+        ],
       }));
     }
     autoSendRef.current = item
       ? `This is the ${item.name}${item.mentionedIn ? ` mentioned in ${item.mentionedIn}` : ''}.`
-      : 'Here is another resource I want to share.';
-    handleAttachFiles([file], c.meta.flow);
+      : picked.length > 1
+        ? 'Here are other resources I want to share.'
+        : 'Here is another resource I want to share.';
+    handleAttachFiles(picked, c.meta.flow);
   }
 
   function linkForResourceItem(reviewId: string, itemKey: string | null, url: string): { ok: boolean; error?: string } {
@@ -1159,36 +1305,238 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     }
   }
 
-  // "No other resources" — closes the review. The review under the first
-  // draft then asks what's next; a legacy pre-draft review (older
-  // conversations) generates the first draft.
+  // Done — closes a resource review (conversations from before the asset
+  // card, 2026-10-12) and asks what's next. A legacy pre-draft review
+  // generates the first draft instead.
   async function finishResourceReview(reviewId: string) {
     const review = findResourceReview(reviewId);
     if (!review || review.status !== 'open' || review.items.some((i) => i.status === 'pending')) return;
-    if (review.followsFirstDraft) {
-      const shared = review.items.some((i) => i.status === 'shared');
-      const next: Message = {
-        role: 'assistant',
-        content: `${shared ? "Thanks — what you've shared will be listed with this pathway." : 'Thanks.'} Do you want to make any changes to the draft, or send it for review?`,
-      };
-      commitMessages((msgs) => [
-        ...msgs.map((m) => {
-          if (m.resourceReview?.id !== reviewId) return m;
-          const done = { ...m.resourceReview, status: 'complete' as const };
-          return { ...m, resourceReview: done, content: resourceReviewContent(done) };
-        }),
-        next,
-      ]);
+    if (review.generateOnComplete) {
+      updateResourceReview(reviewId, (r) => ({ ...r, status: 'complete' }));
+      void runDraftJob(async () => {
+        const markdown = await generatePathwayDraft();
+        if (!markdown) return;
+        await afterCurrentTurn();
+        appendPathwayDocMessage(markdown, 'revised');
+      });
       return;
     }
-    updateResourceReview(reviewId, (r) => ({ ...r, status: 'complete' }));
-    if (!review.generateOnComplete) return;
+    const shared = review.items.some((i) => i.status === 'shared');
+    const content = `${shared ? "Thanks — what you've shared will be listed with this pathway." : 'Thanks.'} Do you want to make any changes to the draft, or send it for review?`;
+    commitMessages((msgs) => [
+      ...msgs.map((m) => {
+        if (m.resourceReview?.id !== reviewId) return m;
+        const done = { ...m.resourceReview, status: 'complete' as const };
+        return { ...m, resourceReview: done, content: resourceReviewContent(done) };
+      }),
+      { role: 'assistant', content },
+    ]);
+  }
+
+  // ---- Asset card (since 2026-10-12) ---------------------------------------
+  // Everything here is the app acting on the card directly — no companion
+  // turn, so a file always lands on the row it was chosen for.
+
+  function findAssetCard(cardId: string): AssetShareState | undefined {
+    return conversationRef.current?.messages.find((m) => m.assetShare?.id === cardId)?.assetShare;
+  }
+
+  function updateAssetCard(cardId: string, mutate: (card: AssetShareState) => AssetShareState) {
+    commitMessages((msgs) =>
+      msgs.map((m) => {
+        if (m.assetShare?.id !== cardId) return m;
+        const next = mutate(m.assetShare);
+        return { ...m, assetShare: next, content: assetShareContent(next) };
+      })
+    );
+  }
+
+  function updateAssetItem(cardId: string, itemKey: string, patch: Partial<AssetShareItem>) {
+    updateAssetCard(cardId, (card) => ({
+      ...card,
+      items: card.items.map((item) => (item.key === itemKey ? { ...item, ...patch } : item)),
+    }));
+  }
+
+  const ASSET_FILE_RULE =
+    "can't be shared — use .pdf, .doc/.docx, .ppt/.pptx, .xls/.xlsx, .csv, .txt, .md, or an image, up to 25 MB (ZIP isn't supported yet).";
+
+  // Choose a file for a row (itemKey; the first file), or add files as new
+  // assets (null; any number). Held in memory until Confirm.
+  function stageAssetFiles(cardId: string, itemKey: string | null, files: File[]): { ok: boolean; error?: string } {
+    const card = findAssetCard(cardId);
+    if (!card || card.status !== 'open' || files.length === 0) return { ok: false };
+    const picked = itemKey ? files.slice(0, 1) : files;
+    const bad = picked.find((f) => !isAllowedAssetFile(f.name, f.size));
+    if (bad) return { ok: false, error: `${bad.name} ${ASSET_FILE_RULE}` };
+    for (const f of picked) assetFilesRef.current.set(f.name, f);
+    if (itemKey) {
+      updateAssetItem(cardId, itemKey, { staged: { fileName: picked[0].name }, error: undefined });
+      return { ok: true };
+    }
+    updateAssetCard(cardId, (c) => ({
+      ...c,
+      items: [
+        ...c.items,
+        ...picked
+          .filter((f) => !c.items.some((i) => i.key === `new:file:${f.name}`))
+          .map((f) => ({
+            key: `new:file:${f.name}`,
+            name: assetNameFromFile(f.name),
+            fromSection4: false,
+            staged: { fileName: f.name },
+          })),
+      ],
+    }));
+    return { ok: true };
+  }
+
+  // Add a link for a row, or as a new asset. Only https, exactly as typed.
+  function stageAssetLink(cardId: string, itemKey: string | null, url: string): { ok: boolean; error?: string } {
+    const card = findAssetCard(cardId);
+    if (!card || card.status !== 'open') return { ok: false };
+    const link = url.trim();
+    if (!/^https:\/\/\S+$/.test(link)) return { ok: false, error: 'Links must start with https://' };
+    if (itemKey) {
+      updateAssetItem(cardId, itemKey, { staged: { url: link }, error: undefined });
+      return { ok: true };
+    }
+    if (card.items.some((i) => i.key === `new:url:${link}`)) return { ok: true };
+    updateAssetCard(cardId, (c) => ({
+      ...c,
+      items: [...c.items, { key: `new:url:${link}`, name: linkDomain(link) ?? link, fromSection4: false, staged: { url: link } }],
+    }));
+    return { ok: true };
+  }
+
+  // "Use the file you already uploaded" — needs that file still in memory
+  // (lost on reload: the card then asks for it again).
+  function takeSuggestedAssetFile(cardId: string, itemKey: string): { ok: boolean; error?: string } {
+    const item = findAssetCard(cardId)?.items.find((i) => i.key === itemKey);
+    if (!item?.suggestedFile) return { ok: false };
+    if (!assetFilesRef.current.has(item.suggestedFile)) {
+      return { ok: false, error: `Please upload ${item.suggestedFile} again — files have to be re-selected after the page reloads.` };
+    }
+    updateAssetItem(cardId, itemKey, { staged: { fileName: item.suggestedFile }, error: undefined });
+    return { ok: true };
+  }
+
+  // Undo a choice not confirmed yet; an added asset disappears.
+  function unstageAsset(cardId: string, itemKey: string) {
+    updateAssetCard(cardId, (c) => ({
+      ...c,
+      items: c.items
+        .filter((i) => !(i.key === itemKey && !i.fromSection4 && !i.shared))
+        .map((i) => (i.key === itemKey ? { ...i, staged: undefined, error: undefined } : i)),
+    }));
+  }
+
+  function renameAsset(cardId: string, itemKey: string, name: string) {
+    const item = findAssetCard(cardId)?.items.find((i) => i.key === itemKey);
+    if (!item || item.fromSection4 || item.shared) return;
+    updateAssetItem(cardId, itemKey, { name: name.replace(/\s+/g, ' ').slice(0, 150) });
+  }
+
+  // Saves the latest draft again with Section 4 linked to every shared asset
+  // (no model call). Returns the new text, or null when nothing changed.
+  async function saveRelinkedDraft(): Promise<string | null> {
+    const c = conversationRef.current;
+    const draft = pathwayDocRef.current.content;
+    if (!c || !draft) return null;
+    const linked = linkSection4Assets(draft, sharedAssetLinks(c.messages));
+    if (linked === draft) return null;
+    const saved = await insertDraftVersion(c.id, linked, pathwayDocRef.current.versionNumber);
+    updatePathwayDoc((prev) => ({
+      ...prev,
+      content: linked,
+      versionNumber: saved?.version_number ?? prev.versionNumber,
+      versions: saved ? [saved, ...prev.versions] : prev.versions,
+      selectedVersionNumber: null,
+    }));
+    return linked;
+  }
+
+  // Remove an asset shared on an earlier Confirm (only before the pathway is
+  // approved — the route refuses a published one). Its link leaves Section 4.
+  async function removeSharedAsset(cardId: string, itemKey: string): Promise<{ ok: boolean; error?: string }> {
+    const item = findAssetCard(cardId)?.items.find((i) => i.key === itemKey);
+    if (!item?.shared) return { ok: true };
+    try {
+      const res = await fetch(`/api/toolkit-assets/${item.shared.assetId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: data.error ?? 'Could not remove it. Try again.' };
+    } catch {
+      return { ok: false, error: 'Could not reach the server. Try again.' };
+    }
+    updateAssetCard(cardId, (c) => ({
+      ...c,
+      items: c.items
+        .filter((i) => !(i.key === itemKey && !i.fromSection4))
+        .map((i) => (i.key === itemKey ? { ...i, shared: undefined } : i)),
+    }));
+    setToolkitAssetsVersion((v) => v + 1);
     void runDraftJob(async () => {
-      const markdown = await generatePathwayDraft();
-      if (!markdown) return;
+      const linked = await saveRelinkedDraft();
       await afterCurrentTurn();
-      appendPathwayDocMessage(markdown, 'revised');
+      if (linked) appendPathwayDocMessage(linked, 'revised');
     });
+    return { ok: true };
+  }
+
+  const confirmingRef = useRef<Set<string>>(new Set());
+
+  // Confirm: shares every chosen file or link (the card's note is the
+  // consent), then links them in Section 4 and asks what's next. If one
+  // fails, the card stays open with the error on that row.
+  async function confirmAssetCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
+    const card = findAssetCard(cardId);
+    if (!card || card.status !== 'open' || confirmingRef.current.has(cardId)) return { ok: false };
+    confirmingRef.current.add(cardId);
+    try {
+      let failed = 0;
+      for (const item of card.items) {
+        if (!item.staged) continue;
+        const result = await registerToolkitAsset({
+          source: item.staged,
+          name: item.name,
+          purpose: '',
+          reuseCondition: item.reuseCondition ?? '',
+          dimension: '',
+          stage: '',
+          sensitiveNote: '',
+        });
+        if (result.ok) {
+          updateAssetItem(cardId, item.key, { shared: { assetId: result.assetId, source: item.staged }, staged: undefined, error: undefined });
+        } else {
+          failed++;
+          updateAssetItem(cardId, item.key, { error: result.error });
+        }
+      }
+      if (failed > 0) {
+        return { ok: false, error: `${failed === 1 ? 'One asset' : `${failed} assets`} couldn't be shared — see the card.` };
+      }
+      updateAssetCard(cardId, (c) => ({ ...c, status: 'confirmed' }));
+      const sharedAny = (findAssetCard(cardId)?.items ?? []).some((i) => i.shared);
+      void runDraftJob(async () => {
+        const linked = sharedAny ? await saveRelinkedDraft() : null;
+        await afterCurrentTurn();
+        if (linked) appendPathwayDocMessage(linked, 'linked');
+        else {
+          commitMessages((msgs) => [
+            ...msgs,
+            { role: 'assistant', content: 'Thanks. Do you want to make any changes to the draft, or send it for review?' },
+          ]);
+        }
+      });
+      return { ok: true };
+    } finally {
+      confirmingRef.current.delete(cardId);
+    }
+  }
+
+  // "Add more assets" on a confirmed card.
+  function reopenAssetCard(cardId: string) {
+    updateAssetCard(cardId, (c) => ({ ...c, status: 'open' }));
   }
 
   // ---- "May this pathway be published?" ------------------------------------
@@ -1416,36 +1764,19 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       const markdown = await generatePathwayDraft();
       if (!markdown) return;
       await afterCurrentTurn();
-      // The first real draft is followed by the journey questions: a hidden
-      // note tells the companion the draft is ready, so it asks the first
-      // one right under it. The drafter's "not enough to draft" fallback
-      // isn't a draft.
+      // The first real draft is followed straight away by the asset card. The
+      // drafter's "not enough to draft" fallback isn't a draft.
+      const now = conversationRef.current?.messages ?? [];
       const notADraft = markdown.trim().startsWith('Not enough of this adoption');
-      const hadDraft = msgs.some((m) => m.role === 'assistant' && m.content.includes(PATHWAY_DOC_MARKER));
-      const first = !notADraft && !hadDraft && !msgs.some((m) => m.resourceReview);
-      appendPathwayDocMessage(markdown, first ? 'first' : 'revised');
-      const c = conversationRef.current;
-      if (first && c) {
-        await sendMessage(c.id, c.messages, { role: 'user', content: FIRST_DRAFT_READY_NOTE, hidden: true }, c.meta.flow, c.grid, c.meta);
-      }
-    } else if (action.type === 'questions-done') {
-      // One revision with everything the answers added, then the first
-      // resource review. In an older conversation that already reviewed its
-      // resources, it's just a revision.
-      const instruction = action.instruction?.trim();
-      const markdown = instruction ? await generatePathwayDraft(instruction) : null;
-      await afterCurrentTurn();
-      const msgs = conversationRef.current?.messages ?? [];
-      if (msgs.some((m) => m.resourceReview)) {
-        if (markdown) appendPathwayDocMessage(markdown, 'revised');
-        return;
-      }
-      appendFirstResourceReview(markdown);
+      const hadDraft = now.some((m) => m.role === 'assistant' && m.content.includes(PATHWAY_DOC_MARKER));
+      if (!notADraft && !hadDraft && !now.some((m) => m.resourceReview)) appendFirstDraftWithAssetCard(markdown);
+      else if (notADraft) appendPathwayDocMessage(markdown, 'first');
+      else appendRevisedDraft(markdown);
     } else if (action.type === 'revise') {
       const markdown = await generatePathwayDraft(action.instruction || 'Apply the requested change.');
       if (!markdown) return;
       await afterCurrentTurn();
-      appendPathwayDocMessage(markdown, 'revised');
+      appendRevisedDraft(markdown);
     } else if (action.type === 'publish') {
       await requestPublishConsent();
     }
@@ -1453,12 +1784,6 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
 
   const runTurn = useCallback(
     async (id: string, history: Message[], userMessage: Message, flow: AdoptionFlow, grid: GridState, meta: AdoptionMeta) => {
-      // Contributor: once a resource review exists the questions are over,
-      // so the companion is in the open loop (step 6) — also covers older
-      // conversations numbered before the questions moved after the draft.
-      if (flow === 'contributor' && meta.flowStep < 6 && history.some((m) => m.resourceReview)) {
-        meta = { ...meta, flowStep: 6 };
-      }
       const next: Message[] = [...history, userMessage];
       update((c) => ({ ...c, messages: next }));
       setLoading(true);
@@ -1605,6 +1930,15 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         conversationRef.current = { ...cur, messages: msgs };
       }
 
+      // A turn started from a resource review card (something attached there
+      // is waiting for this check) never redrafts: the card's Done revises
+      // once for everything added. Read before routing clears the wait.
+      const fromCard =
+        flow === 'contributor' &&
+        (conversationRef.current?.messages ?? []).some(
+          (m) => m.resourceReview?.status === 'open' && m.resourceReview.items.some((i) => i.attachedSource)
+        );
+
       // Contributor-only: this turn's resources go to the review card (see
       // routeResourceFindings) — nothing is uploaded until the contributor
       // agrees on it.
@@ -1616,7 +1950,9 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       // chat show it's running. "publish" only raises a card, so it's quick.
       const pathwayAction = lastParsed?.pathwayAction;
       if (flow === 'contributor' && pathwayAction && pathwayAction.type !== 'none') {
-        if (pathwayAction.type === 'publish') await handlePathwayAction(pathwayAction);
+        if (fromCard && pathwayAction.type !== 'publish') {
+          // Ignored — see fromCard above.
+        } else if (pathwayAction.type === 'publish') await handlePathwayAction(pathwayAction);
         else void runDraftJob(() => handlePathwayAction(pathwayAction));
       }
 
@@ -1938,6 +2274,14 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     decideResourceItem,
     attachForResourceItem,
     linkForResourceItem,
+    stageAssetFiles,
+    stageAssetLink,
+    takeSuggestedAssetFile,
+    unstageAsset,
+    renameAsset,
+    removeSharedAsset,
+    confirmAssetCard,
+    reopenAssetCard,
     finishResourceReview,
     requestPublishConsent,
     answerPublishConsent,

@@ -11,8 +11,8 @@ Every pathway in 100 Pathways describes "toolkit assets": ready-made things anot
 ## What we are building
 
 1. **Contributors attach the real asset.** While working on their pathway in the Contribute area, a contributor can upload the actual file (PDF, Word, PowerPoint, Excel, CSV/text, or image, up to 25 MB) or paste a link, for example a GitHub repository. ZIP files are not supported yet.
-2. **The assistant spots it, and the contributor gives permission.** The assistant checks whether the upload is genuinely a reusable asset (a template, checklist or tool) rather than ordinary background material. If it is, the contributor is asked one question: *"OK to share this publicly? Anyone using 100 Pathways, including visitors who aren't signed in, will be able to download it."* If they say **No**, the file is not kept.
-3. **Assets are approved together with the pathway.** When the contributor sends the pathway for review, its asset list is added to the pathway write-up. The admin reviews the assets as part of the pathway, with a preview of each file. When the admin approves the pathway, its assets go live with it; there is no separate approval step for assets. An asset added after the pathway was sent for review goes live the next time the pathway is reviewed and approved.
+2. **The pathway names the assets; the contributor shares them (updated 2026-10-12).** The assets the contributor is asked for are the ones the draft's Section 4 (Toolkits and playbooks) lists. For each, they upload the file or add a link; a note says that anything shared is public once an admin approves the pathway, and to share only what they have the right to. Nothing is stored until they confirm.
+3. **Assets are approved together with the pathway.** Each shared asset's name in Section 4 links to it (a file through the app's download route, a link to its own address), and it is sent for review with the pathway. The admin reviews the assets as part of the pathway, with a preview of each file. When the admin approves the pathway, its assets go live with it; there is no separate approval step for assets. An asset added after the pathway was sent for review goes live the next time the pathway is reviewed and approved.
 4. **The assistant offers the assets in conversation.** Assets are not shown as a fixed list on screen. The assistant brings them up when they're relevant, and a download card appears under its reply:
    - **Explore (public library):** after a bit of conversation about a pathway, or as soon as someone asks about tools, templates or how to reuse it, the assistant says something like "these are the assets associated with this pathway".
    - **Analyse:** when someone's own project matches a pathway (same sector and same kind of problem), the assistant suggests that pathway's assets.
@@ -38,13 +38,18 @@ Other rules:
 - The assistant never comments on whether a file is good. It never asks about sharing in its own words; the resource review card does that.
 - A file or link is only ever asked about once.
 
-**Draft first, then questions, then the resource review (updated 2026-10-09).** Many contributors won't think to attach the actual files, so:
-- Once the uploaded material is enough to build a pathway, the assistant settles the stage. If the documents state it, it doesn't ask. If they don't, it asks the contributor to confirm its read, or to pick from the four stages when it has no clear read. Then it drafts the pathway straight away.
-- Under the first draft, the assistant asks questions, one at a time, to understand the journey. There's no fixed number: it asks only what the material leaves unclear, and stops when the journey is understood or the contributor asks to skip. Anything the contributor doesn't know or would rather not say stays a gap in the pathway, never filled in. The answers are added to the draft in one revision when the questions end.
-- Then a **resource review card** lists every reusable file or link they shared, and every resource their material names but didn't attach (for example, "we built a vendor evaluation checklist"). This includes resources named inside a document that is itself only background material.
-- For each item the contributor chooses: **Share** (one click; a one-line note under the buttons says shared resources are public once approved and to share only what they have the right to), **attach it / paste a link** (the assistant then checks it is reusable; if not, it's kept as background material only), or **Don't share**. A note is shown if the assistant noticed possible personal or confidential data in the file.
-- When every item is decided, the card asks once whether there's any other resource to share. Answering no closes the card, and the assistant asks whether to change the draft or send it for review.
-- Resources that turn up after the draft get a new card for just those items. Nothing is asked about twice.
+**Draft first, then the asset card (updated 2026-10-12).** Many contributors won't think to attach the actual files, so:
+- Once the uploaded material is enough to build a pathway, the assistant settles the stage. If the documents state it, it doesn't ask. If they don't, it asks once: confirm its read, or pick from the four stages. A "yes" confirms its read, and the stage is never asked again. Then it drafts the pathway straight away.
+- The assistant never asks open questions about the journey. Whatever the material doesn't establish is listed as a gap under the draft; the contributor can fill one in if they want, and the draft is revised.
+- Right under the first draft, an **asset card** lists the reusable assets in the draft's **Section 4 (Toolkits and playbooks)**. Section 4 holds only Toolkit Asset and Playbook units, never Strategic Decision or Failure and Fix rows.
+- For each asset the contributor can **upload the file** or **add a link**. When a file they uploaded earlier looks like that asset, the card offers **"Use the file you already uploaded"**. There is no Don't share option: an asset left without a file or link just stays unlinked. A file goes straight onto its row, with no check by the assistant in between.
+- They can also add other assets (several files at once, or links). Each new one is named after its file, and they can rename it.
+- At the end the card says **"Please confirm once you have shared all the reusable assets."** On **Confirm**, everything chosen is shared, and the app (not the model) **links each asset's name in Section 4, column 1**: a file to the app's download route, a link to its own address. An added asset gets its own row. Then the assistant asks whether to change the draft or send it for review.
+- **When Section 4 lists no assets**, the card asks instead: **"Do you have any reusable assets that can be shared with others? If yes, please upload them and confirm."** Confirm with nothing added simply moves on.
+- After Confirm, **Add more assets** reopens the card. A shared asset can be **removed** until the pathway is approved; its link leaves Section 4.
+- If a later revision adds new assets to Section 4, a new card asks about just those. Nothing is asked about twice.
+- Download links work for the contributor and admins straight away, and for everyone once the pathway is approved.
+- There is no separate list of files at the bottom of the document.
 - Before the pathway is sent for review, the contributor confirms the version is accurate and that it may be published to help future adopters. If not, they can keep it as a private draft, or delete the contribution (the workspace, drafts, and asset files not yet live).
 - Asking is never a condition for publishing, and the assistant never says sharing would make the pathway "better" or "more complete".
 
@@ -73,9 +78,9 @@ The assistant only knows an asset's name, purpose, reuse condition and when it w
 
 ## Flow charts
 
-### Contributor side (Login → Material → Stage → Draft → Questions → Resource review → Consent → Review → Publish)
+### Contributor side (Login → Material → Stage → Draft → Asset card → Consent → Review → Publish)
 
-Updated 2026-10-09: the stage is asked only when the documents don't state it; the draft comes next, then the journey questions, then the resource review. Admin change requests stay out of band (no in-app request or rejection, no reminders), and assets stay all-or-nothing with the pathway.
+Updated 2026-10-12: the stage is asked at most once, and only when the documents don't state it. The draft comes next, then the resource review. There are no journey questions. Admin change requests stay out of band (no in-app request or rejection, no reminders), and assets stay all-or-nothing with the pathway.
 
 ```mermaid
 flowchart TD
@@ -91,27 +96,16 @@ flowchart TD
     P -->|"No"| X1(["Cube says so; progress saved,<br/>contributor can return with more"])
     P -->|"Yes"| ST{"Stage stated<br/>in the documents?"}
     ST -->|"Yes"| D["First draft generated"]
-    ST -->|"No"| S1["Cube asks the contributor<br/>to confirm or pick the stage"]
+    ST -->|"No"| S1["Cube asks once: confirm its read<br/>or pick the stage (a yes confirms)"]
     S1 --> D
-    D --> O{"Something important about<br/>the journey still unclear?<br/>(contributor can skip)"}
-    O -->|"Yes"| L["Cube asks one question"]
-    L --> M{"Contributor answers?"}
-    M -->|"Answers / shares more"| O
-    M -->|"Doesn't know / prefers not to say"| N["Recorded as a gap"]
-    N --> O
-    O -->|"No"| QD["Draft updated once<br/>with all the answers"]
-    QD --> R["Resource review card: every reusable<br/>file/link and every resource mentioned but not attached"]
-    R --> U{"For each item"}
-    U -->|"Don't share"| V["Recorded; never asked again"]
-    U -->|"Add the file / link"| CHK{"Cube checks it:<br/>reusable as-is?"}
-    CHK -->|"No"| BG["Background material only"]
-    CHK -->|"Yes"| U
-    U -->|"Share (one click; note under it:<br/>public once approved, right to share)"| XX["Stored privately,<br/>proposed for the Toolkit"]
-    V --> W
-    BG --> W
-    XX --> W{"All decided: any other<br/>resource to share?"}
-    W -->|"Yes: attach / link"| CHK
-    W -->|"No"| AM
+    D --> SEC{"Section 4 lists<br/>reusable assets?"}
+    SEC -->|"Yes"| R["Asset card: each Section 4 asset<br/>(no Don't share)"]
+    SEC -->|"No"| R0["Asset card: 'Do you have any reusable assets<br/>that can be shared with others?'"]
+    R --> U["Contributor uploads a file or adds a link per asset<br/>('Use the file you already uploaded' where one matches),<br/>and can add other assets"]
+    R0 --> U
+    U --> W{"'Please confirm once you have<br/>shared all the reusable assets'"}
+    W -->|"Confirm"| XX["Shared (public once approved);<br/>app links each name in Section 4, column 1"]
+    XX --> AM
     AM{"Contributor reviews the draft:<br/>change anything?"}
     AM -->|"Change request / fills a gap /<br/>corrects the stage"| RV["Draft revised"]
     RV --> AM
@@ -119,7 +113,7 @@ flowchart TD
     AM -->|"Send for review"| AR{"Version accurate, and may it be<br/>published to help future adopters?"}
     AR -->|"No, keep private"| KP(["Stays a private draft"])
     AR -->|"No, delete"| DEL(["Workspace, drafts and not-yet-live<br/>asset files deleted"])
-    AR -->|"Yes"| AU["Sent for admin review<br/>(asset list added to the document)"]
+    AR -->|"Yes"| AU["Sent for admin review<br/>(shared assets linked in Section 4)"]
     AU --> AV{"Admin decision"}
     AV -->|"Changes needed (out of band;<br/>contributor can Remove an asset)"| AM
     AV -->|"Publish"| PUB(["Pathway and its listed assets go live;<br/>contributor emailed"])
@@ -132,9 +126,9 @@ flowchart TD
     classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
 
     class S,A start
-    class T,P,ST,O,M,U,CHK,W,AM,AV decision
+    class T,P,ST,SEC,W,AM,AV decision
     class AR consent
-    class U0,V0,C,E,G,S1,D,L,N,QD,R,V,BG,XX,RV,AU step
+    class U0,V0,C,E,G,S1,D,R,R0,U,XX,RV,AU step
     class PUB done
     class X1,KP,DEL stop
 ```
