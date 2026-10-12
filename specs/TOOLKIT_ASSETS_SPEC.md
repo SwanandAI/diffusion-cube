@@ -1,6 +1,6 @@
 # Spec: Toolkit Asset Files
 
-Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-09 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
+Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-12 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
 
 Planning artifacts (requirement, clarifications, approved plan, task list with acceptance criteria and test plans): [`docs/tasks/toolkit-asset-files/`](../docs/tasks/toolkit-asset-files/). This spec records **what is being built and what has actually been done**. The progress log (§10) is updated after every task.
 
@@ -25,16 +25,13 @@ Planning artifacts (requirement, clarifications, approved plan, task list with a
 
 ## 3. User flows
 
-0. **Draft, then questions, then resources (since 2026-10-09).**
-   - Once the material is enough, the companion settles the stage. It asks only when the documents don't state it.
-   - It then sets `pathwayAction: "generate"`. The first draft appears, and a hidden note makes the companion ask its first journey question right under the draft.
-   - When the questions end, `"questions-done"` revises the draft once with all the answers. The resource review card (steps 2–3) follows.
+0. **Draft, then resources (since 2026-10-12).** Once the material is enough, the companion settles the stage: asked at most once, and only when the documents don't state it; a "yes" confirms it. It then sets `pathwayAction: "generate"`. The first draft appears with the resource review card (steps 2–3) right under it. No journey questions.
 1. **Contributor attaches.** In a `/contribute` workspace the contributor uploads a file or pastes an https link.
 2. **AI identifies.** The contributor companion flags it in `<grid_update>.toolkitAssetCandidates` if it's a genuine reusable artifact.
 3. **Consent.** A card asks *"OK to share this publicly? Anyone using 100 Pathways, including visitors who aren't signed in, will be able to download it."*
    - **No:** nothing is stored.
    - **Yes:** the browser uploads to a signed upload URL, then the server registers the row (unpublished).
-4. **Send for Review (assemble).** The asset block, listing every consented asset, is written into the pathway document (GitHub `.md` + `pathways.content_cache`).
+4. **Send for Review (assemble).** Every consented asset is written into Section 4's table, in a File column with its `asset-id` marker (GitHub `.md` + `pathways.content_cache`). Before 2026-10-12 this was a separate "Toolkit asset files" block.
 5. **Admin publish.** `published_pathways` is updated as before. Assets whose IDs are in the reviewed document get `published_at` set. An asset attached after the last Send for Review waits for the next round.
 6. **Discovery (same rules on both pages, one shared prompt text):**
    - Assets are brought up only in the conversation: never in Claude's first reply; from the user's second message onward once the talk is about a pathway with assets (in `/analyse`, a pathway that genuinely matches the user's situation); or straight away when the user asks about tools, templates, resources, files or how to reuse something.
@@ -804,3 +801,171 @@ The owner redrew the contributor flow (see `requirement.md` → Flow charts) and
   - a revise requested during a draft queues behind it
   - Send for Review clicked mid-draft sends the new draft
   - the first-draft question still appears under the draft
+
+### 2026-10-12 · Six owner fixes: no questions, stage asked once, Section 4 = the card, one revision per card, files in Section 4 (code complete, not live-tested; no migration)
+
+**Owner's report, and what was done**
+
+1. **The stage was asked twice.** After a "yes" to "it reads as Pilot", the Cube asked to confirm the stage again.
+   - Cause: the stage field was only filled when the contributor named a stage, so the first question after the draft was "confirm your stage".
+   - Fix: step 3 now says a "yes" confirms the proposed stage. The stage is written that turn and never asked again in any words.
+2. **Section 5 was missing, and Section 4 listed Strategic Decisions.**
+   - Section 5 was omitted on purpose (`content/pathway-generation-prompt.md`, commit `64107ed`). Owner chose option (a): keep the heading, with one line pointing to the Failure-and-Fix units in Section 3, so the numbering is continuous.
+   - Section 4 now lists only Toolkit Asset / Playbook units, and the "limit to 6" pressure is gone. `applySection4` also re-types any decision or fix row it keeps.
+3. **Section 4 didn't match the "Files other teams can reuse" card.** Two model calls were deciding independently. Now there is one list, `currentResourceItems`:
+   - The card is built from it.
+   - Every generate/revise sends it to the drafter ("Section 4 lists exactly these, Title exactly as named").
+   - `applySection4` enforces it on the saved draft: unlisted rows are dropped, missing ones are added with "—" as the unit.
+   - Near-duplicate mentions are merged (`sameResourceName`: every word of one name appears in the other), and the prompt says one entry per artifact, never "X and Y".
+   - Shared assets are registered under the card's item name, so their Section 4 row is found.
+4. **20 resources meant 20 uploads and 20 drafts.**
+   - "Add files" on the card now takes several files at once, sent to the companion in one message.
+   - A turn started from the card never revises (`fromCard` in `runTurn`, plus a prompt rule).
+   - **Done** (was "No, I'm done") closes the card. If any resource has no Section 4 row (`section4Titles`), the draft is revised **once** for all of them. Otherwise it asks "Do you want to make any changes to the draft, or send it for review?". This now happens on every card, not only the first, which closes the earlier gap.
+5. **Questions removed completely.**
+   - The contributor flow is 5 steps again (material → sufficiency → stage → generate → loop), with a rule never to ask open questions.
+   - Removed: step 5's question round, `questions-done`, the hidden "draft is ready" turn (`Message.hidden` is kept only to render older conversations), `followsFirstDraft`, and the step-6 bump. A stored step 6 is clamped to 5.
+   - The first draft is followed straight away by the card (`appendFirstDraftWithReview`).
+6. **Shared files go in Section 4, not a block at the bottom.**
+   - New `lib/pathway-section4.ts` (`applySection4`, `section4AssetIds`, `section4Titles`, `sameResourceName`).
+   - `applyToolkitAssetFiles` (replaces `applyToolkitAssetBlock`, used by assemble and `dropAssetsFromReviewCopy`) removes the old block and fills a **File** column: file name or link domain, plus the `<!-- asset-id -->` marker. An asset with no row gets its own row; other rows show "—".
+   - `assetIdsInDocument` reads Section 4 markers and still reads the old block, so documents sent before this change still publish correctly.
+   - The contributor's pane renders the same table with statuses (file name / Not shared / Not attached / Not decided yet) from the cards. It is applied only to the contribution's own draft, and only once a card exists.
+
+**Verified**
+- `tsc` clean, and `npm run build` passes.
+- `eslint`: no new findings (only the existing 2 errors and 1 warning in `AdoptionWorkspace.tsx`, and the 2 `exhaustive-deps` warnings).
+- **Scratch tests (`tsx`): Section 4**, 18/19. The one failure was a test regex that didn't allow for a bold title; the output was checked by eye and is correct.
+  - decision rows dropped
+  - missing card item added
+  - model-written markers stripped
+  - Sections 5 and 6 untouched
+  - pane File column
+  - re-applying doesn't duplicate the column
+  - old block removed, and its ids still read
+  - marker lands in the matched row
+  - unmatched asset added
+  - a removed asset loses its marker
+  - no resources → "No reusable resources documented."
+  - a missing Section 4 is inserted before Section 6
+- **Scratch tests (`tsx`): flow**, 17/17.
+  - the duplicate mentions from the owner's screenshot are merged
+  - background items excluded
+  - File status text
+  - prompt clamp to 5 of 5
+  - no question round
+  - the open-question, stage, card-attachment and one-entry rules
+  - drafter Section 4 rules and the Section 5 heading
+- All 3 flow charts in `requirement.md` parse with `mermaid` 11.4.1.
+
+**Open**
+- Live test (💲):
+  - "yes" to the stage → draft, with no second stage question
+  - Section 4 rows equal the card items, with no decisions and Section 5 present
+  - 5 files added at once from the card → no draft until Done → one revision
+  - a resource uploaded in chat after the card → its own card → Done → one revision
+  - Send for Review → Section 4 shows File cells with markers → admin publish takes exactly those assets
+  - Remove an asset after sending → its row's File cell becomes "—"
+- Already-sent pathways keep the old block until their next Send for Review. Publishing them still works, because the old block is still read.
+- Wiki refresh: `integrations/ai-llm.md` and `business/workflows.md`.
+
+### 2026-10-12 · "Toolkit assets" list under the pane's document hidden (UI only)
+
+**Owner's report:** the pane still showed a "TOOLKIT ASSETS — No toolkit asset files shared for this pathway yet." list under the document, although shared files now appear in Section 4.
+
+**Done**
+- `ToolkitAssetStatusList` takes a new `countOnly` prop: it still fetches, and still reports the not-yet-sent count that re-offers Send for Review, but renders nothing. `PathwayDocumentPane` passes it.
+- The pane's per-asset **Remove** button is no longer visible. The route (`DELETE /api/toolkit-assets/[id]`) is unchanged. It needs a new home: the Section 4 rework the client asked for (links in column 1) is the natural place.
+
+**Verified**
+- `tsc` clean.
+- `eslint` clean on both files.
+
+### 2026-10-12 · Workspace header reverted to the upstream style (UI only)
+
+**Asked:** Kamesh asked for the subtitle style at the top of the workspace to go back to how it was.
+
+**Done** (`AdoptionWorkspace.tsx`)
+- This undoes the 2026-10-08 "Workspace header tidied" entry.
+- The sector · geography · stage line and the summary are back to the `upstream/main` markup exactly:
+  - one coral line joined with " · "
+  - the full summary in a scrollable box (`max-h-24`)
+- Removed: the tags, the 2-line clamp, Show more / Show less, and the `summaryExpanded` state.
+
+**Verified**
+- `tsc` clean.
+- `eslint`: only the existing 2 errors and 1 warning in this file.
+- No header differences left against `upstream/main`.
+
+### 2026-10-12 · Kamesh's reusable-assets flow: Section 4 drives an upload/link card, Confirm links the names (code complete, not live-tested; no migration)
+
+**Asked (Kamesh, via the owner):**
+- After the draft, list the reusable assets from **Section 4**, each with upload / link, and no "Don't share".
+- End with "Please confirm once you have shared all the reusable assets".
+- On Confirm, update Section 4 column 1 with each asset's link.
+- If Section 4 has none, ask "Do you have any reusable assets that can be shared with others? If yes, please upload them and confirm."
+- Owner defaults:
+  - (a) offer "Use the file you already uploaded" on a matching row
+  - (b) a new row is named after its file, and can be renamed
+  - (c) download links work for everyone only after approval (the route already did this)
+- The owner also flagged a bug: in a screenshot, the Cube said "choose Share or Don't share below", but the card never received the file.
+  - Cause: card attachments went through a companion turn, and the card only updated if the model listed the file.
+  - The new card never goes through the model: a file is set on its row by the app.
+
+**Done**
+- **New asset card** (`AssetShareState` on `Message.assetShare`, `ASSET_SHARE_MARKER`, `components/AssetShareCard.tsx`). Replaces the resource review card for new conversations; old cards still render.
+  - **Items:** `assetCardItems` reads the draft's Section 4 rows (`section4Rows`, decision/fix rows excluded). Rows already on an earlier card are skipped.
+  - **(a) suggestions:** a file the companion flagged under that name, else an uploaded file whose name matches (`assetNameFromFile` + `sameResourceName`).
+  - **Per row:** Upload file / Add link, or "Use the file you already uploaded: X". A choice can be changed. Nothing is stored before Confirm (files are held in memory, with "Select the file again" after a reload).
+  - **"Any other reusable asset?" / "Add your assets":** several files at once or links, as new items. (b) The name comes from the file and is editable until Confirm.
+  - **Consent note** above Confirm: "Anything you share here is public once an admin approves this pathway: anyone can download it. Only share what you have the right to share."
+  - **Confirm** (`confirmAssetCard`): registers each chosen file or link under the row's name. If any fail, the card stays open with the error on that row. Otherwise the card is marked confirmed, and `saveRelinkedDraft` saves a new draft version with Section 4 linked (no model call). Then it shows "Here's the pathway document with your assets linked in Section 4. … changes, or send it for review?" (or just the question when nothing was shared).
+  - **Add more assets** reopens a confirmed card.
+  - **Remove** on a shared asset (the route refuses it once published) re-links the draft. This brings back the Remove button lost when the pane list was hidden.
+  - **None in Section 4:** the card asks "Do you have any reusable assets that can be shared with others? If yes, please upload them and confirm." ("Nothing to share? Just click Confirm.")
+- **Section 4 links** (`lib/pathway-section4.ts`, rewritten): `linkSection4Assets` drops decision/fix rows and any File column, strips every link and marker in the table, and links each shared asset's title.
+  - A file links to `/api/toolkit-assets/<id>/download`; a link asset links to its own URL. Each carries the `<!-- asset-id -->` marker.
+  - An asset no row names gets a `—` row, which is dropped again when that asset is removed. An empty table becomes "No reusable resources documented."
+  - Used when every draft is saved (so links survive revisions), on Confirm/Remove, and on assemble (`applyToolkitAssetFiles` from `contribution_units`, which also removes the old block; `ToolkitAssetBlockEntry.linkUrl` added). `assetIdsInDocument` still reads the old block too.
+- **Rendering:** `WikiMarkdown` renders a link even in pathway documents when it goes to the download route or is https (other relative `.md` links stay plain text). Cell text replaces `|` with `/`, because the renderer splits rows on every pipe.
+- **After a revision:** Section 4 rows no card has asked about get a new card under the draft (`appendRevisedDraft`).
+- **Prompts:**
+  - The companion's resource findings are now only hints for the drafter.
+  - The drafter writes plain Section 4 titles, with no links, File column or markers, and keeps titles stable.
+  - The companion never says "choose …" about a card, and files shared on the card never reach it.
+  - The generation prompt matches.
+- **Removed:** the pane's File-column transform, `resourceFileStatus`, and `section4Titles` / `applySection4`. The old resource review finish is simplified (it is only for older conversations).
+
+**Verified**
+- `tsc` clean and `npm run build` passes.
+- `eslint`: no new findings.
+- Scratch tests (`tsx`), 23/23, including Kamesh's Sahayak table:
+  - all Failure and Fix → no card rows, and "No reusable resources documented."
+  - a DooruMitra-style table: decision row and old File column dropped, title linked with marker, link asset to its own URL, unshared row plain
+  - re-linking is idempotent
+  - a removed added asset loses its row and id
+  - assemble removes the old block and writes links, and publish ids are read
+  - card items, both kinds of (a) suggestion, rows not asked twice, shared links, (b) names, the history text
+- Prompt checks 9/9.
+- All 3 flow charts in `requirement.md` parse with `mermaid` 11.4.1.
+
+**Open**
+- Live test with Kamesh's two contributions (Sahayak, Dooru Mitra):
+  - draft → card lists Section 4 assets, or asks "Do you have any…"
+  - upload, link and "use the file you already uploaded" → Confirm → Section 4 names linked
+  - Remove; Add more
+  - Send for Review → admin publish takes the linked assets
+  - links open for the contributor before approval, and for anyone after
+- The GitHub copy of a published pathway has relative download links (`/api/...`). They work in the app and the wiki pages, not on github.com.
+
+### 2026-10-12 · Section 5 stub removed (prompt only)
+
+**Asked:** the owner asked to remove the "Section 5 — Covered by the Failure-and-Fix units…" line for now.
+
+**Done**
+- `content/pathway-generation-prompt.md` is back to the `upstream/main` rule: "Omit this section… do not generate a Section 5". Documents go from Section 4 straight to Section 6 again, as published pathways do.
+- `requirement.md` no longer mentions the stub.
+- Drafts already generated keep their Section 5 line until they are next revised.
+
+**Verified**
+- The only remaining difference from `upstream/main` in the generation prompt is the Section 4 rule.

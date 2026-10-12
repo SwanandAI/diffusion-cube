@@ -14,12 +14,14 @@ import { ATTACH_ACCEPT } from '@/lib/extract-text';
 import type {
   PublishConsentState,
   ResourceReviewState,
+  AssetShareState,
   ToolkitAssetCandidate,
   ToolkitAssetConsentState,
   ToolkitAssetMention,
 } from '@/lib/toolkit-assets';
 import ToolkitAssetConsentCard from '@/components/ToolkitAssetConsentCard';
 import ResourceReviewCard from '@/components/ResourceReviewCard';
+import AssetShareCard, { type AssetShareActions } from '@/components/AssetShareCard';
 import PublishConsentCard from '@/components/PublishConsentCard';
 import ToolkitAssetCards from '@/components/ToolkitAssetCards';
 import VoiceInputButton from '@/components/VoiceInputButton';
@@ -30,9 +32,9 @@ export interface Message {
   // Shown in the chat bubble instead of `content` — used for uploads, where
   // `content` carries the full extracted document text sent to the agent.
   displayContent?: string;
-  // Sent to the model but never shown: an app-authored note in the
-  // contributor's turn (e.g. "the first draft is ready") that lets the
-  // companion speak next without the contributor typing anything.
+  // Legacy (2026-10-09 to 10-12): an app-authored note sent to the model in
+  // the contributor's turn but never shown. Nothing creates these now; older
+  // conversations may still hold one.
   hidden?: boolean;
   // Set when the message carries one or more uploaded images — `content` then
   // holds a short instruction (plus any text-attachment content) and this
@@ -63,6 +65,9 @@ export interface Message {
   // (PUBLISH_CONSENT_MARKER).
   resourceReview?: ResourceReviewState;
   publishConsent?: PublishConsentState;
+  // Contributor flow (since 2026-10-12): the asset card under the draft
+  // (ASSET_SHARE_MARKER) — upload or link each Section 4 asset, then Confirm.
+  assetShare?: AssetShareState;
   // Explorer flow: ids of published toolkit assets this assistant message
   // offered (from <grid_update>) — rendered as download cards under it.
   toolkitAssetsReferenced?: string[];
@@ -438,11 +443,14 @@ interface Props {
   // useAdoptionConversation for what each does. Explorer callers omit them.
   resourceReviewActions?: {
     decide: (reviewId: string, itemKey: string, share: boolean) => Promise<{ ok: boolean; error?: string }>;
-    attach: (reviewId: string, itemKey: string | null, file: File) => void;
+    attach: (reviewId: string, itemKey: string | null, files: File[]) => void;
     link: (reviewId: string, itemKey: string | null, url: string) => { ok: boolean; error?: string };
     finish: (reviewId: string) => void;
     rememberFile: (file: File) => void;
   };
+  // Contributor-flow only: the asset card (Message.assetShare) — see
+  // useAdoptionConversation's asset card actions.
+  assetShareActions?: AssetShareActions;
   onPublishConsent?: (consentId: string, choice: 'send' | 'keep' | 'delete') => Promise<{ ok: boolean; error?: string }>;
   // Hides the "pathway information isn't independently verified" note under
   // the first assistant message — relevant for an Explorer reading someone
@@ -472,6 +480,7 @@ export default function ChatPanel({
   onToolkitAssetConsent,
   hasToolkitAssetFile,
   resourceReviewActions,
+  assetShareActions,
   onPublishConsent,
   hideAccuracyDisclaimer,
 }: Props) {
@@ -537,9 +546,24 @@ export default function ChatPanel({
                     fileAvailable={(fileName) => hasToolkitAssetFile?.(fileName) ?? false}
                     onRememberFile={resourceReviewActions.rememberFile}
                     onDecide={(itemKey, share) => resourceReviewActions.decide(review.id, itemKey, share)}
-                    onAttach={(itemKey, file) => resourceReviewActions.attach(review.id, itemKey, file)}
+                    onAttach={(itemKey, files) => resourceReviewActions.attach(review.id, itemKey, files)}
                     onLink={(itemKey, url) => resourceReviewActions.link(review.id, itemKey, url)}
                     onFinish={() => resourceReviewActions.finish(review.id)}
+                  />
+                </div>
+              </div>
+            );
+          }
+          const assetCard = m.assetShare;
+          if (assetCard) {
+            if (!assetShareActions) return null;
+            return (
+              <div key={i} className="flex justify-start">
+                <div className="w-full max-w-xl">
+                  <AssetShareCard
+                    card={assetCard}
+                    fileAvailable={(fileName) => hasToolkitAssetFile?.(fileName) ?? false}
+                    actions={assetShareActions}
                   />
                 </div>
               </div>

@@ -27,14 +27,20 @@ interface AssetRow {
 // uses the not-yet-sent count to offer "Send for Review" again
 // (onUnsentCountChange). Re-fetches whenever refreshKey changes (bumped
 // after a successful share or send) and after a removal.
+//
+// countOnly: keeps the fetch and the not-yet-sent count but renders nothing —
+// the contributor's pane shows shared files in Section 4 itself (see
+// lib/pathway-section4.ts), so a second list under the document would repeat it.
 export default function ToolkitAssetStatusList({
   pathwayId,
   refreshKey,
   onUnsentCountChange,
+  countOnly = false,
 }: {
   pathwayId: string;
   refreshKey: number;
   onUnsentCountChange?: (count: number) => void;
+  countOnly?: boolean;
 }) {
   const [assets, setAssets] = useState<AssetRow[] | null>(null);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
@@ -94,7 +100,7 @@ export default function ToolkitAssetStatusList({
     }
   }
 
-  if (assets === null) return null;
+  if (assets === null || countOnly) return null;
 
   return (
     <div className="mt-8 border-t border-navy/10 pt-4">

@@ -5,14 +5,16 @@ import { Fragment, type ReactNode } from 'react';
 // table support) — pathway docs lean heavily on pipe tables (identity,
 // coverage grid, toolkits, problem→solution).
 
-const BOLD = /(\*\*[^*]+\*\*)/g;
 // Only when `links` is on (the legal pages) — pathway docs carry relative
 // `[Title](other-pathway.md)` cross-links that would 404 if rendered here, so
-// by default link syntax still shows as plain text.
+// by default link syntax still shows as plain text. The exception is a
+// shared toolkit asset's link in Section 4 (written by the app, see
+// lib/pathway-section4.ts): the app's own download route, or an https link.
 const BOLD_OR_LINK = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g;
+const ASSET_HREF = /^(\/api\/toolkit-assets\/asset-[0-9a-f-]{36}\/download|https:\/\/\S+)$/;
 
 function renderInline(text: string, links = false): ReactNode {
-  return text.split(links ? BOLD_OR_LINK : BOLD).map((part, i) => {
+  return text.split(BOLD_OR_LINK).map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return (
         <strong key={i} className="font-medium text-navy">
@@ -20,8 +22,8 @@ function renderInline(text: string, links = false): ReactNode {
         </strong>
       );
     }
-    const link = links ? part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/) : null;
-    if (link) {
+    const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+    if (link && (links || ASSET_HREF.test(link[2]))) {
       const [, label, href] = link;
       const external = /^https?:\/\//.test(href);
       return (
@@ -53,8 +55,8 @@ function splitRow(line: string): string[] {
 }
 
 export default function WikiMarkdown({ markdown, links = false }: { markdown: string; links?: boolean }) {
-  // HTML comments are machine markers, never content — e.g. the toolkit
-  // asset block's <!-- asset-id: … --> / start / end markers (see
+  // HTML comments are machine markers, never content — e.g. the
+  // <!-- asset-id: … --> markers in Section 4's File column (see
   // lib/toolkit-assets.ts). Dropped before parsing so they never show as text.
   const lines = markdown.replace(/<!--[\s\S]*?-->/g, '').split('\n');
   const blocks: ReactNode[] = [];

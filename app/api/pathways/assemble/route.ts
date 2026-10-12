@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { hasAnyRole, hasRole } from '@/lib/roles'
 import { ghReadFile, ghWriteFile } from '@/lib/github'
 import { isValidSlug } from '@/lib/slug'
-import { applyToolkitAssetBlock } from '@/lib/toolkit-assets'
+import { applyToolkitAssetFiles } from '@/lib/toolkit-assets'
 import { loadPathwayToolkitAssets, toBlockEntry } from '@/lib/toolkit-assets-server'
 
 // Publishes a contributor's current pathway draft as the pathway's live
@@ -17,10 +17,11 @@ import { loadPathwayToolkitAssets, toBlockEntry } from '@/lib/toolkit-assets-ser
 // lib/adoption-conversation.ts) — the merging happens once, in that
 // generation call, not again here.
 //
-// The one thing this route does add: the pathway's toolkit asset block
-// (lib/toolkit-assets.ts), regenerated from contribution_units and written
+// The one thing this route does add: the pathway's shared files, in a File
+// column of Section 4's table (applyToolkitAssetFiles in
+// lib/toolkit-assets.ts), regenerated from contribution_units and written
 // into the committed/cached document so the admin reviews the assets as
-// part of the pathway. The draft itself never carries it.
+// part of the pathway. The draft itself never carries them.
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const assets = await loadPathwayToolkitAssets(pathwayId)
-    const assembled = applyToolkitAssetBlock(draftRow.content, assets.map(toBlockEntry))
+    const assembled = applyToolkitAssetFiles(draftRow.content, assets.map(toBlockEntry))
 
     const assembledPath = `content/wiki/pathways/${pathway.slug}.md`
     const existing = await ghReadFile(assembledPath)

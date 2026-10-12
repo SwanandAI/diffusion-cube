@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { hasRole } from '@/lib/roles';
 import {
   TOOLKIT_ASSET_BUCKET,
-  applyToolkitAssetBlock,
+  applyToolkitAssetFiles,
   assetIdsInDocument,
   linkDomain,
   sanitizeAssetFileName,
@@ -46,7 +46,7 @@ export async function dropAssetsFromReviewCopy(pathwayId: string, assetIds: stri
     );
     await admin
       .from('pathways')
-      .update({ content_cache: applyToolkitAssetBlock(content, remaining.map(toBlockEntry)) })
+      .update({ content_cache: applyToolkitAssetFiles(content, remaining.map(toBlockEntry)) })
       .eq('id', pathwayId);
   } catch (err) {
     console.error('[toolkit-assets] review copy update failed:', err);
@@ -115,6 +115,7 @@ export function toBlockEntry(row: ToolkitAssetRow): ToolkitAssetBlockEntry {
     kind: row.asset_kind,
     fileName: row.file_name,
     linkDomain: row.link_url ? linkDomain(row.link_url) : null,
+    linkUrl: row.link_url,
     purpose: row.purpose ?? '',
     reuseCondition: row.reuse_condition ?? '',
   };
