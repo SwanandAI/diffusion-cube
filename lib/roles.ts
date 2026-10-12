@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type Role = 'general_user' | 'adopter' | 'pathway_contributor' | 'admin';
 
+// app_metadata key recording that an account's one-time default 'adopter'
+// grant is settled — see app/api/auth/grant-default-role/route.ts.
+export const DEFAULT_ROLE_GRANTED_FLAG = 'default_role_granted';
+
 // Checks the CURRENT signed-in user's own roles via the normal per-request
 // client (not the service-role client) — relies on user_roles' "select own
 // rows" RLS policy, so this only ever sees the caller's own grants.

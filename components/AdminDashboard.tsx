@@ -64,7 +64,8 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
         body: JSON.stringify({ user_id: userId }),
       });
       if (!res.ok) {
-        showToast('Could not reject that account. Please try again.', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error ?? 'Could not reject that account. Please try again.', 'error');
         return;
       }
       setRows((prev) => prev.filter((r) => r.id !== userId));

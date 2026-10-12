@@ -81,16 +81,19 @@ export default function AdminContributorRegistrationsPanel({
               {row.pathwayDescription && <p className="mt-2 text-sm text-ink">{row.pathwayDescription}</p>}
               <div className="mt-1 text-[10px] text-ink-soft/70">{new Date(row.createdAt).toLocaleDateString()}</div>
             </div>
-            {row.accessStatus === 'pending' && (
+            {/* A rejected registration can still be approved later. */}
+            {row.accessStatus !== 'approved' && (
               <div className="flex flex-shrink-0 gap-2">
-                <button
-                  type="button"
-                  onClick={() => act(row.id, 'reject')}
-                  disabled={pending === row.id}
-                  className="rounded-lg border border-coral/30 px-2.5 py-1 text-xs font-medium text-coral transition hover:bg-coral hover:text-white disabled:opacity-50"
-                >
-                  Reject
-                </button>
+                {row.accessStatus === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => act(row.id, 'reject')}
+                    disabled={pending === row.id}
+                    className="rounded-lg border border-coral/30 px-2.5 py-1 text-xs font-medium text-coral transition hover:bg-coral hover:text-white disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => act(row.id, 'approve')}
