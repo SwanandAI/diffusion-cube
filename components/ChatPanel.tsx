@@ -497,9 +497,15 @@ export default function ChatPanel({
     if (files.length) onAttachFiles?.(files);
   }
 
+  // Follow the conversation only when a message is added or the last one's
+  // visible text grows (streaming). Cards keep their state on a message
+  // (e.g. the asset card), and typing in or confirming one must not jump
+  // the view to the bottom.
+  const lastMessage = messages[messages.length - 1];
+  const scrollKey = `${messages.length}:${(lastMessage?.displayContent ?? lastMessage?.content ?? '').length}`;
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [scrollKey]);
 
   useEffect(() => {
     const el = textareaRef.current;

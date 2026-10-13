@@ -9,8 +9,10 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 // Flattens inline **bold** markers to plain text — jsPDF's plain text() calls
 // don't support mixed bold/normal runs within a single line, so the PDF
 // export trades that emphasis for simplicity (the on-screen modal keeps it).
+// Links keep only their label (e.g. Section 4's linked titles and File
+// cells, whose app-relative download links mean nothing on paper).
 function flatten(text: string): string {
-  return splitInlineBold(text)
+  return splitInlineBold(text.replace(/\[([^\]]+)\]\([^)\s]*\)/g, '$1'))
     .map((run) => run.text)
     .join('');
 }

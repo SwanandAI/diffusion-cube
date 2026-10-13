@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/roles'
-import { isAssetId } from '@/lib/toolkit-assets'
+import { assetPreviewType, isAssetId } from '@/lib/toolkit-assets'
 import { loadToolkitAsset, openAssetFileStream } from '@/lib/toolkit-assets-server'
 
 function notFound() {
@@ -10,9 +10,9 @@ function notFound() {
 
 // Content-Disposition that survives non-ASCII file names: an ASCII fallback
 // plus the RFC 5987 UTF-8 form.
-function attachmentHeader(fileName: string): string {
+function dispositionHeader(type: 'attachment' | 'inline', fileName: string): string {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
 }
 
 // Public (listed in proxy.ts PUBLIC_PATHS): a published toolkit asset is
@@ -23,7 +23,12 @@ function attachmentHeader(fileName: string): string {
 // to the browser. An unpublished asset is only served to its uploader
 // (preview) or an admin (review); everyone else gets the same 404 as a
 // nonexistent id. A link asset redirects to its own (public) https URL.
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+//
+// ?preview=1 (a Section 4 title's link) shows a PDF, an image or a text file
+// in the browser instead of saving it: text is always sent as text/plain and
+// sandboxed, so an uploaded file can never run as a page. Any other type
+// (Office files) downloads as usual.
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   if (!isAssetId(id)) return notFound()
 
@@ -47,12 +52,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const file = asset.storage_path ? await openAssetFileStream(asset.storage_path) : null
   if (!file) return NextResponse.json({ error: 'This file is no longer available.' }, { status: 404 })
 
+  const fileName = asset.file_name ?? 'toolkit-asset'
+  const previewType = req.nextUrl.searchParams.get('preview') === '1' ? assetPreviewType(fileName) : null
   const headers = new Headers({
-    'Content-Type': asset.mime_type ?? 'application/octet-stream',
-    'Content-Disposition': attachmentHeader(asset.file_name ?? 'toolkit-asset'),
+    'Content-Type': previewType ?? asset.mime_type ?? 'application/octet-stream',
+    'Content-Disposition': dispositionHeader(previewType ? 'inline' : 'attachment', fileName),
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
   })
+  // Not for PDFs: a sandboxed document can't load the browser's PDF viewer.
+  if (previewType && previewType !== 'application/pdf') headers.set('Content-Security-Policy', 'sandbox')
   if (file.size) headers.set('Content-Length', file.size)
   return new NextResponse(file.body, { status: 200, headers })
 }

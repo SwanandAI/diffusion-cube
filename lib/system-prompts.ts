@@ -517,6 +517,25 @@ You track the deployment on a 4×4 grid: four dimensions (persona, solution, ins
 ${gridUpdateContract(5, { pathwayAction: true, toolkitAssetCandidates: true, toolkitAssetMentions: true })}`;
 }
 
+// One short call (mode `asset-reuse`): an asset the contributor added on
+// the asset card comes with their answer to "How did this help you?"; this
+// turns it into the asset's purpose and its Section 4 reuse condition (see
+// confirmAssetCard in lib/adoption-conversation.ts).
+export function assetReuseSystemPrompt(): string {
+  return `A contributor has just shared a reusable asset (a file or a link) with their AI deployment pathway on 100 Pathways. The message gives the asset's title, its file name or link domain, what is known about the deployment, and the contributor's own words on how the asset helped them.
+
+Write two fields from it:
+- "purpose": one sentence — what the asset is and what it was used for.
+- "reuseCondition": one sentence for the "Reuse condition" column of the pathway's Section 4 (Toolkits and playbooks): who else could reuse it, in what situation, and what they would have to adapt first. For example: "Directly reusable by any ULB with multi-system complaint intake where the same field is stored differently across systems; category names should be localised."
+
+Rules:
+- Use only what the contributor wrote and the title. Never invent numbers, names, places, results or adaptations they didn't mention.
+- Plain, simple English. No markdown.
+
+Respond with ONLY this JSON object, nothing before or after it:
+{"purpose": "...", "reuseCondition": "..."}`;
+}
+
 // Silent, one-shot extraction pass (mode `extract-insights`): reads one
 // uploaded document — on its own, before any conversation has happened — and
 // returns only a <grid_update> block. Seeds the workspace grid the moment a

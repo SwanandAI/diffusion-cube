@@ -45,6 +45,27 @@ export function assetExtension(fileName: string): string | null {
   return ext && ext !== fileName.toLowerCase() && ext in ASSET_MIME_BY_EXTENSION ? ext : null;
 }
 
+// Types a browser shows by itself: what a Section 4 title opens as a preview
+// in a new tab (?preview=1 on the download route). Text files are always
+// served as plain text there, never rendered as a page. Office files have no
+// preview, so their title just downloads.
+const PREVIEW_TYPE_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/plain; charset=utf-8',
+  csv: 'text/plain; charset=utf-8',
+};
+
+export function assetPreviewType(fileName: string): string | null {
+  const ext = assetExtension(fileName);
+  return ext ? (PREVIEW_TYPE_BY_EXTENSION[ext] ?? null) : null;
+}
+
 export function isAllowedAssetFile(fileName: string, size: number): boolean {
   return assetExtension(fileName) !== null && size > 0 && size <= MAX_ASSET_BYTES;
 }
@@ -227,6 +248,12 @@ export interface AssetShareItem {
   name: string;
   fromSection4: boolean;
   reuseCondition?: string;
+  // An asset the contributor added (not from Section 4): their answer to
+  // "How did this help you?", asked on the card. On Confirm it is turned into
+  // `purpose` and `reuseCondition` (mode `asset-reuse`), which fill the
+  // asset's own Section 4 row.
+  howItHelped?: string;
+  purpose?: string;
   // A file uploaded earlier in this conversation that looks like this asset
   // — offered as "Use the file you already uploaded".
   suggestedFile?: string;
@@ -258,7 +285,8 @@ export function assetShareContent(card: AssetShareState): string {
       : item.staged
         ? `chosen (${sourceLabel(item.staged)}), not confirmed yet`
         : 'nothing shared';
-    return `- **${oneLine(item.name)}**: ${state}`;
+    const help = item.howItHelped ? ` How it helped them: ${oneLine(item.howItHelped)}` : '';
+    return `- **${oneLine(item.name)}**: ${state}.${help}`;
   });
   const head = card.noneInSection4
     ? 'Asked the contributor whether they have any reusable assets to share (Section 4 listed none).'
@@ -362,14 +390,23 @@ export function assetHref(asset: { id: string; kind: 'file' | 'link'; linkUrl?: 
   return asset.kind === 'link' && asset.linkUrl ? asset.linkUrl : `/api/toolkit-assets/${asset.id}/download`;
 }
 
+// Where a shared asset's Section 4 title links to: a preview for a file the
+// browser can show, else the same place as its File cell.
+export function assetTitleHref(asset: { id: string; kind: 'file' | 'link'; linkUrl?: string | null; fileName?: string | null }): string {
+  const href = assetHref(asset);
+  return asset.kind === 'file' && asset.fileName && assetPreviewType(asset.fileName) ? `${href}?preview=1` : href;
+}
+
 // Links each shared asset from its Section 4 row; an asset no row names
 // gets a row of its own.
 export function applyToolkitAssetFiles(markdown: string, assets: ToolkitAssetBlockEntry[]): string {
   const links: Section4Link[] = assets.map((a) => ({
     name: oneLine(a.name),
     href: assetHref(a),
+    titleHref: assetTitleHref(a),
     assetId: a.id,
     reuseCondition: oneLine(a.reuseCondition),
+    label: a.kind === 'file' ? displayAssetFileName(a.fileName ?? '') || a.name : (a.linkDomain ?? linkDomain(a.linkUrl ?? '') ?? ''),
   }));
   return linkSection4Assets(removeLegacyBlock(markdown), links);
 }

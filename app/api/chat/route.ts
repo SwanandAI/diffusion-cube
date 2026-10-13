@@ -12,6 +12,7 @@ import {
   pathwaySubmissionExecutiveSummarySystemPrompt,
   libraryPathwaySystemPrompt,
   libraryOverviewSystemPrompt,
+  assetReuseSystemPrompt,
   LIBRARY_KICKOFF_PROMPT,
 } from '@/lib/system-prompts';
 import { logConversation } from '@/lib/logger';
@@ -33,6 +34,7 @@ const MODES = [
   'pathway-draft',
   'pathway-exec-summary',
   'library',
+  'asset-reuse',
 ] as const;
 
 function lastUserMessageText(messages: { role: string; content: unknown }[]): string {
@@ -77,6 +79,23 @@ export async function POST(req: Request) {
     if (flow === 'explorer' && !(await hasRole(supabase, 'adopter'))) {
       return Response.json({ error: 'The Explorer flow requires the Adopter role.' }, { status: 403 });
     }
+  }
+
+  // One short, non-streamed call for the contributor's asset card: their
+  // "How did this help you?" → the asset's purpose and Section 4 reuse
+  // condition, as JSON (see assetReuseSystemPrompt).
+  if (mode === 'asset-reuse') {
+    if (!(await hasRole(supabase, 'pathway_contributor'))) {
+      return Response.json({ error: 'Sharing assets requires the Contributor role.' }, { status: 403 });
+    }
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 400,
+      system: assetReuseSystemPrompt(),
+      messages,
+    });
+    const text = response.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+    return new Response(text, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   }
 
   let systemPrompt: string;

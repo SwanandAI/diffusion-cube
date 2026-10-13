@@ -11,6 +11,7 @@ export interface AssetShareActions {
   takeSuggested: (cardId: string, itemKey: string) => Result;
   unstage: (cardId: string, itemKey: string) => void;
   rename: (cardId: string, itemKey: string, name: string) => void;
+  describe: (cardId: string, itemKey: string, text: string) => void;
   remove: (cardId: string, itemKey: string) => Promise<Result>;
   confirm: (cardId: string) => Promise<Result>;
   reopen: (cardId: string) => void;
@@ -20,8 +21,10 @@ export interface AssetShareActions {
 // lib/toolkit-assets.ts): each reusable asset Section 4 lists, with an
 // upload or a link for it — or, when Section 4 lists none, "do you have
 // any?" — then Confirm. A file goes straight onto its row; nothing is shared
-// until Confirm, which the note above the button makes the consent. The
-// actions live in useAdoptionConversation; this card renders the state.
+// until Confirm, which the note above the button makes the consent. An asset
+// the contributor adds asks for its title and "How did this help you?",
+// which becomes its reuse condition in Section 4. The actions live in
+// useAdoptionConversation; this card renders the state.
 export default function AssetShareCard({
   card,
   fileAvailable,
@@ -67,6 +70,7 @@ export default function AssetShareCard({
               onUseSuggested={() => actions.takeSuggested(card.id, item.key)}
               onUnstage={() => actions.unstage(card.id, item.key)}
               onRename={(name) => actions.rename(card.id, item.key, name)}
+              onDescribe={(text) => actions.describe(card.id, item.key, text)}
               onRemove={() => actions.remove(card.id, item.key)}
             />
           ))}
@@ -133,6 +137,7 @@ function AssetRow({
   onUseSuggested,
   onUnstage,
   onRename,
+  onDescribe,
   onRemove,
 }: {
   item: AssetShareItem;
@@ -143,6 +148,7 @@ function AssetRow({
   onUseSuggested: () => Result;
   onUnstage: () => void;
   onRename: (name: string) => void;
+  onDescribe: (text: string) => void;
   onRemove: () => Promise<Result>;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -170,13 +176,16 @@ function AssetRow({
         <span aria-hidden className="text-base">{icon(item.shared?.source ?? staged)}</span>
         <div className="min-w-0 flex-1">
           {renamable ? (
-            <input
-              type="text"
-              value={item.name}
-              onChange={(e) => onRename(e.target.value)}
-              aria-label="Asset name"
-              className="w-full rounded border border-navy/15 bg-white px-2 py-1 text-sm font-medium text-navy"
-            />
+            <label className="block">
+              <span className="text-[11px] font-medium text-ink-soft">Title</span>
+              <input
+                type="text"
+                value={item.name}
+                onChange={(e) => onRename(e.target.value)}
+                placeholder="What is this asset called?"
+                className="mt-0.5 w-full rounded border border-navy/15 bg-white px-2 py-1 text-sm font-medium text-navy"
+              />
+            </label>
           ) : (
             <p className="text-sm font-medium text-navy">{item.name}</p>
           )}
@@ -187,6 +196,24 @@ function AssetRow({
           ) : !open ? (
             <p className="text-xs text-ink-soft">Not shared</p>
           ) : null}
+          {renamable && (
+            <label className="mt-2 block">
+              <span className="text-[11px] font-medium text-ink-soft">How did this help you?</span>
+              <textarea
+                value={item.howItHelped ?? ''}
+                onChange={(e) => onDescribe(e.target.value)}
+                rows={2}
+                placeholder="e.g. We used it to train ward officers to send misrouted complaints back in one step."
+                className="mt-0.5 w-full resize-y rounded border border-navy/15 bg-white px-2 py-1 text-xs text-ink"
+              />
+              <span className="text-[11px] text-ink-soft">
+                We use this to write its reuse condition in Section 4 of your pathway.
+              </span>
+            </label>
+          )}
+          {!item.fromSection4 && item.shared && item.reuseCondition && (
+            <p className="mt-1 text-xs text-ink-soft">Reuse condition: {item.reuseCondition}</p>
+          )}
         </div>
         {item.shared && (
           <span className="flex-shrink-0 rounded-full bg-paper-dim px-2 py-0.5 text-[11px] text-ink-soft">

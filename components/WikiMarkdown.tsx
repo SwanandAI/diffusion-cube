@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
+import { FILE_COLUMN } from '@/lib/pathway-section4';
 
 // Renders a pathway document's markdown for on-demand browsing. A different,
 // richer subset than lib/adoption-plan-markdown.ts's parser (which has no
@@ -11,7 +12,12 @@ import { Fragment, type ReactNode } from 'react';
 // shared toolkit asset's link in Section 4 (written by the app, see
 // lib/pathway-section4.ts): the app's own download route, or an https link.
 const BOLD_OR_LINK = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g;
-const ASSET_HREF = /^(\/api\/toolkit-assets\/asset-[0-9a-f-]{36}\/download|https:\/\/\S+)$/;
+const ASSET_HREF = /^(\/api\/toolkit-assets\/asset-[0-9a-f-]{36}\/download(\?preview=1)?|https:\/\/\S+)$/;
+// A title's preview link (assetTitleHref in lib/toolkit-assets.ts) opens in a
+// new tab, like an external link.
+function opensInNewTab(href: string): boolean {
+  return /^https?:\/\//.test(href) || href.endsWith('?preview=1');
+}
 
 function renderInline(text: string, links = false): ReactNode {
   return text.split(BOLD_OR_LINK).map((part, i) => {
@@ -25,12 +31,11 @@ function renderInline(text: string, links = false): ReactNode {
     const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
     if (link && (links || ASSET_HREF.test(link[2]))) {
       const [, label, href] = link;
-      const external = /^https?:\/\//.test(href);
       return (
         <a
           key={i}
           href={href}
-          {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          {...(opensInNewTab(href) ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
           className="font-medium text-navy underline decoration-navy/30 underline-offset-2 transition hover:text-coral"
         >
           {label}
@@ -39,6 +44,36 @@ function renderInline(text: string, links = false): ReactNode {
     }
     return <Fragment key={i}>{part}</Fragment>;
   });
+}
+
+// A cell of Section 4's File column (FILE_COLUMN in lib/pathway-section4.ts):
+// `[file name](href)` becomes the file name plus a Download button, both
+// downloading it — or the link's domain plus Open, for an asset shared as a
+// link.
+function renderFileCell(text: string, links: boolean): ReactNode {
+  const link = text.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+  if (!link || !ASSET_HREF.test(link[2])) return renderInline(text, links);
+  const [, label, href] = link;
+  const external = /^https?:\/\//.test(href);
+  const target = external ? { target: '_blank', rel: 'noopener noreferrer' } : {};
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <a
+        href={href}
+        {...target}
+        className="break-all underline decoration-navy/30 underline-offset-2 transition hover:text-coral"
+      >
+        {label}
+      </a>
+      <a
+        href={href}
+        {...target}
+        className="rounded-md bg-navy px-2 py-0.5 text-xs font-medium text-white no-underline transition hover:bg-coral"
+      >
+        {external ? 'Open' : 'Download'}
+      </a>
+    </span>
+  );
 }
 
 function isTableSeparator(line: string): boolean {
@@ -73,6 +108,7 @@ export default function WikiMarkdown({ markdown, links = false }: { markdown: st
 
     if (trimmed.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
       const headerCells = splitRow(trimmed);
+      const fileCol = headerCells.findIndex((h) => h.toLowerCase() === FILE_COLUMN.toLowerCase());
       i += 2;
       const rows: string[][] = [];
       while (i < lines.length && lines[i].trim().includes('|')) {
@@ -96,7 +132,7 @@ export default function WikiMarkdown({ markdown, links = false }: { markdown: st
                 <tr key={ri} className="border-b border-navy/5 align-top">
                   {r.map((c, ci) => (
                     <td key={ci} className="px-2 py-1.5 text-ink-soft">
-                      {renderInline(c, links)}
+                      {ci === fileCol ? renderFileCell(c, links) : renderInline(c, links)}
                     </td>
                   ))}
                 </tr>
