@@ -1,6 +1,6 @@
 # Spec: Toolkit Asset Files
 
-Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-12 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
+Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-13 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
 
 Planning artifacts (requirement, clarifications, approved plan, task list with acceptance criteria and test plans): [`docs/tasks/toolkit-asset-files/`](../docs/tasks/toolkit-asset-files/). This spec records **what is being built and what has actually been done**. The progress log (§10) is updated after every task.
 
@@ -969,3 +969,101 @@ The owner redrew the contributor flow (see `requirement.md` → Flow charts) and
 
 **Verified**
 - The only remaining difference from `upstream/main` in the generation prompt is the Section 4 rule.
+
+### 2026-10-13 · Section 4 File column with Download button; added assets ask "How did this help you?" (code complete, not live-tested; no migration)
+
+**Asked (owner, with a screenshot of the pane's Section 4):**
+1. Add a column to Section 4 with the file name and a download button. Keep the existing columns as they are (titles stay linked).
+2. When a file is added under "Any other reusable asset?", ask for its title and how it helped the contributor. That answer decides its reuse condition in Section 4.
+
+**Done**
+- **File column** (`lib/pathway-section4.ts`): when at least one asset is shared, `linkSection4Assets` adds a `File` column last (`FILE_COLUMN`).
+  - A shared file's cell is `[file name](download route)`. A link asset's cell is `[domain](its URL)`. Other rows get "—".
+  - `Section4Link.label` carries the text. It comes from `sourceLabel` in `sharedAssetLinks` and from `fileName` / `linkDomain` in `applyToolkitAssetFiles` (assemble).
+  - The column is rebuilt on every save, the same way as before. It disappears when no asset is shared.
+  - The title link and `asset-id` marker are unchanged, so publishing still reads the same markers.
+- **Rendering** (`components/WikiMarkdown.tsx`): a cell in a column headed "File" whose link is an asset link renders as the file name plus a **Download** button (**Open** for an https link). Other File-headed tables fall back to normal inline rendering.
+- **PDF** (`lib/adoption-plan-pdf.ts`): links are flattened to their label, so titles and File cells print as text instead of raw `[x](/api/…)`.
+- **Asset card** (`components/AssetShareCard.tsx`): an added asset (not from Section 4) shows a labelled **Title** input and a **How did this help you?** textarea, with the note "We use this to write its reuse condition in Section 4 of your pathway." After Confirm, it shows the written reuse condition.
+- **Confirm** (`confirmAssetCard`):
+  - Every added asset must have a title and an answer. If one is missing, the row shows an error and nothing is shared.
+  - Each answer is turned into `purpose` and `reuseCondition` by a new short, non-streamed chat mode, **`asset-reuse`** (`assetReuseSystemPrompt`, `max_tokens` 400, Contributor role required).
+  - This happens once per answer: `describeAsset` clears it when the answer changes, so a retry after a failed upload makes no second call. If the call fails, the contributor's own words are used.
+  - Both fields are registered with the asset (`contribution_units.purpose` / `reuse_condition`). The reuse condition fills the asset's own Section 4 row.
+- **History** (`assetShareContent`): the companion reads back each added asset's "How it helped them".
+
+**Verified**
+- `tsc` clean, and `npm run build` passes.
+- `eslint`: no new findings (only the existing 2 `exhaustive-deps` warnings).
+- Scratch test (`tsx`) of `linkSection4Assets`:
+  - File column added last, with file, link and "—" cells
+  - `|` and `[]` in file names made cell-safe
+  - decision row dropped
+  - unnamed asset gets a "—" row with its reuse condition
+  - re-applying is idempotent
+  - asset ids still read
+  - `section4Rows` unaffected
+  - the column disappears when every asset is removed
+
+**Open**
+- Live test (💲):
+  - add a file under "Any other reusable asset?" → Title and "How did this help you?" are asked → Confirm is blocked until both are filled
+  - Confirm → Section 4 gets a new row with a model-written reuse condition, and a File cell with a Download button that downloads the file
+  - Add link → File cell shows the domain with an Open button
+  - Download PDF shows file names, not raw links
+- An existing row matched by an added asset's title keeps the drafter's reuse condition.
+
+### 2026-10-13 · Chat no longer jumps to the bottom on card actions (UI only)
+
+**Owner's report:** clicking Confirm on the asset card scrolled the chat to the bottom by itself.
+
+**Cause:** `ChatPanel` scrolled to the bottom on every change to `messages`. The asset card keeps its state on its message, so every card update counted as a change: typing in Title or "How did this help you?", Confirm, or a row error.
+
+**Done:** `ChatPanel` now scrolls only when a message is added, or when the last message's visible text grows (streaming). The key is `messages.length` plus the length of the last message's `displayContent ?? content`. A card's `displayContent` is its fixed marker, so card edits never change the key, even when the card is the last message.
+
+**Verified:**
+- `tsc` clean
+- `eslint` clean on `ChatPanel.tsx`
+
+**Open:** live check:
+- type on the card and click Confirm → the view stays put
+- a new reply and streaming still follow to the bottom
+
+### 2026-10-13 · Section 4 title previews the file; file name downloads (code complete, not live-tested; no migration)
+
+**Asked (owner):**
+- Clicking a Section 4 title should preview the file.
+- Clicking the file name in the File column should download it.
+- Office files (Word / PowerPoint / Excel) have no preview, so their title just downloads.
+
+**Done**
+- **Route** (`app/api/toolkit-assets/[id]/download`): `?preview=1` sends PDFs, images (png, jpg, gif, webp) and text files (txt, md, csv) `inline` instead of as an attachment.
+  - Text files are always sent as `text/plain; charset=utf-8`, so an uploaded file is never rendered as a page.
+  - Images and text also get `Content-Security-Policy: sandbox`. PDFs don't, because a sandboxed document can't load the browser's PDF viewer.
+  - Any other type ignores `preview` and downloads as before. Access rules are unchanged: an unpublished asset is served only to its uploader or an admin.
+- **Title links** (`assetTitleHref` and `assetPreviewType` in `lib/toolkit-assets.ts`, `Section4Link.titleHref`):
+  - a previewable file's title links to `…/download?preview=1`
+  - an Office file's title links to the plain download
+  - a link asset's title links to its own URL
+
+  Used by both `sharedAssetLinks` (card Confirm/Remove) and `applyToolkitAssetFiles` (assemble). Older drafts pick up the preview link the next time they are saved.
+- **Rendering** (`WikiMarkdown`): `ASSET_HREF` accepts `?preview=1`, and preview links open in a new tab. In the File column, the file name is now a download link as well as the Download button.
+
+**Verified**
+- `tsc` clean.
+- `eslint` clean on the changed files.
+- `npm run build` passes.
+- Scratch test (`tsx`):
+  - `.PDF` and `.md` → preview link
+  - `.pptx` → plain download
+  - link asset → its URL
+  - assemble writes the preview title links and download File cells
+  - asset ids still read
+  - removing every asset clears the links
+
+**Open:** live check:
+- PDF title → opens in a new tab
+- .md title → shows as plain text
+- image title → shows the image
+- .docx title → downloads
+- file name and Download button → download

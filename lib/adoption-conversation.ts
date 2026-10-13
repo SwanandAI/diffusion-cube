@@ -13,7 +13,9 @@ import {
   mentionItemKey,
   resourceReviewContent,
   assetHref,
+  assetTitleHref,
   assetShareContent,
+  sourceLabel,
   type AssetShareItem,
   type AssetShareState,
   type PublishConsentState,
@@ -392,21 +394,37 @@ export function sharedAssetLinks(messages: Message[]): Section4Link[] {
     for (const item of m.assetShare?.items ?? []) {
       if (!item.shared) continue;
       const { assetId, source } = item.shared;
+      const asset = {
+        id: assetId,
+        kind: 'url' in source ? ('link' as const) : ('file' as const),
+        linkUrl: 'url' in source ? source.url : null,
+        fileName: 'fileName' in source ? source.fileName : null,
+      };
       links.push({
         name: item.name,
-        href: assetHref({ id: assetId, kind: 'url' in source ? 'link' : 'file', linkUrl: 'url' in source ? source.url : null }),
+        href: assetHref(asset),
+        titleHref: assetTitleHref(asset),
         assetId,
         reuseCondition: item.reuseCondition,
+        label: sourceLabel(source),
       });
     }
     for (const item of m.resourceReview?.items ?? []) {
       if (item.status !== 'shared' || !item.assetId || !item.candidate) continue;
       const source = item.candidate.source;
+      const asset = {
+        id: item.assetId,
+        kind: 'url' in source ? ('link' as const) : ('file' as const),
+        linkUrl: 'url' in source ? source.url : null,
+        fileName: 'fileName' in source ? source.fileName : null,
+      };
       links.push({
         name: item.name,
-        href: assetHref({ id: item.assetId, kind: 'url' in source ? 'link' : 'file', linkUrl: 'url' in source ? source.url : null }),
+        href: assetHref(asset),
+        titleHref: assetTitleHref(asset),
         assetId: item.assetId,
         reuseCondition: item.candidate.reuseCondition,
+        label: sourceLabel(source),
       });
     }
   }
@@ -1434,7 +1452,55 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   function renameAsset(cardId: string, itemKey: string, name: string) {
     const item = findAssetCard(cardId)?.items.find((i) => i.key === itemKey);
     if (!item || item.fromSection4 || item.shared) return;
-    updateAssetItem(cardId, itemKey, { name: name.replace(/\s+/g, ' ').slice(0, 150) });
+    updateAssetItem(cardId, itemKey, { name: name.replace(/\s+/g, ' ').slice(0, 150), error: undefined });
+  }
+
+  // "How did this help you?" for an asset the contributor added. A change
+  // clears the reuse condition written from the earlier answer.
+  function describeAsset(cardId: string, itemKey: string, text: string) {
+    const item = findAssetCard(cardId)?.items.find((i) => i.key === itemKey);
+    if (!item || item.fromSection4 || item.shared) return;
+    updateAssetItem(cardId, itemKey, {
+      howItHelped: text.slice(0, 1000),
+      reuseCondition: undefined,
+      purpose: undefined,
+      error: undefined,
+    });
+  }
+
+  // Purpose and Section 4 reuse condition for an added asset, written from
+  // the contributor's "How did this help you?" (mode `asset-reuse`, one short
+  // call). Falls back to their own words if the call fails.
+  async function deriveAssetReuse(item: AssetShareItem): Promise<{ purpose: string; reuseCondition: string }> {
+    const help = (item.howItHelped ?? '').replace(/\s+/g, ' ').trim();
+    const fallback = { purpose: help, reuseCondition: help };
+    const meta = conversationRef.current?.meta;
+    const content = [
+      `Asset title: ${item.name}`,
+      item.staged ? `${'fileName' in item.staged ? 'File' : 'Link'}: ${sourceLabel(item.staged)}` : '',
+      meta?.name ? `Deployment: ${meta.name}` : '',
+      [meta?.sector, meta?.geography].filter(Boolean).length ? `Sector · geography: ${[meta?.sector, meta?.geography].filter(Boolean).join(' · ')}` : '',
+      `How it helped the contributor (their words): ${help}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'asset-reuse', messages: [{ role: 'user', content }] }),
+      });
+      if (!res.ok) return fallback;
+      const json = (await res.text()).match(/\{[\s\S]*\}/)?.[0];
+      const parsed: unknown = json ? JSON.parse(json) : null;
+      const field = (key: string) => {
+        const value = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>)[key] : null;
+        return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 500) : '';
+      };
+      return { purpose: field('purpose') || help, reuseCondition: field('reuseCondition') || help };
+    } catch {
+      return fallback;
+    }
   }
 
   // Saves the latest draft again with Section 4 linked to every shared asset
@@ -1493,14 +1559,41 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     if (!card || card.status !== 'open' || confirmingRef.current.has(cardId)) return { ok: false };
     confirmingRef.current.add(cardId);
     try {
+      // An added asset needs a title and "How did this help you?" — the
+      // answer becomes its reuse condition in Section 4.
+      const added = card.items.filter((i) => i.staged && !i.fromSection4);
+      const incomplete = added.filter((i) => !i.name.trim() || !i.howItHelped?.trim());
+      if (incomplete.length > 0) {
+        for (const i of incomplete) {
+          updateAssetItem(cardId, i.key, {
+            error: !i.name.trim() ? 'Please give this asset a title.' : 'Please tell us how this helped you.',
+          });
+        }
+        return { ok: false, error: 'Please fill in the title and "How did this help you?" for each asset you added.' };
+      }
+      // Written once per answer (describeAsset clears it on a change), so a
+      // retry after a failed upload doesn't ask again.
+      const derived = new Map(
+        await Promise.all(
+          added
+            .filter((i) => !i.reuseCondition)
+            .map(async (i) => {
+              const d = await deriveAssetReuse(i);
+              updateAssetItem(cardId, i.key, d);
+              return [i.key, d] as const;
+            })
+        )
+      );
+
       let failed = 0;
       for (const item of card.items) {
         if (!item.staged) continue;
+        const d = derived.get(item.key);
         const result = await registerToolkitAsset({
           source: item.staged,
-          name: item.name,
-          purpose: '',
-          reuseCondition: item.reuseCondition ?? '',
+          name: item.name.trim(),
+          purpose: d?.purpose ?? item.purpose ?? '',
+          reuseCondition: d?.reuseCondition ?? item.reuseCondition ?? '',
           dimension: '',
           stage: '',
           sensitiveNote: '',
@@ -2279,6 +2372,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     takeSuggestedAssetFile,
     unstageAsset,
     renameAsset,
+    describeAsset,
     removeSharedAsset,
     confirmAssetCard,
     reopenAssetCard,

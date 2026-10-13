@@ -1,7 +1,9 @@
 // Section 4 ("Toolkits and playbooks") of a contributor's pathway document.
 // Its rows are the reusable assets the contributor is asked to share (the
 // asset card, see AssetShareState in lib/toolkit-assets.ts); once they share
-// one, the app — never the model — turns that row's title into a link to it.
+// one, the app — never the model — turns that row's title into a link to it
+// and fills its File cell (file name or link domain, linked the same way —
+// WikiMarkdown renders that cell with a Download / Open button).
 // Pure and browser-safe: used when a draft is saved or the card is confirmed
 // (lib/adoption-conversation) and when the document is sent for review
 // (applyToolkitAssetFiles in lib/toolkit-assets), so all of them build the
@@ -25,11 +27,20 @@ export interface Section4Link {
   name: string;
   // The app's download route for a file, or the contributor's own https link.
   href: string;
+  // Where the title links, when not `href`: the download route's preview
+  // (?preview=1) for a file the browser can show.
+  titleHref?: string;
   // The <!-- asset-id --> marker admin publish reads (see
   // assetIdsInDocument in lib/toolkit-assets.ts).
   assetId?: string;
   reuseCondition?: string;
+  // What the File column shows: the file name, or the link's domain.
+  label?: string;
 }
+
+// The File column's header — WikiMarkdown looks for it to render that
+// column's links as a file name plus a Download / Open button.
+export const FILE_COLUMN = 'File';
 
 export const NO_RESOURCES_LINE = 'No reusable resources documented.';
 
@@ -138,7 +149,7 @@ interface Columns {
   title: number;
   type: number;
   reuse: number;
-  // A File column from the 2026-10-12 layout — dropped on rebuild.
+  // The File column — rebuilt from the shared assets every time.
   file: number;
 }
 
@@ -175,13 +186,20 @@ export function section4Rows(markdown: string): Section4Row[] {
 }
 
 function linkedTitle(title: string, link: Section4Link): string {
-  return `[${cell(title)}](${link.href})${link.assetId ? ` <!-- asset-id: ${link.assetId} -->` : ''}`;
+  return `[${cell(title)}](${link.titleHref ?? link.href})${link.assetId ? ` <!-- asset-id: ${link.assetId} -->` : ''}`;
+}
+
+function fileCell(link: Section4Link | undefined): string {
+  if (!link) return APP_ROW_NUMBER;
+  const label = cell(link.label || 'Download').replace(/[[\]]/g, '');
+  return `[${label || 'Download'}](${link.href})`;
 }
 
 // Rebuilds Section 4's table: drops decision/fix rows and any File column,
 // strips every link and marker in it (only the app writes those), then links
-// the title of each row a shared asset matches. An asset no row names gets a
-// row of its own. A table left empty becomes NO_RESOURCES_LINE; a document
+// the title of each row a shared asset matches and, when any asset is
+// shared, adds a File column last ("—" on rows with nothing shared). An
+// asset no row names gets a row of its own. A table left empty becomes NO_RESOURCES_LINE; a document
 // with no Section 4 gets one (only when there's an asset to list), before
 // Section 5/6 or the Source Trace appendix.
 export function linkSection4Assets(markdown: string, links: Section4Link[]): string {
@@ -192,6 +210,7 @@ export function linkSection4Assets(markdown: string, links: Section4Link[]): str
   const header = table?.header ?? ['#', 'Title', 'Type', 'Reuse condition'];
   const col = columns(header);
   const keep = header.map((_, i) => i).filter((i) => i !== col.file);
+  const withFile = links.length > 0;
   const used = new Set<number>();
   const rows: string[][] = [];
   for (const row of table?.rows ?? []) {
@@ -200,29 +219,29 @@ export function linkSection4Assets(markdown: string, links: Section4Link[]): str
     const at = links.findIndex((l, i) => !used.has(i) && sameResourceName(l.name, title));
     if (at === -1 && col.num !== -1 && plain(row[col.num] ?? '') === APP_ROW_NUMBER) continue;
     if (at !== -1) used.add(at);
-    rows.push(
-      keep.map((i) => {
-        if (i === col.title && at !== -1) return linkedTitle(title, links[at]);
-        return (row[i] ?? '').replace(MD_LINK, '$1').replace(ASSET_ID_MARKER, '').trim();
-      })
-    );
+    const cells = keep.map((i) => {
+      if (i === col.title && at !== -1) return linkedTitle(title, links[at]);
+      return (row[i] ?? '').replace(MD_LINK, '$1').replace(ASSET_ID_MARKER, '').trim();
+    });
+    rows.push(withFile ? [...cells, fileCell(links[at])] : cells);
   }
   links.forEach((link, i) => {
     if (used.has(i)) return;
-    rows.push(
-      keep.map((c) => {
-        if (c === col.title) return linkedTitle(link.name, link);
-        if (c === col.type) return 'Toolkit Asset';
-        if (c === col.reuse) return cell(link.reuseCondition || 'Not documented in the source');
-        return APP_ROW_NUMBER;
-      })
-    );
+    const cells = keep.map((c) => {
+      if (c === col.title) return linkedTitle(link.name, link);
+      if (c === col.type) return 'Toolkit Asset';
+      if (c === col.reuse) return cell(link.reuseCondition || 'Not documented in the source');
+      return APP_ROW_NUMBER;
+    });
+    rows.push([...cells, fileCell(link)]);
   });
 
+  const headings = keep.map((i) => header[i]);
+  if (withFile) headings.push(FILE_COLUMN);
   const body =
     rows.length === 0
       ? [NO_RESOURCES_LINE]
-      : [rowLine(keep.map((i) => header[i])), rowLine(keep.map(() => '---')), ...rows.map(rowLine)];
+      : [rowLine(headings), rowLine(headings.map(() => '---')), ...rows.map(rowLine)];
 
   if (!found) {
     if (links.length === 0) return markdown;
