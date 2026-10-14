@@ -2,7 +2,7 @@
 
 **Source:** Product Charter backlog item "Store toolkit-asset files, surface them in conversation" (Functional, status *In Progress* per the charter; see `docs/wiki/diffusion-cube/business/business-overview.md` → Roadmap). Requested by Anurag Goutam, 2026-09-29; scope revised 2026-09-30.
 
-> Status: **Final scope, approved 2026-09-30. Behaviour rules added 2026-10-05** (see "How the assistant behaves" and "Flow charts"). Engineering detail and the full scenario list are in [`plan.md`](plan.md) → Appendix: Behaviour Specification; build tasks are in [`task-list.md`](task-list.md).
+> Status: **Final scope, approved 2026-09-30. Behaviour rules added 2026-10-05** (see "How the assistant behaves" and "Flow charts"). Engineering detail and the full scenario list are in [`plan_toolkit_asset_files.md`](plan_toolkit_asset_files.md) → Appendix: Behaviour Specification; build tasks are in [`task_list_toolkit_asset_files.md`](task_list_toolkit_asset_files.md).
 
 ## The problem today
 
@@ -231,7 +231,7 @@ flowchart LR
 - Withdrawing an asset once it's live.
 - A fixed on-screen list of assets. Assets appear only through the conversation.
 - Assets on the built-in curated pathways (MahaVISTAAR, Blue Dots and others) until they exist as contributor pathways, and backfilling the assets already described in existing write-ups.
-- Enhancements (a toolkit catalogue, "adapt this template for me", download counts and feedback, versioning) are listed as a future roadmap in `plan.md`.
+- Enhancements (a toolkit catalogue, "adapt this template for me", download counts and feedback, versioning) are listed as a future roadmap in `plan_toolkit_asset_files.md`.
 
 ## Trade-offs and risks, in plain terms
 

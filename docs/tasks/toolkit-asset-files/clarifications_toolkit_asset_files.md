@@ -1,6 +1,6 @@
 # Clarifications: Toolkit Asset Files
 
-Stage 2 of `brd-task-creator`. **Answered 2026-09-29.** See "Answers" at the bottom. Any gap still open is carried into `plan.md` as a labelled Assumption.
+Stage 2 of `brd-task-creator`. **Answered 2026-09-29.** See "Answers" at the bottom. Any gap still open is carried into `plan_toolkit_asset_files.md` as a labelled Assumption.
 
 ## Repo / DB findings these questions are based on (2026-09-29)
 
@@ -57,7 +57,7 @@ Stage 2 of `brd-task-creator`. **Answered 2026-09-29.** See "Answers" at the bot
 | 7 | Shown when relevant. E.g. a new analyser building something related to MahaVISTAAR sees the assets MahaVISTAAR used | Relevance-driven: the companion surfaces an approved asset when its pathway/unit matches what the adopter is working on, using the existing matching rule (same sector + same use-case, or a close problem match). |
 | 9/10 | Store in the anchor table `contribution_units`, under a dedicated toolkit-asset type | Asset records live in `contribution_units` (`section='micro-innovation'`, `unit_type='toolkit-asset'`), with new columns added by migration. `published_at` doubles as the admin approval flag (null = pending). |
 | 11 | Update the pathway `.md` and `published_pathways`, both | When an asset is approved, its reference is written into the pathway document in both places the corpus reads from: `pathways.content_cache` / the GitHub `.md`, and `published_pathways.content`. |
-| 12 | No enhancements now | Scope is only the explicit gate: contributor adds asset → AI checks it → contributor confirms toolkit + share → admin approves → adopters see it in `/analyse`. Enhancement ideas go into `plan.md` as a future roadmap only, not built. |
+| 12 | No enhancements now | Scope is only the explicit gate: contributor adds asset → AI checks it → contributor confirms toolkit + share → admin approves → adopters see it in `/analyse`. Enhancement ideas go into `plan_toolkit_asset_files.md` as a future roadmap only, not built. |
 | 14 | n/a | No catalogue page in scope, so no new page placement decision. |
 
 ## Follow-up answers (2026-09-29)
@@ -69,7 +69,7 @@ Stage 2 of `brd-task-creator`. **Answered 2026-09-29.** See "Answers" at the bot
 | O3 | Default: if the contributor answers No, **the file is not stored**. |
 | O4 | Default: **no licence field**, just the share yes/no. |
 | O5 | **No revoke/unpublish function in this version**, for admin or contributor. |
-| O6 | **Open, to be discussed.** How an asset is presented in `/analyse` chat (inline link written by the model vs asset IDs in `<grid_update>` rendered as client cards). Carried into `plan.md` as the one open decision. |
+| O6 | **Open, to be discussed.** How an asset is presented in `/analyse` chat (inline link written by the model vs asset IDs in `<grid_update>` rendered as client cards). Carried into `plan_toolkit_asset_files.md` as the one open decision. |
 | O7 | Default: record in `contribution_units`, **file in a private Supabase Storage bucket**, short-lived signed download links. |
 | O8 | Default: the `.md` / `content_cache` / `published_pathways` update happens **at admin approval**. |
 | O9 | **No hard date.** The 28-Oct-2026 Anthropic expiry is flagged as a risk only. |
