@@ -4,7 +4,7 @@
 -- (section='micro-innovation', unit_type='toolkit-asset',
 -- unit_internal_id='asset-<uuid>'); published_at stays null until the
 -- pathway whose reviewed document lists the asset is published by an admin.
--- See docs/tasks/toolkit-asset-files/plan.md.
+-- See docs/tasks/toolkit-asset-files/plan_toolkit_asset_files.md.
 --
 -- NOT purely additive: this also drops the two client write policies on
 -- contribution_units. Every write now goes through service-role route

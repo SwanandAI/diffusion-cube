@@ -491,7 +491,7 @@ export function renderToolkitAssetsForPrompt(assets: ToolkitAssetPromptEntry[]):
 // in /explore the one pathway the conversation is about. `howToAttach` names
 // the contract field that carries the ids (the model never writes a link
 // itself). The match rules and the explicit-ask rules are the behaviour in
-// docs/tasks/toolkit-asset-files/requirement.md.
+// docs/tasks/toolkit-asset-files/requirement_toolkit_asset_files.md.
 export function toolkitAssetTimingRules(whereRelevant: string, howToAttach: string): string {
   return `Toolkit asset files are real files and links that a pathway's contributors have shared publicly for reuse — templates, checklists, cost models, test sets, glossaries, tools. Offer them only inside the conversation, and only at the right moment:
 - Not in your first reply of the conversation — unless the user's own message explicitly asks for tools, templates, resources, files, or downloads.
