@@ -55,19 +55,107 @@ Restate requirement in 2-4 sentences before anything else, so misunderstanding s
 immediately rather than after full planning pass.
 
 **Write restated requirement so Product Manager can understand it without engineering
-context.** This is summary that ends up in `requirement.md` — it has to stand on its own for
+context.** This is summary that ends up in `requirement_<feature_name>.md` (see **Output** for
+the naming rule) — it has to stand on its own for
 someone who wasn't in technical conversation. That means:
 - Plain language: describe what changes for user/business, not which files or functions
   change.
 - Translate mechanism into outcome: retry cap, config toggle, new background job — each of
   these exists to produce user- or business-visible effect. State effect; mechanism belongs
-  in `plan.md`, not here.
+  in `plan_<feature_name>.md`, not here.
 - Define unavoidable technical terms inline, briefly, first time they appear.
 - If requirement involves genuine tradeoff or cost (added latency, added cost, feature
   intentionally deferred), say so in same plain terms.
 
 If requirement is missing clear **goal** or **actor** (who wants this, and why), don't guess —
 fold that into Stage 2's clarification list rather than blocking here.
+
+**Include a `## Flow charts` section in the requirement file.** A PM should be able to see the
+journey, not only read about it. Model it on the "Flow charts" section of
+`docs/tasks/toolkit-asset-files/requirement_toolkit_asset_files.md`, which is the reference for
+structure and style:
+
+- **Where it goes:** after "What we are building" (and after "How the assistant behaves" when the
+  requirement has one), before "Who it's for". The words come first and the pictures second.
+- **One `###` sub-section per actor side**, e.g. `### Contributor side` and `### Adopter side`.
+  Add the journey's main steps to the heading in brackets, e.g. `### Contributor side (Login →
+  Material → Stage → Draft → Asset card → Consent → Review → Publish)`.
+- **A dated "Updated YYYY-MM-DD:" line** under a heading whenever the chart is revised, saying in
+  one or two sentences what changed and why (e.g. "the stage is asked at most once, and only when
+  the documents don't state it").
+- **A detailed `flowchart TD` for each side**, covering the whole journey: entry point, every
+  yes/no gate, the loops (e.g. "Draft revised" back to "change anything?"), and every way the
+  journey can end (published, kept private, deleted, "not enough material yet"). Don't trim a
+  side's chart to make it small. It should be complete enough that a PM can check every branch.
+- **A plain-language explanation under any chart whose decisions need it**, as a `####`
+  sub-section (e.g. `#### How a match is decided`): when each check happens, what each step
+  tests, and a Result / When / What happens table for the outcomes. It should agree with the chart
+  exactly.
+- **A closing `### End-to-end lifecycle` chart:** a short `flowchart LR` of about 6 boxes showing
+  the item's whole life across every actor (e.g. contributor shares → consents → stored privately
+  → sent for review → admin approves → adopters download).
+
+Mermaid conventions (all three charts in the reference use them):
+
+- Shapes: `(["…"])` (rounded) for where the journey starts and ends, `{"…"}` for decisions,
+  `["…"]` for steps.
+- Put every label in double quotes, use `<br/>` for line breaks, and label every decision branch
+  with `-->|"Yes"|` / `-->|"No"|`, or the actual choice (`|"+ New Contribution"|`, `|"Send for
+  review"|`).
+- Labels say what the person does or sees, or what Cube (the assistant) does, in user-facing words.
+  A page path the user sees is fine (`(/contribute)`, `(/analyse)`); file names, API routes, tables
+  and library names are not. Those belong in the plan.
+- Colour nodes by role with this `classDef` palette and assign each node with `class`:
+
+  ```
+  classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+  classDef decision fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+  classDef consent fill:#F3E8FD,stroke:#8E44AD,color:#3B1A4F
+  classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+  classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+  classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
+  ```
+
+  `start` for entry points, `decision` for gates, `consent` for a gate where the user agrees to
+  share or publish, `step` for ordinary steps, `done` for the successful ending, `stop` for endings
+  where the journey halts (kept private, deleted, not enough material).
+
+A trimmed example of the shape (the reference charts are much fuller). Write each chart as a
+fenced `mermaid` code block exactly like this one; GitHub draws it as a diagram, and this example
+renders the same way when this file is viewed on GitHub:
+
+```mermaid
+flowchart TD
+    S(["Contributor logs in<br/>(/contribute)"]) --> E["Contributor shares documents"]
+    E --> P{"Enough to build a pathway?"}
+    P -->|"No"| X1(["Cube says so; progress saved"])
+    P -->|"Yes"| D["First draft generated"]
+    D --> AR{"May it be published<br/>to help future adopters?"}
+    AR -->|"No, keep private"| KP(["Stays a private draft"])
+    AR -->|"Yes"| AV{"Admin decision"}
+    AV -->|"Changes needed"| D
+    AV -->|"Publish"| PUB(["Pathway goes live"])
+
+    classDef start fill:#E8F0FE,stroke:#3B6FD8,color:#1A2B4C
+    classDef decision fill:#FFF4E0,stroke:#D99A2B,color:#3D2A00
+    classDef consent fill:#F3E8FD,stroke:#8E44AD,color:#3B1A4F
+    classDef step fill:#FFFFFF,stroke:#9AA0A6,color:#202124
+    classDef done fill:#E6F4EA,stroke:#2E8B57,color:#123D22
+    classDef stop fill:#F1F3F4,stroke:#BDC1C6,color:#5F6368
+
+    class S start
+    class P,AV decision
+    class AR consent
+    class E,D step
+    class PUB done
+    class X1,KP stop
+```
+
+In Stage 3, when `requirement_<feature_name>.md` is revised to the final scope, update the charts
+and their explanations too, and add an "Updated" line. A gate dropped or added during
+clarification has to show in the picture as well as the prose. `plan_<feature_name>.md` should
+point to the charts (e.g. "The flowcharts … are in `requirement_<feature_name>.md` → 'Flow
+charts'") rather than copy them.
 
 ---
 
@@ -393,12 +481,12 @@ Present this plan to user and **explicitly ask for review**: approve as-is, or r
 Don't proceed to Stage 4 on implicit approval (e.g. user just saying "ok" to something else) —
 get clear go-ahead on plan specifically. Revise and re-present if changes are requested.
 
-**Once plan is approved, revisit `requirement.md` before moving to Stage 4.** Scope decisions
-made during Stage 2/3 routinely change shape of what's actually being built relative to how it
-was first framed in Stage 0. Update `requirement.md`'s plain-language summary (same PM-readable
-bar as Stage 0) to reflect *final* scope: fold in plan's `Summary` and `Scope` sections,
-translated out of engineering terms, so PM reading `requirement.md` alone gets real, final
-picture.
+**Once plan is approved, revisit `requirement_<feature_name>.md` before moving to Stage 4.**
+Scope decisions made during Stage 2/3 routinely change shape of what's actually being built
+relative to how it was first framed in Stage 0. Update its plain-language summary (same
+PM-readable bar as Stage 0) to reflect *final* scope: fold in plan's `Summary` and `Scope`
+sections, translated out of engineering terms, and redraw its flowcharts to match, so PM reading
+`requirement_<feature_name>.md` alone gets real, final picture.
 
 ---
 
@@ -497,20 +585,39 @@ Write the artifacts under:
 
 ```
 docs/tasks/<feature-slug>/
-├── requirement.md      # Stage 0: PM-readable restated requirement + source;
-│                        #          revised after Stage 3 approval to fold in the plan's
-│                        #          final scope, still in plain language
-├── clarifications.md   # Stage 2: questions asked + answers/waivers
-├── plan.md              # Stage 3: the reviewed/approved plan (engineering-facing detail)
-└── task-list.md          # Stage 4: user stories, AC, test plans
+├── requirement_<feature_name>.md     # Stage 0: PM-readable restated requirement + source +
+│                                     #          flowcharts; revised after Stage 3 approval to
+│                                     #          fold in the plan's final scope, still in plain
+│                                     #          language
+├── clarifications_<feature_name>.md  # Stage 2: questions asked + answers/waivers
+├── plan_<feature_name>.md            # Stage 3: the reviewed/approved plan (engineering-facing detail)
+└── task_list_<feature_name>.md       # Stage 4: user stories, AC, test plans
 ```
 
-Use short kebab-case `<feature-slug>` derived from requirement title. If `docs/tasks/` doesn't
-exist yet, create it — this sits alongside `docs/wiki/diffusion-cube/` (the `llm-wiki` skill's
-own output directory under `docs/`), so `docs/tasks/` is consistent with this repo's existing
-`docs/`-rooted convention for generated artifacts.
+Use short kebab-case `<feature-slug>` derived from requirement title for the folder, and the same
+words in snake_case for `<feature_name>` in each file name. Example for the feature "toolkit asset
+files":
 
-Don't write `plan.md` or `task-list.md` until their respective stage has been approved.
+```
+docs/tasks/toolkit-asset-files/
+├── requirement_toolkit_asset_files.md
+├── clarifications_toolkit_asset_files.md
+├── plan_toolkit_asset_files.md
+└── task_list_toolkit_asset_files.md
+```
+
+The feature name is in every file name so that a file still says which feature it belongs to
+when it is opened in an editor tab, attached to a chat, or shared outside its folder. Cross-links
+between the four files (e.g. requirement → plan → task list) must use these full names.
+
+If `docs/tasks/` doesn't exist yet, create it — this sits alongside `docs/wiki/diffusion-cube/`
+(the `llm-wiki` skill's own output directory under `docs/`), so `docs/tasks/` is consistent with
+this repo's existing `docs/`-rooted convention for generated artifacts. If you come across a folder
+under `docs/tasks/` that still uses the old names (`requirement.md`, `plan.md`, etc.), rename its
+files to this pattern and update the links between them.
+
+Don't write `plan_<feature_name>.md` or `task_list_<feature_name>.md` until their respective
+stage has been approved.
 
 **This is a complement to existing product tracking, not a duplicate of it.** This repo's own
 product-requirements tracking lives inside the Product Charter document itself
@@ -521,8 +628,8 @@ tracker. There is no Jira/Linear-style backlog system in this repo to reconcile 
 assume one exists. The `docs/tasks/<feature-slug>/` output this skill produces is an
 implementation-ready engineering breakdown that sits alongside that charter-based tracking, not a
 replacement or a duplicate entry in some other backlog; if a requirement traces back to an item in
-the charter's Requirements tab (per the Stage 1 roadmap check above), say so in `requirement.md`
-so the two stay linked conceptually, without trying to mirror the charter's own tab structure.
+the charter's Requirements tab (per the Stage 1 roadmap check above), say so in
+`requirement_<feature_name>.md` so the two stay linked conceptually, without trying to mirror the charter's own tab structure.
 
 ---
 

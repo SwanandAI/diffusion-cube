@@ -109,7 +109,7 @@ function speakingRules(): string {
 // published" line lib/wiki-loader.ts puts next to each pathway's "Contributed
 // by", or a unit's own as-of date — never the Source Trace, which
 // groundingRules keeps contributor-only. Behaviour spec:
-// docs/tasks/toolkit-asset-files/plan.md, appendix B9.
+// docs/tasks/toolkit-asset-files/plan_toolkit_asset_files.md, appendix B9.
 function evidenceHandlingRules(): string {
   const today = new Date().toISOString().slice(0, 10);
   return `# Handling the evidence

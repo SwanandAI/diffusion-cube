@@ -1,6 +1,6 @@
 # Task List: Toolkit Asset Files
 
-Stage 4 of `brd-task-creator`, derived from the approved [`plan.md`](plan.md) (2026-09-30). This supersedes the 2026-09-29 S3 / per-asset-approval task list.
+Stage 4 of `brd-task-creator`, derived from the approved [`plan_toolkit_asset_files.md`](plan_toolkit_asset_files.md) (2026-09-30). This supersedes the 2026-09-29 S3 / per-asset-approval task list.
 
 > **Testing note.** This repo has **no automated test suite** (no test runner, no CI test job). Every case below is a **manual verification step**: a concrete action and an observable result in the running app, in Supabase (tables or Storage), or on GitHub. Cases marked 💲 call the real Anthropic API, write to real Storage, or commit to GitHub. Run them on a dev Supabase project and a scratch `GITHUB_BRANCH`.
 

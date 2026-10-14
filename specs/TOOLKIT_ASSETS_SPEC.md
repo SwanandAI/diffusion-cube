@@ -489,9 +489,9 @@ Owner asked to take the recommended defaults (D1–D7, now in `plan.md` appendix
 
 ### 2026-10-05 · Behaviour spec merged into plan.md and requirement.md
 - At the owner's request, `behaviour-scenarios.md` was folded into the planning documents and deleted:
-  - [`plan.md`](../docs/tasks/toolkit-asset-files/plan.md) gains "Appendix: Behaviour Specification": the full C-xx / A-xx catalogue with statuses, the four flow charts, the changes built, decisions D1–D7 and the live-test list. Its sections are renumbered B1–B10.
+  - [`plan_toolkit_asset_files.md`](../docs/tasks/toolkit-asset-files/plan_toolkit_asset_files.md) gains "Appendix: Behaviour Specification": the full C-xx / A-xx catalogue with statuses, the four flow charts, the changes built, decisions D1–D7 and the live-test list. Its sections are renumbered B1–B10.
   - The main body of `plan.md` is updated to match: status line, summary, scope, assumptions A5 and A8–A10, affected areas, `publishedAt` on `GET ?ids=`, risks 9–10, sequencing S9–S11.
-  - [`requirement.md`](../docs/tasks/toolkit-asset-files/requirement.md) gains "How the assistant behaves": the same rules in plain language (what counts as an asset, asking contributors, adopter fit levels, evidence handling, dates), plus a risk line that these rules are AI instructions needing live tests.
+  - [`requirement_toolkit_asset_files.md`](../docs/tasks/toolkit-asset-files/requirement_toolkit_asset_files.md) gains "How the assistant behaves": the same rules in plain language (what counts as an asset, asking contributors, adopter fit levels, evidence handling, dates), plus a risk line that these rules are AI instructions needing live tests.
 - Code comments in `lib/toolkit-assets.ts` and `lib/system-prompts.ts` now point to `plan.md` B7 / B9.
 
 ### 2026-10-08 · Code checked against the requirement.md flow charts; 2 gaps fixed, targeted ask rebuilt (code complete, not live-tested)

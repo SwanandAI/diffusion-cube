@@ -1,6 +1,6 @@
 # Plan: Store Toolkit Asset Files and Surface Them in `/analyse` and `/explore`
 
-> Status: **Approved 2026-09-30** (Stage 3 of `brd-task-creator`), with N1–N3 answered. This supersedes both earlier versions. **Extended 2026-10-05** with the behaviour specification (appendix): the contributor ask for assets, adopter match levels, evidence handling and dates, built with decisions D1–D7 (B10.5). Decision history is in [`clarifications.md`](clarifications.md); build tasks are in [`task-list.md`](task-list.md).
+> Status: **Approved 2026-09-30** (Stage 3 of `brd-task-creator`), with N1–N3 answered. This supersedes both earlier versions. **Extended 2026-10-05** with the behaviour specification (appendix): the contributor ask for assets, adopter match levels, evidence handling and dates, built with decisions D1–D7 (B10.5). Decision history is in [`clarifications_toolkit_asset_files.md`](clarifications_toolkit_asset_files.md); build tasks are in [`task_list_toolkit_asset_files.md`](task_list_toolkit_asset_files.md).
 
 ## Summary
 
@@ -236,7 +236,7 @@ Changed: `POST /api/pathways/assemble`, `POST /api/admin/pathways/publish`, `POS
 
 ## Appendix: Behaviour Specification (added 2026-10-05)
 
-The complete scenario-by-scenario behaviour of toolkit assets in both flows, plus how the adopter companion handles scattered, missing, conflicting and stale evidence (B9). The plain-language rules are in [`requirement.md`](requirement.md) → "How the assistant behaves"; the build log is in [`../../../specs/TOOLKIT_ASSETS_SPEC.md`](../../../specs/TOOLKIT_ASSETS_SPEC.md).
+The complete scenario-by-scenario behaviour of toolkit assets in both flows, plus how the adopter companion handles scattered, missing, conflicting and stale evidence (B9). The plain-language rules are in [`requirement_toolkit_asset_files.md`](requirement_toolkit_asset_files.md) → "How the assistant behaves"; the build log is in [`../../../specs/TOOLKIT_ASSETS_SPEC.md`](../../../specs/TOOLKIT_ASSETS_SPEC.md).
 
 Every scenario has an ID (`C-xx` contributor, `A-xx` adopter) so QA can reference it. Each one gives the trigger, the expected behaviour, and a status:
 
@@ -260,7 +260,7 @@ Every scenario has an ID (`C-xx` contributor, `A-xx` adopter) so QA can referenc
 | **Source material** | Documents that *describe* the deployment: transcripts, reports, write-ups, notes, narrative decks | Text-extracted in the browser, then discarded | Never stored |
 | **External resource** | Curated tools and repos in `content/resources.md` | Explorer prompt only | Rendered as an inline markdown link, not a card. Unrelated to this feature |
 
-The curated corpus pathways (MahaVISTAAR, Blue Dots and the others) have **described toolkit units only, no files**. Backfilling them is out of scope ([`requirement.md`](requirement.md)).
+The curated corpus pathways (MahaVISTAAR, Blue Dots and the others) have **described toolkit units only, no files**. Backfilling them is out of scope ([`requirement_toolkit_asset_files.md`](requirement_toolkit_asset_files.md)).
 
 #### B1.2 The qualification bar
 
@@ -272,7 +272,7 @@ The test Claude applies: **could another team take this file or link as-is and u
 
 #### B1.3 Flow charts
 
-The flowcharts for contributor upload, adopter discovery/download, and the end-to-end lifecycle are in [`requirement.md`](requirement.md) → "Flow charts".
+The flowcharts for contributor upload, adopter discovery/download, and the end-to-end lifecycle are in [`requirement_toolkit_asset_files.md`](requirement_toolkit_asset_files.md) → "Flow charts".
 
 ---
 
