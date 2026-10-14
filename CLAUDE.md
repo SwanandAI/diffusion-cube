@@ -46,6 +46,7 @@ Each is already grounded in the wiki above. If the wiki changes substantially, r
 | About to open a PR, or want a diff reviewed against this repo's actual conventions | `code-reviewer` subagent (`.claude/agents/code-reviewer.md`) |
 | A change needs test cases written/run, including negative and edge cases, in a repo with no existing automated test suite | `qa-tester` subagent (`.claude/agents/qa-tester.md`) |
 | Turning a business requirement, feature ask, or one-liner into an implementation-ready task list with acceptance criteria | `brd-task-creator` skill (`.claude/skills/brd-task-creator/`) |
+| Running that workflow one step at a time, all into `docs/features/<feature-slug>/`: business questions + PM-readable requirement with flow charts → architecture plan → task list | `brd-validation` → `architecture-plan` → `task-creation` skills (`.claude/skills/<name>/`) |
 | Building a feature end-to-end (data model → route/service → business logic → UI) and want it to follow this codebase's real conventions rather than generic framework advice | `fullstack-developer` skill (`.claude/skills/fullstack-developer/`) |
 | Generating or refreshing the service wiki itself (e.g. after new raw documents land, or after a large code change) | `llm-wiki` skill (`.claude/skills/llm-wiki/`) |
 
