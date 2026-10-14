@@ -72,7 +72,7 @@ fold that into Stage 2's clarification list rather than blocking here.
 
 **Include a `## Flow charts` section in the requirement file.** A PM should be able to see the
 journey, not only read about it. Model it on the "Flow charts" section of
-`docs/tasks/toolkit-asset-files/requirement_toolkit_asset_files.md`, which is the reference for
+`docs/features/toolkit-asset-files/requirement_toolkit_asset_files.md`, which is the reference for
 structure and style:
 
 - **Where it goes:** after "What we are building" (and after "How the assistant behaves" when the
@@ -354,6 +354,17 @@ Present questions as numbered list, grouped by theme if more than ~6. End with e
 as assumptions in the plan."* If user chooses to let some go unanswered, carry them into plan as
 labeled **Assumptions** section rather than silently deciding.
 
+Record the questions and answers in **two files**, split by kind:
+- `business_clarifications_<feature_name>.md` — scope boundaries, actors, journey and decision
+  points, policy/consent, edge cases as the user sees them, non-functional needs in business
+  terms, roadmap divergence (the same file and layout the `brd-validation` skill writes).
+- `architecture_clarifications_<feature_name>.md` — permission enforcement layers, data and
+  route contracts, AI/LLM impact, invariants, frontend decisions, integration and architectural
+  impact, plus decisions made while reviewing the plan in Stage 3 (the same file and layout the
+  `architecture-plan` skill writes).
+A question that has both a business and a technical side goes in the business file, with its
+technical follow-up in the architecture file.
+
 ---
 
 ## Stage 3 — Architectural Reasoning & Implementation Plan (STOP — wait for human review)
@@ -584,12 +595,14 @@ Rules for this stage:
 Write the artifacts under:
 
 ```
-docs/tasks/<feature-slug>/
+docs/features/<feature-slug>/
 ├── requirement_<feature_name>.md     # Stage 0: PM-readable restated requirement + source +
 │                                     #          flowcharts; revised after Stage 3 approval to
 │                                     #          fold in the plan's final scope, still in plain
 │                                     #          language
-├── clarifications_<feature_name>.md  # Stage 2: questions asked + answers/waivers
+├── business_clarifications_<feature_name>.md      # Stage 2: business questions + answers/waivers
+├── architecture_clarifications_<feature_name>.md  # Stage 2/3: technical questions + answers/waivers,
+│                                                  #            plan-review decisions
 ├── plan_<feature_name>.md            # Stage 3: the reviewed/approved plan (engineering-facing detail)
 └── task_list_<feature_name>.md       # Stage 4: user stories, AC, test plans
 ```
@@ -599,22 +612,26 @@ words in snake_case for `<feature_name>` in each file name. Example for the feat
 files":
 
 ```
-docs/tasks/toolkit-asset-files/
+docs/features/toolkit-asset-files/
 ├── requirement_toolkit_asset_files.md
-├── clarifications_toolkit_asset_files.md
+├── business_clarifications_toolkit_asset_files.md
+├── architecture_clarifications_toolkit_asset_files.md
 ├── plan_toolkit_asset_files.md
 └── task_list_toolkit_asset_files.md
 ```
 
 The feature name is in every file name so that a file still says which feature it belongs to
 when it is opened in an editor tab, attached to a chat, or shared outside its folder. Cross-links
-between the four files (e.g. requirement → plan → task list) must use these full names.
+between the files (e.g. requirement → plan → task list) must use these full names.
 
-If `docs/tasks/` doesn't exist yet, create it — this sits alongside `docs/wiki/diffusion-cube/`
-(the `llm-wiki` skill's own output directory under `docs/`), so `docs/tasks/` is consistent with
+If `docs/features/` doesn't exist yet, create it — this sits alongside `docs/wiki/diffusion-cube/`
+(the `llm-wiki` skill's own output directory under `docs/`), so `docs/features/` is consistent with
 this repo's existing `docs/`-rooted convention for generated artifacts. If you come across a folder
-under `docs/tasks/` that still uses the old names (`requirement.md`, `plan.md`, etc.), rename its
-files to this pattern and update the links between them.
+under `docs/features/` that still uses the old names (`requirement.md`, `plan.md`, etc.), rename its
+files to this pattern and update the links between them. A single combined
+`clarifications_<feature_name>.md` written before the business/architecture split (e.g. the one
+in `docs/features/toolkit-asset-files/`) is a dated decision record: keep it as it is rather than
+splitting it, and write any new rounds of questions into the two new files.
 
 Don't write `plan_<feature_name>.md` or `task_list_<feature_name>.md` until their respective
 stage has been approved.
@@ -625,7 +642,7 @@ product-requirements tracking lives inside the Product Charter document itself
 prioritized backlog surfaced in `business/business-overview.md`'s Roadmap section) and a Feedback
 tab (issues/feature requests, triaged in a weekly cross-team review), not an external ticket
 tracker. There is no Jira/Linear-style backlog system in this repo to reconcile against — don't
-assume one exists. The `docs/tasks/<feature-slug>/` output this skill produces is an
+assume one exists. The `docs/features/<feature-slug>/` output this skill produces is an
 implementation-ready engineering breakdown that sits alongside that charter-based tracking, not a
 replacement or a duplicate entry in some other backlog; if a requirement traces back to an item in
 the charter's Requirements tab (per the Stage 1 roadmap check above), say so in

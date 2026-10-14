@@ -2,7 +2,7 @@
 
 Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-13 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
 
-Planning artifacts (requirement, clarifications, approved plan, task list with acceptance criteria and test plans): [`docs/tasks/toolkit-asset-files/`](../docs/tasks/toolkit-asset-files/). This spec records **what is being built and what has actually been done**. The progress log (§10) is updated after every task.
+Planning artifacts (requirement, clarifications, approved plan, task list with acceptance criteria and test plans): [`docs/features/toolkit-asset-files/`](../docs/features/toolkit-asset-files/). This spec records **what is being built and what has actually been done**. The progress log (§10) is updated after every task.
 
 ## 1. Goals
 
@@ -438,7 +438,7 @@ Test pathway: **"Test Assets Langchat"** (`test-assets-langchat`, id `f646508e�
 - `createAssetDownloadUrl` was replaced by `openAssetFileStream`. `tsc` clean; no new lint problems.
 
 ### 2026-10-05 · Behaviour scenarios documented
-- New: `docs/tasks/toolkit-asset-files/behaviour-scenarios.md` (since merged into `plan.md`, see below). Every contributor (`C-xx`) and adopter (`A-xx`) scenario, each marked implemented / partial / gap against the code at `3ded7ae`.
+- New: `docs/features/toolkit-asset-files/behaviour-scenarios.md` (since merged into `plan.md`, see below). Every contributor (`C-xx`) and adopter (`A-xx`) scenario, each marked implemented / partial / gap against the code at `3ded7ae`.
 - Gaps found (not yet built):
   - the contributor is never asked proactively whether they have reusable assets (C-21 to C-28)
   - no partial-match framing for assets in `/analyse` and `/explore`; adjacent-pathway assets undefined (A-10, A-11, A-18)
@@ -489,9 +489,9 @@ Owner asked to take the recommended defaults (D1–D7, now in `plan.md` appendix
 
 ### 2026-10-05 · Behaviour spec merged into plan.md and requirement.md
 - At the owner's request, `behaviour-scenarios.md` was folded into the planning documents and deleted:
-  - [`plan_toolkit_asset_files.md`](../docs/tasks/toolkit-asset-files/plan_toolkit_asset_files.md) gains "Appendix: Behaviour Specification": the full C-xx / A-xx catalogue with statuses, the four flow charts, the changes built, decisions D1–D7 and the live-test list. Its sections are renumbered B1–B10.
+  - [`plan_toolkit_asset_files.md`](../docs/features/toolkit-asset-files/plan_toolkit_asset_files.md) gains "Appendix: Behaviour Specification": the full C-xx / A-xx catalogue with statuses, the four flow charts, the changes built, decisions D1–D7 and the live-test list. Its sections are renumbered B1–B10.
   - The main body of `plan.md` is updated to match: status line, summary, scope, assumptions A5 and A8–A10, affected areas, `publishedAt` on `GET ?ids=`, risks 9–10, sequencing S9–S11.
-  - [`requirement_toolkit_asset_files.md`](../docs/tasks/toolkit-asset-files/requirement_toolkit_asset_files.md) gains "How the assistant behaves": the same rules in plain language (what counts as an asset, asking contributors, adopter fit levels, evidence handling, dates), plus a risk line that these rules are AI instructions needing live tests.
+  - [`requirement_toolkit_asset_files.md`](../docs/features/toolkit-asset-files/requirement_toolkit_asset_files.md) gains "How the assistant behaves": the same rules in plain language (what counts as an asset, asking contributors, adopter fit levels, evidence handling, dates), plus a risk line that these rules are AI instructions needing live tests.
 - Code comments in `lib/toolkit-assets.ts` and `lib/system-prompts.ts` now point to `plan.md` B7 / B9.
 
 ### 2026-10-08 · Code checked against the requirement.md flow charts; 2 gaps fixed, targeted ask rebuilt (code complete, not live-tested)
