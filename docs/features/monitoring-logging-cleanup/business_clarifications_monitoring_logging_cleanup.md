@@ -11,6 +11,7 @@ Requested after the first draft of the requirement:
 3. **Lower AI cost without changing Cube's answers (prompt caching):** moved to **future scope** (row "—"). This release's usage and cost data becomes the baseline for measuring the savings later.
 4. **Tracing a reported issue:** the logs must hold enough to trace a reported problem from the user's identity alone. The support team should never need to ask the user for more details. The "When a user reports a problem" flow chart was removed from the requirement.
 5. **Code review flow chart:** removed from the requirement. The code-review report and remediation plan stay in scope.
+6. **No content in logs (privacy):** logs must not include conversation or document content, meaning what users write or upload and Cube's replies (Q6). The requirement now also assumes users are identified in logs by an internal account reference rather than name or email.
 
 ## What we found
 
@@ -43,7 +44,7 @@ Requested after the first draft of the requirement:
 | 3 | Alerts | Who gets told when something breaks, and how? | **Email notifications.** |
 | 4 | Alerts | What response-time expectation applies during the pilot? | **Best effort.** |
 | 5 | Logs | Which questions must a log answer when triaging? Proposed: who (user and role), which flow (Explore / Analyse / Contribute), which conversation or pathway, what failed, how long it took, AI tokens and cost. | **All of these.** |
-| 6 | Privacy | May logs contain what users typed or uploaded, Cube's replies, and user emails? Or identifiers only? | **Content should be included in logs.** |
+| 6 | Privacy | May logs contain what users typed or uploaded, Cube's replies, and user emails? Or identifiers only? | **Content must not be included in logs, for privacy** (revised 2026-10-15; originally "content should be included"). Logs record facts about the activity, not what users write or upload or Cube's replies. |
 | 7 | Retention | How long should logs be kept? | **Configurable, default 30 days.** (Originally answered 90 days; revised to 30 on 2026-10-15.) |
 | 8 | Existing log | What happens to the existing Google Sheet conversation log? | **Keep it as it is.** |
 | 9 | AI-assisted triage | Is AI-agent-assisted incident triage in this release or on the future roadmap? | **Future roadmap.** |
@@ -60,7 +61,9 @@ Requested after the first draft of the requirement:
 ## Open items
 
 - **How fast "traceable" needs to be.** Q2 gives no number. The requirement treats it as an aim, not a measured target. The Product Manager decides whether to set one.
-- **Who may see logged content.** Logs will hold users' own words, uploaded material and emails (Q6). The requirement assumes only admins and the Solution Team can see them. The Product Manager should confirm.
+- **Who may see logs.** Logs no longer hold content (Q6), but they still record who did what and when. The requirement assumes only admins and the Solution Team can see them. The Product Manager should confirm.
+- **Diagnosing answer-quality problems.** Without content in the logs, a problem in what Cube *said* (rather than a recorded failure) can't be diagnosed from the logs alone. Should the support team be allowed to open the saved conversation in those cases? The Product Manager decides.
+- **Google Sheet log vs. the no-content decision.** The Sheet stays unchanged (Q8) but still records full conversation content with no retention limit. The Product Manager decides whether to revisit Q8.
 - **Logs of a deleted account.** Users can now delete their own account. The requirement assumes their log entries are not removed early and simply expire at the end of the retention period. The Product Manager should confirm, especially alongside the Terms & Conditions / Disclaimers work that is still in progress.
 - **Which events send an email, and to whom.** The requirement proposes a starting set (see its Assumptions). The Product Manager confirms the list and the recipients.
 
@@ -70,7 +73,7 @@ Parked here, not answered:
 
 1. Where the logs are kept and with what tool (the hosting platform's own logs, the existing database, or an external logging or error-tracking service), given the pilot is under 100 users and monitoring should stay minimal.
 2. How the retention period (default 30 days) is made configurable and enforced, and how old entries are removed.
-3. How access to logged content is restricted to admins and the Solution Team, and whether content needs masking anywhere.
+3. How access to logs is restricted to admins and the Solution Team, and how conversation and document content is reliably kept out of log entries, including error messages from the AI service or database that might echo user input.
 4. How email alerts are sent (reuse the existing email setup?), and how repeated alerts for the same problem are throttled so a burst of failures doesn't flood inboxes.
 5. How alerting detects that a dependency is unavailable: the AI service, the database, email, and the GitHub publish connection. (The health page itself is future scope.)
 6. How tokens and cost are captured for each AI call, including streamed replies and the duplicate-pathway check, and where the price per token comes from.
