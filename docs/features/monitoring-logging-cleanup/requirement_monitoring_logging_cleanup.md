@@ -19,8 +19,8 @@ Cube is about to move into a pilot with real users. Today, if something goes wro
    - **how long** it took
    - **for AI calls**: how much it used and what it cost
 
-   Entries will include the content involved (what the user wrote or uploaded, and Cube's reply), so the team sees a reported problem exactly as the user experienced it. Because usage and cost are recorded for every AI call, the team can produce daily or weekly usage and cost figures from the logs when needed.
-2. **Trace any user's session from start to finish, without going back to the user.** When a user reports a problem, knowing who they are is enough. The logs already hold what they did, when, in which area, what they sent, how Cube replied and what failed. The support team can follow that user's activity step by step to the point of failure without asking the user for more details. The aim is to identify the cause as quickly as possible.
+   **For privacy, entries will not include the content of conversations or documents.** They leave out what users write or upload and Cube's replies. Instead, they record facts about the activity: which step ran, how it ended, and any error details. Because usage and cost are recorded for every AI call, the team can produce daily or weekly usage and cost figures from the logs when needed.
+2. **Trace any user's session from start to finish, without going back to the user.** When a user reports a problem, knowing who they are is enough. The logs already hold what they did, when, in which area, which conversation or pathway was involved, how each step ended and what failed. The support team can follow that user's activity step by step to the point of failure without asking the user for more details. The aim is to identify the cause as quickly as possible.
 3. **Send email alerts when something goes wrong.** Serious problems will trigger an email to a configured list of recipients, so the team usually knows before users report anything. Examples are the AI service failing, the application being unavailable, or a run of errors. Repeated alerts for the same problem are grouped, so a burst of errors does not flood inboxes. During the pilot, the team will respond on a best-effort basis.
 4. **Keep logs for 30 days by default.** Older entries will be removed automatically. The retention period can be changed without a new release of the application.
 5. **Deliver a code-review report with a remediation plan.** A reviewed list of repeated, outdated, unused, inefficient or hard-coded parts of the code. Each item will set out its impact and a proposed plan to remove or fix it. This release delivers the report and the plan; the fixes follow in a later release, once the plan is approved.
@@ -32,7 +32,7 @@ Cube is about to move into a pilot with real users. Today, if something goes wro
 
 ```mermaid
 flowchart LR
-    A(["User works in Cube"]) --> B["Activity recorded<br/>(content, AI usage and cost)"]
+    A(["User works in Cube"]) --> B["Activity recorded<br/>(no conversation content;<br/>AI usage and cost)"]
     B --> D{"Serious error?"}
     D -->|"Yes"| E["Email alert<br/>to the team"]
     E --> F["Team diagnoses<br/>and resolves"]
@@ -54,7 +54,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    S(["An error occurs in Cube<br/>(e.g. AI service error, slow reply, publish failure)"]) --> L["Cube records the error:<br/>who, where, which conversation,<br/>what failed, how long, content"]
+    S(["An error occurs in Cube<br/>(e.g. AI service error, slow reply, publish failure)"]) --> L["Cube records the error:<br/>who, where, which conversation,<br/>what failed, how long<br/>(no conversation content)"]
     L --> SER{"Serious enough<br/>to send an alert?"}
     SER -->|"No: a one-off minor error"| QL(["Recorded in the logs;<br/>no alert"])
     SER -->|"Yes"| DUP{"Already alerted about<br/>this problem recently?"}
@@ -103,7 +103,7 @@ flowchart TD
 
 The following points were not settled during clarification and are proposed for confirmation:
 
-1. **Access to logs.** Only administrators and the support and engineering team can view log entries and their content. Pilot users cannot view logs.
+1. **Access to logs.** Only administrators and the support and engineering team can view log entries. Pilot users cannot view logs.
 2. **Deleted accounts.** When a user deletes their account, their log entries are kept until the end of the normal retention period, then removed.
 3. **Events that trigger an email alert.** The proposed starting list can be adjusted:
    - the AI service failing
@@ -117,6 +117,7 @@ The following points were not settled during clarification and are proposed for 
 4. **Alert recipients** are a configurable list of email addresses maintained by the support team.
 5. **Time to trace an issue.** "As quickly as possible" is treated as an aim for the pilot, not a measured target.
 6. **Public library visitors.** Library conversations are logged in the same way. Visitors who are not signed in are recorded as anonymous.
+7. **How users are identified in logs.** In keeping with the privacy decision, logs identify a user by an internal account reference, not by name or email address. The support team can look up who a reference belongs to when needed.
 
 ## Not included in this release
 
@@ -137,8 +138,8 @@ The following points were not settled during clarification and are proposed for 
 
 ## Trade-offs and risks
 
-- **Logs will contain users' own words and documents.** This makes problems much faster to diagnose, but personal and potentially sensitive material will be held for the retention period (30 days by default). Access must be tightly controlled (see Assumption 1). This should also align with the Terms & Conditions and Disclaimers currently being prepared. Pilot users may need to be informed that conversations are logged for support purposes.
-- **Conversation content will be stored in two places.** The Google Sheet log continues unchanged and has no retention limit, so conversation content will be held both there and in the new logs.
+- **Logs will not show what was said.** Leaving conversation and document content out of the logs protects users' privacy: the logs hold no personal or sensitive material from what users share. The trade-off is that some problems will be harder to diagnose. When the problem lies in what Cube said (an answer that was wrong or unexpected) rather than in a recorded error, the logs alone will not show it. Diagnosing those cases may require looking at the saved conversation itself, under the product's existing access rules.
+- **The Google Sheet log still holds conversation content.** The Sheet continues unchanged and keeps recording the full content of chat turns, with no retention limit. This is inconsistent with keeping content out of the new logs, and should be reviewed separately.
 - **A shorter retention period limits how far back issues can be traced.** With a 30-day default, a problem reported more than 30 days after it occurred cannot be traced from the logs. The period can be extended if this proves too short.
 - **There is a small running cost.** Depending on the logging and alerting tools chosen during technical design, there may be a modest running cost and a slight increase in work per request. At pilot scale (under 100 users) this is expected to be negligible. It must not noticeably slow down Cube's responses.
 - **Usage and cost figures require manual effort until the Usage page is built.** Daily or weekly figures will be available, but they must be pulled from the logs by the support team rather than viewed on a page.
