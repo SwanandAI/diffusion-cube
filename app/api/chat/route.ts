@@ -82,7 +82,7 @@ export async function POST(req: Request) {
   }
 
   // One short, non-streamed call for the contributor's asset card: their
-  // "How did this help you?" → the asset's purpose and Section 4 reuse
+  // "What is it used for?" → the asset's purpose and Section 4 reuse
   // condition, as JSON (see assetReuseSystemPrompt).
   if (mode === 'asset-reuse') {
     if (!(await hasRole(supabase, 'pathway_contributor'))) {

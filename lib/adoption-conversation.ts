@@ -39,7 +39,7 @@ import {
   type ParsedGridUpdate,
 } from '@/lib/grid-update';
 import { extractGapsFromPathwayDraft } from '@/lib/pathway-gaps';
-import { linkSection4Assets, sameResourceName, section4Rows, type Section4Link } from '@/lib/pathway-section4';
+import { linkSection4Assets, removeSection4Rows, sameResourceName, section4Rows, type Section4Link } from '@/lib/pathway-section4';
 import type { ExplorerIntent } from '@/lib/explorer-intents';
 import {
   DesignDocumentRow,
@@ -383,6 +383,13 @@ export function assetCardItems(markdown: string, messages: Message[]): AssetShar
     });
   }
   return items;
+}
+
+// Section 4 as the app keeps it on every save: without the rows of assets
+// the contributor deleted, and with every shared asset linked.
+export function section4ForMessages(markdown: string, messages: Message[]): string {
+  const deleted = messages.flatMap((m) => m.assetShare?.items ?? []).filter((i) => i.deleted).map((i) => i.name);
+  return linkSection4Assets(removeSection4Rows(markdown, deleted), sharedAssetLinks(messages));
 }
 
 // Every asset the contributor has shared in this conversation, as Section 4
@@ -851,7 +858,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       // Section 4 without decision/fix rows, and with the shared assets'
       // links (the model never writes those) — kept across every revision.
       if (!text.trim().startsWith('Not enough of this adoption')) {
-        text = linkSection4Assets(text, sharedAssetLinks(c.messages));
+        text = section4ForMessages(text, c.messages);
       }
 
       // Every generate/revise is its own version — this is what backs the
@@ -1395,9 +1402,10 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     updateAssetCard(cardId, (c) => ({
       ...c,
       items: [
-        ...c.items,
+        // A file added again after its asset was deleted starts afresh.
+        ...c.items.filter((i) => !(i.deleted && picked.some((f) => i.key === `new:file:${f.name}`))),
         ...picked
-          .filter((f) => !c.items.some((i) => i.key === `new:file:${f.name}`))
+          .filter((f) => !c.items.some((i) => i.key === `new:file:${f.name}` && !i.deleted))
           .map((f) => ({
             key: `new:file:${f.name}`,
             name: assetNameFromFile(f.name),
@@ -1419,10 +1427,10 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       updateAssetItem(cardId, itemKey, { staged: { url: link }, error: undefined });
       return { ok: true };
     }
-    if (card.items.some((i) => i.key === `new:url:${link}`)) return { ok: true };
+    if (card.items.some((i) => i.key === `new:url:${link}` && !i.deleted)) return { ok: true };
     updateAssetCard(cardId, (c) => ({
       ...c,
-      items: [...c.items, { key: `new:url:${link}`, name: linkDomain(link) ?? link, fromSection4: false, staged: { url: link } }],
+      items: [...c.items.filter((i) => i.key !== `new:url:${link}`), { key: `new:url:${link}`, name: linkDomain(link) ?? link, fromSection4: false, staged: { url: link } }],
     }));
     return { ok: true };
   }
@@ -1455,7 +1463,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     updateAssetItem(cardId, itemKey, { name: name.replace(/\s+/g, ' ').slice(0, 150), error: undefined });
   }
 
-  // "How did this help you?" for an asset the contributor added. A change
+  // "What is it used for?" for an asset the contributor added. A change
   // clears the reuse condition written from the earlier answer.
   function describeAsset(cardId: string, itemKey: string, text: string) {
     const item = findAssetCard(cardId)?.items.find((i) => i.key === itemKey);
@@ -1469,7 +1477,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   }
 
   // Purpose and Section 4 reuse condition for an added asset, written from
-  // the contributor's "How did this help you?" (mode `asset-reuse`, one short
+  // the contributor's "What is it used for?" (mode `asset-reuse`, one short
   // call). Falls back to their own words if the call fails.
   async function deriveAssetReuse(item: AssetShareItem): Promise<{ purpose: string; reuseCondition: string }> {
     const help = (item.howItHelped ?? '').replace(/\s+/g, ' ').trim();
@@ -1480,7 +1488,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       item.staged ? `${'fileName' in item.staged ? 'File' : 'Link'}: ${sourceLabel(item.staged)}` : '',
       meta?.name ? `Deployment: ${meta.name}` : '',
       [meta?.sector, meta?.geography].filter(Boolean).length ? `Sector · geography: ${[meta?.sector, meta?.geography].filter(Boolean).join(' · ')}` : '',
-      `How it helped the contributor (their words): ${help}`,
+      `What it is used for (the contributor's words): ${help}`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -1504,12 +1512,13 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   }
 
   // Saves the latest draft again with Section 4 linked to every shared asset
-  // (no model call). Returns the new text, or null when nothing changed.
+  // and without deleted ones (no model call). Returns the new text, or null
+  // when nothing changed.
   async function saveRelinkedDraft(): Promise<string | null> {
     const c = conversationRef.current;
     const draft = pathwayDocRef.current.content;
     if (!c || !draft) return null;
-    const linked = linkSection4Assets(draft, sharedAssetLinks(c.messages));
+    const linked = section4ForMessages(draft, c.messages);
     if (linked === draft) return null;
     const saved = await insertDraftVersion(c.id, linked, pathwayDocRef.current.versionNumber);
     updatePathwayDoc((prev) => ({
@@ -1549,27 +1558,58 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     return { ok: true };
   }
 
+  // Delete in the Reusable assets popup: the asset leaves the popup and the
+  // chat card (a shared file is deleted first), and its row leaves Section 4
+  // in a new draft version. It stays on its card as `deleted`, so
+  // section4ForMessages keeps that row out of every later draft.
+  async function deleteAsset(cardId: string, itemKey: string): Promise<{ ok: boolean; error?: string }> {
+    const item = findAssetCard(cardId)?.items.find((i) => i.key === itemKey);
+    if (!item || item.deleted) return { ok: true };
+    if (item.shared) {
+      try {
+        const res = await fetch(`/api/toolkit-assets/${item.shared.assetId}`, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return { ok: false, error: data.error ?? 'Could not delete it. Try again.' };
+      } catch {
+        return { ok: false, error: 'Could not reach the server. Try again.' };
+      }
+      setToolkitAssetsVersion((v) => v + 1);
+    }
+    updateAssetCard(cardId, (c) => ({
+      ...c,
+      items: c.items.map((i) =>
+        i.key === itemKey ? { key: i.key, name: i.name, fromSection4: i.fromSection4, deleted: true } : i
+      ),
+    }));
+    void runDraftJob(async () => {
+      const linked = await saveRelinkedDraft();
+      await afterCurrentTurn();
+      if (linked) appendPathwayDocMessage(linked, 'revised');
+    });
+    return { ok: true };
+  }
+
   const confirmingRef = useRef<Set<string>>(new Set());
 
-  // Confirm: shares every chosen file or link (the card's note is the
-  // consent), then links them in Section 4 and asks what's next. If one
-  // fails, the card stays open with the error on that row.
-  async function confirmAssetCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
+  // Shares every chosen file or link on a card (the card's note is the
+  // consent) and marks it confirmed. If one fails, the card stays open with
+  // the error on that row. `sharedAny`: the card now holds a shared asset.
+  async function shareAssetCard(cardId: string): Promise<{ ok: boolean; error?: string; sharedAny?: boolean }> {
     const card = findAssetCard(cardId);
     if (!card || card.status !== 'open' || confirmingRef.current.has(cardId)) return { ok: false };
     confirmingRef.current.add(cardId);
     try {
-      // An added asset needs a title and "How did this help you?" — the
+      // An added asset needs a title and "What is it used for?" — the
       // answer becomes its reuse condition in Section 4.
       const added = card.items.filter((i) => i.staged && !i.fromSection4);
       const incomplete = added.filter((i) => !i.name.trim() || !i.howItHelped?.trim());
       if (incomplete.length > 0) {
         for (const i of incomplete) {
           updateAssetItem(cardId, i.key, {
-            error: !i.name.trim() ? 'Please give this asset a title.' : 'Please tell us how this helped you.',
+            error: !i.name.trim() ? 'Please give this asset a title.' : 'Please tell us what it is used for.',
           });
         }
-        return { ok: false, error: 'Please fill in the title and "How did this help you?" for each asset you added.' };
+        return { ok: false, error: 'Please fill in the title and "What is it used for?" for each asset you added.' };
       }
       // Written once per answer (describeAsset clears it on a change), so a
       // retry after a failed upload doesn't ask again.
@@ -1609,22 +1649,58 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         return { ok: false, error: `${failed === 1 ? 'One asset' : `${failed} assets`} couldn't be shared — see the card.` };
       }
       updateAssetCard(cardId, (c) => ({ ...c, status: 'confirmed' }));
-      const sharedAny = (findAssetCard(cardId)?.items ?? []).some((i) => i.shared);
-      void runDraftJob(async () => {
-        const linked = sharedAny ? await saveRelinkedDraft() : null;
-        await afterCurrentTurn();
-        if (linked) appendPathwayDocMessage(linked, 'linked');
-        else {
-          commitMessages((msgs) => [
-            ...msgs,
-            { role: 'assistant', content: 'Thanks. Do you want to make any changes to the draft, or send it for review?' },
-          ]);
-        }
-      });
-      return { ok: true };
+      return { ok: true, sharedAny: (findAssetCard(cardId)?.items ?? []).some((i) => i.shared) };
     } finally {
       confirmingRef.current.delete(cardId);
     }
+  }
+
+  // After a Confirm: links the shared assets in Section 4 and asks what's next.
+  function afterAssetsConfirmed(sharedAny: boolean) {
+    void runDraftJob(async () => {
+      const linked = sharedAny ? await saveRelinkedDraft() : null;
+      await afterCurrentTurn();
+      if (linked) appendPathwayDocMessage(linked, 'linked');
+      else {
+        commitMessages((msgs) => [
+          ...msgs,
+          { role: 'assistant', content: 'Thanks. Do you want to make any changes to the draft, or send it for review?' },
+        ]);
+      }
+    });
+  }
+
+  async function confirmAssetCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
+    const result = await shareAssetCard(cardId);
+    if (result.ok) afterAssetsConfirmed(!!result.sharedAny);
+    return result;
+  }
+
+  // Confirm in the Reusable assets popup: every open card at once, with one
+  // follow-up in chat.
+  async function confirmOpenAssetCards(): Promise<{ ok: boolean; error?: string }> {
+    const open = (conversationRef.current?.messages ?? []).flatMap((m) =>
+      m.assetShare?.status === 'open' ? [m.assetShare.id] : []
+    );
+    if (open.length === 0) return { ok: false };
+    let sharedAny = false;
+    for (const cardId of open) {
+      const result = await shareAssetCard(cardId);
+      if (!result.ok) return result;
+      sharedAny ||= !!result.sharedAny;
+    }
+    afterAssetsConfirmed(sharedAny);
+    return { ok: true };
+  }
+
+  // A file chosen in the Reusable assets popup. A confirmed card opens again,
+  // as its "Add more assets" would, and closes back if the file is refused.
+  function stageAssetFilesFromList(cardId: string, itemKey: string | null, files: File[]): { ok: boolean; error?: string } {
+    const wasConfirmed = findAssetCard(cardId)?.status === 'confirmed';
+    if (wasConfirmed) reopenAssetCard(cardId);
+    const result = stageAssetFiles(cardId, itemKey, files);
+    if (!result.ok && wasConfirmed) updateAssetCard(cardId, (c) => ({ ...c, status: 'confirmed' }));
+    return result;
   }
 
   // "Add more assets" on a confirmed card.
@@ -2375,6 +2451,9 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     describeAsset,
     removeSharedAsset,
     confirmAssetCard,
+    confirmOpenAssetCards,
+    stageAssetFilesFromList,
+    deleteAsset,
     reopenAssetCard,
     finishResourceReview,
     requestPublishConsent,

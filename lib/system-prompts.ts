@@ -518,11 +518,11 @@ ${gridUpdateContract(5, { pathwayAction: true, toolkitAssetCandidates: true, too
 }
 
 // One short call (mode `asset-reuse`): an asset the contributor added on
-// the asset card comes with their answer to "How did this help you?"; this
+// the asset card comes with their answer to "What is it used for?"; this
 // turns it into the asset's purpose and its Section 4 reuse condition (see
 // confirmAssetCard in lib/adoption-conversation.ts).
 export function assetReuseSystemPrompt(): string {
-  return `A contributor has just shared a reusable asset (a file or a link) with their AI deployment pathway on 100 Pathways. The message gives the asset's title, its file name or link domain, what is known about the deployment, and the contributor's own words on how the asset helped them.
+  return `A contributor has just shared a reusable asset (a file or a link) with their AI deployment pathway on 100 Pathways. The message gives the asset's title, its file name or link domain, what is known about the deployment, and the contributor's own words on what the asset is used for.
 
 Write two fields from it:
 - "purpose": one sentence — what the asset is and what it was used for.

@@ -47,9 +47,8 @@ function renderInline(text: string, links = false): ReactNode {
 }
 
 // A cell of Section 4's File column (FILE_COLUMN in lib/pathway-section4.ts):
-// `[file name](href)` becomes the file name plus a Download button, both
-// downloading it — or the link's domain plus Open, for an asset shared as a
-// link.
+// `[file name](href)` becomes the file name, linked to download it — or the
+// link's domain, opening it, for an asset shared as a link.
 function renderFileCell(text: string, links: boolean): ReactNode {
   const link = text.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
   if (!link || !ASSET_HREF.test(link[2])) return renderInline(text, links);
@@ -57,22 +56,13 @@ function renderFileCell(text: string, links: boolean): ReactNode {
   const external = /^https?:\/\//.test(href);
   const target = external ? { target: '_blank', rel: 'noopener noreferrer' } : {};
   return (
-    <span className="flex flex-col items-start gap-1">
-      <a
-        href={href}
-        {...target}
-        className="break-all underline decoration-navy/30 underline-offset-2 transition hover:text-coral"
-      >
-        {label}
-      </a>
-      <a
-        href={href}
-        {...target}
-        className="rounded-md bg-navy px-2 py-0.5 text-xs font-medium text-white no-underline transition hover:bg-coral"
-      >
-        {external ? 'Open' : 'Download'}
-      </a>
-    </span>
+    <a
+      href={href}
+      {...target}
+      className="break-all underline decoration-navy/30 underline-offset-2 transition hover:text-coral"
+    >
+      {label}
+    </a>
   );
 }
 
