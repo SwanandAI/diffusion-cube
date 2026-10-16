@@ -5,6 +5,7 @@ import Link from 'next/link';
 import ChatPanel, { Message } from '@/components/ChatPanel';
 import HeatmapGrid from '@/components/HeatmapGrid';
 import AttachmentsPanel from '@/components/AttachmentsPanel';
+import ReusableAssetsPanel from '@/components/ReusableAssetsPanel';
 import PathwayDocumentPane from '@/components/PathwayDocumentPane';
 import AdoptionPlanModal from '@/components/AdoptionPlanModal';
 import VoiceInputButton from '@/components/VoiceInputButton';
@@ -131,6 +132,9 @@ export default function AdoptionWorkspace({
     describeAsset,
     removeSharedAsset,
     confirmAssetCard,
+    confirmOpenAssetCards,
+    stageAssetFilesFromList,
+    deleteAsset,
     reopenAssetCard,
     requestPublishConsent,
     answerPublishConsent,
@@ -151,6 +155,7 @@ export default function AdoptionWorkspace({
   const [welcomeInput, setWelcomeInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [assetsOpen, setAssetsOpen] = useState(false);
   const [headerExpanded, setHeaderExpanded] = useState(true);
 
   // Resizable right panel — shared across all workspace states.
@@ -569,7 +574,7 @@ export default function AdoptionWorkspace({
                       onClick={() => setFilesOpen(true)}
                       className="rounded-lg border border-navy/15 px-3 py-1.5 text-xs font-medium text-ink-soft transition hover:border-coral hover:text-coral"
                     >
-                      📎 Files
+                      📎 Project files
                     </button>
                     <button
                       onClick={() =>
@@ -831,6 +836,9 @@ export default function AdoptionWorkspace({
     ? [conversationOpeningMessage, ...conversation.messages]
     : conversation.messages;
 
+  // Every asset card in the chat — the Reusable assets popup lists their items.
+  const assetCards = conversation.messages.flatMap((m) => (m.assetShare ? [m.assetShare] : []));
+
   return (
     <div
       className="relative flex flex-1 overflow-hidden bg-paper"
@@ -868,11 +876,20 @@ export default function AdoptionWorkspace({
                   <span />
                 )}
                 <div className="flex flex-shrink-0 items-center gap-2">
+                  {flow === 'contributor' && (
+                    <button
+                      onClick={() => setAssetsOpen(true)}
+                      disabled={assetCards.length === 0}
+                      className="rounded-lg border border-navy/15 px-3 py-1.5 text-xs font-medium text-ink-soft transition hover:border-coral hover:text-coral disabled:opacity-40 disabled:hover:border-navy/15 disabled:hover:text-ink-soft"
+                    >
+                      Reusable assets
+                    </button>
+                  )}
                   <button
                     onClick={() => setFilesOpen(true)}
                     className="rounded-lg border border-navy/15 px-3 py-1.5 text-xs font-medium text-ink-soft transition hover:border-coral hover:text-coral"
                   >
-                    📎 Files
+                    📎 Project files
                   </button>
                   <button
                     onClick={() =>
@@ -1045,6 +1062,33 @@ export default function AdoptionWorkspace({
 
         {/* ── Right panel (full height, resizable) ── */}
         {renderRightPanel(conversation.grid)}
+
+        {assetsOpen && (
+          <div
+            className="fixed inset-0 z-40 flex items-end bg-navy/40 p-0 md:items-center md:justify-center md:p-4"
+            onClick={() => setAssetsOpen(false)}
+          >
+            <div
+              className="flex max-h-[85vh] w-full flex-col overflow-hidden rounded-t-2xl bg-paper shadow-xl md:max-h-[80vh] md:max-w-2xl md:rounded-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ReusableAssetsPanel
+                cards={assetCards}
+                fileAvailable={hasToolkitAssetFile}
+                onClose={() => setAssetsOpen(false)}
+                actions={{
+                  stageFiles: stageAssetFilesFromList,
+                  unstage: unstageAsset,
+                  rename: renameAsset,
+                  describe: describeAsset,
+                  remove: removeSharedAsset,
+                  deleteAsset,
+                  confirmAll: confirmOpenAssetCards,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {filesOpen && (
           <div

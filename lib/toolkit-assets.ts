@@ -249,7 +249,7 @@ export interface AssetShareItem {
   fromSection4: boolean;
   reuseCondition?: string;
   // An asset the contributor added (not from Section 4): their answer to
-  // "How did this help you?", asked on the card. On Confirm it is turned into
+  // "What is it used for?", asked on the card. On Confirm it is turned into
   // `purpose` and `reuseCondition` (mode `asset-reuse`), which fill the
   // asset's own Section 4 row.
   howItHelped?: string;
@@ -261,6 +261,9 @@ export interface AssetShareItem {
   staged?: AssetSource;
   // Registered on an earlier Confirm.
   shared?: { assetId: string; source: AssetSource };
+  // Deleted in the Reusable assets popup: hidden everywhere, kept so no later
+  // card asks about it again and no later draft brings its Section 4 row back.
+  deleted?: boolean;
   error?: string;
 }
 
@@ -280,12 +283,15 @@ export function sourceLabel(source: AssetSource): string {
 // What the companion reads back in history for an asset card.
 export function assetShareContent(card: AssetShareState): string {
   const lines = card.items.map((item) => {
+    if (item.deleted) {
+      return `- **${oneLine(item.name)}**: deleted by the contributor and removed from Section 4. Do not add it back.`;
+    }
     const state = item.shared
       ? `shared (${sourceLabel(item.shared.source)}); linked in Section 4, goes live when this pathway is approved`
       : item.staged
         ? `chosen (${sourceLabel(item.staged)}), not confirmed yet`
         : 'nothing shared';
-    const help = item.howItHelped ? ` How it helped them: ${oneLine(item.howItHelped)}` : '';
+    const help = item.howItHelped ? ` What it is used for: ${oneLine(item.howItHelped)}` : '';
     return `- **${oneLine(item.name)}**: ${state}.${help}`;
   });
   const head = card.noneInSection4

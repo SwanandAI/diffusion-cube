@@ -22,7 +22,7 @@ export interface AssetShareActions {
 // upload or a link for it — or, when Section 4 lists none, "do you have
 // any?" — then Confirm. A file goes straight onto its row; nothing is shared
 // until Confirm, which the note above the button makes the consent. An asset
-// the contributor adds asks for its title and "How did this help you?",
+// the contributor adds asks for its title and "What is it used for?",
 // which becomes its reuse condition in Section 4. The actions live in
 // useAdoptionConversation; this card renders the state.
 export default function AssetShareCard({
@@ -38,6 +38,8 @@ export default function AssetShareCard({
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const open = card.status === 'open';
+  // An asset deleted in the Reusable assets popup is gone from here too.
+  const items = card.items.filter((i) => !i.deleted);
 
   async function confirm() {
     if (confirming) return;
@@ -57,9 +59,9 @@ export default function AssetShareCard({
           : 'These are the reusable assets in Section 4 of your pathway. Upload the file or add a link for each one you can share.'}
       </p>
 
-      {card.items.length > 0 && (
+      {items.length > 0 && (
         <ul className="mt-3 space-y-2">
-          {card.items.map((item) => (
+          {items.map((item) => (
             <AssetRow
               key={item.key}
               item={item}
@@ -98,7 +100,7 @@ export default function AssetShareCard({
               share what you have the right to share.
             </p>
             <p className="mt-2 text-sm text-navy">Please confirm once you have shared all the reusable assets.</p>
-            {card.noneInSection4 && card.items.length === 0 && (
+            {card.noneInSection4 && items.length === 0 && (
               <p className="mt-0.5 text-xs text-ink-soft">Nothing to share? Just click Confirm.</p>
             )}
             <button
@@ -198,12 +200,12 @@ function AssetRow({
           ) : null}
           {renamable && (
             <label className="mt-2 block">
-              <span className="text-[11px] font-medium text-ink-soft">How did this help you?</span>
+              <span className="text-[11px] font-medium text-ink-soft">What is it used for?</span>
               <textarea
                 value={item.howItHelped ?? ''}
                 onChange={(e) => onDescribe(e.target.value)}
                 rows={2}
-                placeholder="e.g. We used it to train ward officers to send misrouted complaints back in one step."
+                placeholder="e.g. Training ward officers to send misrouted complaints back in one step."
                 className="mt-0.5 w-full resize-y rounded border border-navy/15 bg-white px-2 py-1 text-xs text-ink"
               />
               <span className="text-[11px] text-ink-soft">

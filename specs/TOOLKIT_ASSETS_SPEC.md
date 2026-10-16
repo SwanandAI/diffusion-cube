@@ -1,6 +1,6 @@
 # Spec: Toolkit Asset Files
 
-Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-13 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
+Status: **TA-01 to TA-10 code complete (build passes). Migration 0034 applied to production and verified (2026-09-30). Next: end-to-end live test pass by the owner → TA-11 (wiki refresh + Terms review)** · Updated: 2026-10-16 · Owner: Anurag Goutam · Branch: `feature/toolkit-assets`
 
 Planning artifacts (requirement, clarifications, approved plan, task list with acceptance criteria and test plans): [`docs/features/toolkit-asset-files/`](../docs/features/toolkit-asset-files/). This spec records **what is being built and what has actually been done**. The progress log (§10) is updated after every task.
 
@@ -1067,3 +1067,161 @@ The owner redrew the contributor flow (see `requirement.md` → Flow charts) and
 - image title → shows the image
 - .docx title → downloads
 - file name and Download button → download
+
+### 2026-10-16 · Header: "Project files" rename and a "Reusable assets" popup (code complete, not live-tested; no migration)
+
+**Asked (owner):**
+1. Rename the header's "Files" button to "Project files".
+2. Add a "Reusable assets" button to the left of it. It lists every reusable asset in Section 4 (listed or added):
+   - an asset with a file gets Download and Remove
+   - an asset with no file gets Add
+3. After an upload, ask for the title and "How did this help you?", the same way the chat card does.
+
+**Clarified with the owner before building:**
+- The popup is a modal, like Project files.
+- Confirm happens in the popup, which shares the same state as the chat cards.
+- Title and "How did this help you?" are asked for new assets only, the same rule as the chat card.
+
+**Done**
+- `components/AdoptionWorkspace.tsx`:
+  - "📎 Files" becomes "📎 Project files" in both headers (pre-chat and active).
+  - New "Reusable assets" button, Contributor flow only. It is disabled until the chat holds an asset card, which means until the first draft.
+  - The button opens a modal styled like Project files.
+- `components/ReusableAssetsPanel.tsx` (new). It lists the items on every asset card in the chat (`Message.assetShare`).
+  - **Shared item:** Download (`/api/toolkit-assets/[id]/download`), or "Open link" for a link asset, plus Remove (`removeSharedAsset`).
+  - **Item with no file:** Add, which opens a file picker.
+  - **Chosen file, not confirmed yet:** its file name plus Remove. A Section 4 row whose in-memory file was lost on reload gets Add again.
+  - **"Add a new asset"** goes onto the latest card and asks for Title and "How did this help you?".
+  - **Consent and Confirm:** the consent note and a Confirm button appear while anything is chosen and not yet confirmed.
+- `lib/adoption-conversation.ts`:
+  - `confirmAssetCard` is split into `shareAssetCard` (share and mark confirmed) and `afterAssetsConfirmed` (relink Section 4, then post the document or "what's next" in chat). The chat card behaves as before.
+  - New `confirmOpenAssetCards`: confirms every open card from the popup, with a single follow-up message in chat.
+  - New `stageAssetFilesFromList`: a file chosen in the popup reopens a confirmed card, as "Add more assets" does. If the file is refused, the card goes back to confirmed.
+
+**Verified**
+- `tsc` clean outside `.next/`.
+- `eslint` shows no new findings. The two `set-state-in-effect` errors in `AdoptionWorkspace.tsx` (lines 204 and 210) are pre-existing.
+- `npm run build` not run: the dev server was using `.next/`.
+
+**Open:** live check:
+- the button is disabled before the draft exists
+- Add on a Section 4 row, then Confirm → the row is linked in Section 4 and the updated document is posted in chat
+- a new asset → Title and "How did this help you?" are required on Confirm
+- Download and Open link work
+- Remove → the link leaves Section 4
+- the chat card mirrors every change made in the popup
+
+### 2026-10-16 · "How did this help you?" renamed to "What is it used for?" (UI and prompt wording; no migration)
+
+**Asked (owner):** change "How did this help you?" to "What is it used for?" everywhere.
+
+**Done**
+- **Field label:** the asset card (`AssetShareCard.tsx`) and the Reusable assets popup (`ReusableAssetsPanel.tsx`) now say "What is it used for?".
+- **Placeholder:** now "e.g. Training ward officers to send misrouted complaints back in one step.", so it reads as an answer to the new question.
+- **Errors on Confirm** (`confirmAssetCard` / `shareAssetCard`): "Please tell us what it is used for." and "Please fill in the title and "What is it used for?" for each asset you added."
+- **Model wording:**
+  - the `asset-reuse` message now says "What it is used for (the contributor's words)"
+  - `assetReuseSystemPrompt` now says "the contributor's own words on what the asset is used for"
+  - the card's history line (`assetShareContent`) now says "What it is used for: …"
+- **Code comments:** updated in `lib/toolkit-assets.ts`, `lib/system-prompts.ts`, `lib/adoption-conversation.ts` and `app/api/chat/route.ts`.
+- **Unchanged:**
+  - the stored field `AssetShareItem.howItHelped` keeps its name, so answers in saved conversations still load
+  - earlier entries in this log keep the old wording, because they record what was built at the time
+
+**Verified**
+- `tsc` clean outside `.next/`.
+- The old phrase no longer appears in the code, the wiki or `.claude/`.
+
+### 2026-10-16 · Reusable assets popup redesigned (UI only)
+
+**Asked (owner):** the popup didn't look good.
+
+**Problems in the first version:**
+- the popup was too narrow (`max-w-md`), so long titles wrapped badly and the status text was cut off
+- there was no real header
+- the close button floated on its own
+- the actions looked different from row to row
+
+**Done**
+- **Popup:** wider (`max-w-2xl`, up to 80vh tall). The header and footer stay fixed and only the list scrolls.
+- **Header:** title, "From Section 4 of your pathway · X of Y shared", a progress bar, and the close button in the same row.
+- **Rows:**
+  - a file or link icon on the left
+  - the title, cut to two lines (full title on hover)
+  - the file name on one line
+  - a status badge: Shared, Not confirmed, File lost or No file
+  - the actions lined up under the title: a Download (or Open link) button with an icon plus Remove, or a dark "+ Add" button
+  - a row with no file has a dashed border
+- **Footer:** a dashed "+ Add a new asset" button. While anything is chosen but not confirmed, the consent note and a Confirm button also appear.
+- **Behaviour:** unchanged. The close button moved into the panel (`onClose` prop).
+
+**Verified**
+- `tsc` clean outside `.next/`.
+- `eslint` clean on `ReusableAssetsPanel.tsx`.
+
+**Open:** owner visual check.
+
+### 2026-10-16 · Section 4 Download button removed; popup subtitle trimmed (UI only)
+
+**Asked (owner):**
+1. Remove the Download button from Section 4's File column.
+2. Remove the "From Section 4 of your pathway" line from the Reusable assets popup.
+
+**Done**
+- **Section 4 File column** (`WikiMarkdown.tsx`, `renderFileCell`): shows only the file name.
+  - The file name still downloads the file.
+  - For a link asset, the domain still opens the link.
+  - The separate Download / Open button is gone.
+- **Reusable assets popup** (`ReusableAssetsPanel.tsx`): the header keeps the title, "X of Y shared" and the progress bar. The "From Section 4 of your pathway" text is gone.
+
+**Verified**
+- `tsc` clean outside `.next/`.
+- `eslint` clean on both files.
+
+### 2026-10-16 · Delete an asset from the Reusable assets popup (code complete, not live-tested; no migration)
+
+**Asked (owner):** a Delete button for assets in the popup.
+
+**Clarified with the owner:**
+- **Scope:** delete takes the asset out of the popup and the chat card, deletes its shared file, and removes its row from Section 4 (new draft version, updated document posted in chat).
+- **Rows:** every asset gets Delete: shared, no file, or chosen but not confirmed yet.
+- **Confirm first:** an inline "Delete this asset?" with Cancel and Delete.
+- **Remove stays:** Remove takes only the file off; Delete takes the whole asset out.
+
+**Done**
+- **`lib/pathway-section4.ts`:** new `removeSection4Rows(markdown, names)`.
+  - For each name it drops the row with that exact title, or failing that, the first row `sameResourceName` matches.
+  - Every other row stays exactly as written.
+  - A table left empty becomes `NO_RESOURCES_LINE`.
+- **`lib/toolkit-assets.ts`:**
+  - `AssetShareItem.deleted` (new). A deleted asset stays on its card, so `assetCardItems` won't make a new card asking about it after a revision.
+  - `assetShareContent` tells the companion the asset was deleted and must not be added back.
+- **`lib/adoption-conversation.ts`:**
+  - New `section4ForMessages`: removes the deleted rows, then `linkSection4Assets`. It is now used both when a generated draft is saved and in `saveRelinkedDraft`, so a deleted row stays out of every later version.
+  - New `deleteAsset`:
+    - deletes a shared file first (`DELETE /api/toolkit-assets/[id]`); on failure nothing changes and the row shows the error
+    - marks the item `deleted`
+    - saves a relinked draft and posts "Here's the updated pathway document."
+  - Adding a file or link with the same name as a deleted asset starts a fresh item.
+- **`components/ReusableAssetsPanel.tsx`:**
+  - a "Delete" button with a trash icon, right-aligned on every row
+  - Delete opens an inline confirm: "Delete this asset? Its file is deleted and removed from Section 4 of your pathway." with Cancel and Delete
+  - deleted items are hidden and not counted in "X of Y shared"
+- **`components/AssetShareCard.tsx`:** deleted items are hidden.
+
+**Verified**
+- `tsc` clean outside `.next/`.
+- `eslint` clean.
+- Scratch test (`tsx`), 8/8 pass:
+  - exact row removed, rest of the document unchanged
+  - a fuzzy name removes only one row
+  - an emptied table becomes the "no resources" line
+  - no match or no names → document unchanged
+  - relinking after a delete keeps the other links
+  - a second save is idempotent
+
+**Open:** live check:
+- Delete on a shared asset → its file is gone (download 404s) and its row leaves Section 4
+- Delete on a no-file row → its row leaves Section 4
+- a later revision doesn't bring the row back or ask about it again
+- the chat card hides deleted items

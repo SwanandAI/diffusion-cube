@@ -260,6 +260,29 @@ export function linkSection4Assets(markdown: string, links: Section4Link[]): str
   return [...lines.slice(0, from), ...pad, ...body, ...pad, ...lines.slice(to)].join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
+// Drops the rows of the assets the contributor deleted: for each name, the
+// row with that title, else the first row sameResourceName matches. Keeps the
+// other rows as written; a table left empty becomes NO_RESOURCES_LINE.
+export function removeSection4Rows(markdown: string, names: string[]): string {
+  if (names.length === 0) return markdown;
+  const lines = markdown.split('\n');
+  const found = findSection4(lines);
+  const table = found ? findTable(lines, found.region) : null;
+  if (!table) return markdown;
+  const col = columns(table.header);
+  const titles = table.rows.map((row) => plain(row[col.title] ?? ''));
+  const drop = new Set<number>();
+  for (const name of names) {
+    let at = titles.findIndex((t, i) => !drop.has(i) && assetMentionKey(t) === assetMentionKey(name));
+    if (at === -1) at = titles.findIndex((t, i) => !drop.has(i) && sameResourceName(t, name));
+    if (at !== -1) drop.add(at);
+  }
+  if (drop.size === 0) return markdown;
+  const rows = lines.slice(table.start + 2, table.end).filter((_, i) => !drop.has(i));
+  const body = rows.length === 0 ? [NO_RESOURCES_LINE] : [...lines.slice(table.start, table.start + 2), ...rows];
+  return [...lines.slice(0, table.start), ...body, ...lines.slice(table.end)].join('\n');
+}
+
 // Asset ids carried by Section 4's linked titles.
 export function section4AssetIds(markdown: string): string[] {
   const lines = markdown.split('\n');
