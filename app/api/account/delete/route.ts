@@ -1,10 +1,11 @@
 import { createClient, createStatelessClient } from '@/lib/supabase/server';
 import { deleteAccount } from '@/lib/account-deletion-server';
 
+import { withErrorHandling } from '@/lib/errors';
 // Self-serve permanent account deletion — what gets removed and what stays
 // is in deleteAccount() (lib/account-deletion-server.ts). Requires the
 // account password, re-verified here. See specs/ACCOUNT_DELETION_SPEC.md.
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -39,3 +40,5 @@ export async function POST(req: Request) {
 
   return Response.json({ ok: true });
 }
+
+export const POST = withErrorHandling('api/account/delete', handlePOST);

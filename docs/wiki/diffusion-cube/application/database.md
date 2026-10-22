@@ -1,6 +1,6 @@
 # Database
 
-Postgres via Supabase, no ORM — raw `.from('table')` calls throughout `lib/` and `app/api/`. Schema of record: 32 sequential files under [`supabase/migrations/`](../../../supabase/migrations/). This page synthesizes the schema **after all 32 migrations are applied** — see [`../architecture/repository-conventions.md`](../architecture/repository-conventions.md) for migration-numbering convention.
+Postgres via Supabase, no ORM — raw `.from('table')` calls throughout `lib/` and `app/api/`. Schema of record: 38 sequential files under [`supabase/migrations/`](../../../supabase/migrations/). This page synthesizes the schema **after all 38 migrations are applied** — see [`../architecture/repository-conventions.md`](../architecture/repository-conventions.md) for migration-numbering convention.
 
 ## ERD
 
@@ -22,7 +22,12 @@ erDiagram
     pathways ||--o{ pathway_contributors : "has members"
     pathways ||--o| published_pathways : "admin publish creates"
     pathways }o--o| design_documents : "content_cache came from"
+
+    auth_users ||--o{ sys_errors : "user_id (set null)"
+    auth_users ||--o{ ai_usage : "user_id (set null)"
 ```
+
+`rate_limits` has no foreign keys (its `key` is a salted hash, not a user id).
 
 ## Live tables
 
@@ -39,6 +44,26 @@ erDiagram
 | `pathway_contributors` | `id`, `pathway_id`, `user_id`, `org_id`, `role`, unique `(pathway_id,user_id)` | `pathway_id`→`pathways` cascade; `user_id`→`auth.users` cascade; `org_id`→`organisations` set null | Signed-in select-all; insert-own row only |
 | `library_conversations` | `id`, `user_id`, `pathway_slug`, `pathway_title`, `messages` jsonb | `user_id`→`auth.users` cascade | Full owner CRUD |
 
+## Server-only tables (monitoring and rate limiting, migrations `0035`–`0037`)
+
+All three use the same pattern: **RLS enabled with no policies at all**, so no browser client (anon or authenticated) can read or write them. Every write and every admin-page read goes through the service-role client (`lib/supabase/admin.ts`). See [`../operations/monitoring.md`](../operations/monitoring.md).
+
+| Table | Key columns | Written by | Read by |
+|---|---|---|---|
+| `sys_errors` | `id`, `created_at`, `source` (e.g. `api/chat`, `client:/explore`, `render:/analyse`), `message` (≤2,000 chars, scrubbed), `stack` (≤8,000 chars, scrubbed), `context` jsonb (allow-listed IDs/metadata only; `context->>'kind'` = `expected`\|`unexpected`), `user_id`→`auth.users` **set null**, `environment` ∈ {`prod`,`dev`} | `lib/errors.ts` (`logError`, `withErrorHandling`, `recordServerError`) | `/admin/errors`, `admin_usage_stats()` |
+| `ai_usage` | `id`, `created_at`, `user_id`→`auth.users` **set null** (null for signed-out Explore), `area` ∈ {`explore`,`analyse`,`contribute`}, `mode`, `flow`, `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `ok` | `lib/ai-usage.ts` (`recordAiUsage`), one row per Claude call — counts only, never text | `admin_usage_stats()` |
+| `rate_limits` | `(key, bucket)` PK — `key` = salted SHA-256 of `RATE_LIMIT_SALT:scope:ip` (no raw IP stored), `bucket` ∈ {`minute`,`day`}, `window_start`, `count` | `check_rate_limit()` only | — |
+
+## Database functions (all service-role only)
+
+Postgres functions are PUBLIC-executable by default, so each of these explicitly `revoke`s execute from `public`/`anon`/`authenticated` and grants it to `service_role` only.
+
+| Function | Migration | Purpose |
+|---|---|---|
+| `purge_old_sys_errors(days default 30)` | `0035` | Deletes `sys_errors` rows older than `days`; called opportunistically by `lib/errors.ts` at most once per server instance per hour (no `pg_cron`) |
+| `check_rate_limit(p_key, p_per_min, p_per_day)` | `0037` | Two atomic upserts (fixed minute + day windows), returns whether both limits hold; a rejected request still counts; ~1% of calls delete keys idle >2 days. Invoker rights (not `security definer`) |
+| `admin_usage_stats()` | `0038` | One JSON object for `/admin/usage`: user totals/new/active, conversations per area, `ai_usage` per area, `sys_errors` per day (UTC) and per source split by kind. `security definer` (reads `auth.users`) with a fixed `search_path` |
+
 ## Inert tables (created, never read/written by current code)
 
 | Table | Why it's inert |
@@ -46,11 +71,11 @@ erDiagram
 | `pathway_cache` | Migration `0002`; an AI-output cache keyed by slug — no code references it |
 | `wiki_cache` | Migration `0004`; a GitHub-raw fetch cache from before the corpus moved in-repo — no code references it |
 | `pending_signups` | Migration `0005`; a pre-auth signup queue with an approval token — superseded by OTP self-serve signup; RLS enabled with zero policies |
-| `contribution_units` | Migrations `0022`/`0025`; a fully-built, correctly-RLS'd table for individually tagged content atoms — nothing in current app code writes to it (the actual contributor-publish mechanism became a whole-document GitHub commit instead). See [`../knowledge/technical-debt.md#td-04`](../knowledge/technical-debt.md#td-04) |
+| `contribution_units` | Migrations `0022`/`0025`; a fully-built, correctly-RLS'd table for individually tagged content atoms. **Stale entry:** since migration `0034` the toolkit-assets feature writes it (`app/api/toolkit-assets/*`, `app/api/admin/pathways/publish`) — not yet re-documented in this wiki. See [`../knowledge/technical-debt.md#td-04`](../knowledge/technical-debt.md#td-04) |
 
-## Dropped tables (still referenced by dead code)
+## Dropped tables
 
-`pathway_submissions`, `pathway_submission_versions`, `pathway_submission_exec_summaries` — all dropped in migration `0018_drop_retired_tables.sql`. Three route files and one `lib/` module still query them and would error (relation does not exist) if invoked. See [`../knowledge/technical-debt.md#td-01`](../knowledge/technical-debt.md#td-01).
+`pathway_submissions`, `pathway_submission_versions`, `pathway_submission_exec_summaries` — all dropped in migration `0018_drop_retired_tables.sql`. The dead code that still queried them (three routes, `lib/pathway-submission-versions.ts`, `components/PathwaySubmissionsPanel.tsx`) was deleted in the monitoring/cleanup work (MLC-12); only historical comments mention them now. See [`../knowledge/technical-debt.md#td-01`](../knowledge/technical-debt.md#td-01).
 
 ## Notable column semantics
 
@@ -59,7 +84,7 @@ erDiagram
 - **`design_documents` is append-only, but only the latest row per `(design_id, doc_type)` is read back for `analysis`/`plan`** — a regeneration supersedes rather than branching. `draft` (pathway documents) is the one type where every version stays genuinely browsable, backing the version picker in `PathwayDocumentPane.tsx`.
 - **`designs.document_review_turns_left` / `designs.typed_intro_turns_left`** (from migration `0001`) — confirmed dead columns; nothing reads or writes them today.
 
-## Migration history (all 32, one line each)
+## Migration history (all 38, one line each)
 
 | # | File | Purpose |
 |---|---|---|
@@ -95,7 +120,13 @@ erDiagram
 | 0030 | `published_pathways_explore_fields.sql` | Adds `location`, `tags[]`, `stage` |
 | 0031 | `pathways_review_requested.sql` | Adds `pathways.review_requested` |
 | 0032 | `pathways_design_doc_ids.sql` | Adds `assembled_design_doc_id`/`published_design_doc_id` FKs |
+| 0033 | `account_deletion.sql` | Relaxes FKs (`published_pathways.published_by`, `pathways.*_design_doc_id`, `contribution_units.user_id`) so self-serve account deletion keeps published content |
+| 0034 | `contribution_units_toolkit_assets.sql` | Toolkit-asset files as `contribution_units` rows + private storage bucket; **drops** the client write policies on `contribution_units` (not purely additive) |
+| 0035 | `sys_errors.sql` | `sys_errors` table, two indexes, RLS with no policies, `purge_old_sys_errors()` (service role only) |
+| 0036 | `ai_usage.sql` | `ai_usage` table, index on `(created_at desc, area)`, RLS with no policies |
+| 0037 | `rate_limits.sql` | `rate_limits` table, RLS with no policies, `check_rate_limit()` (service role only) |
+| 0038 | `admin_usage_stats.sql` | `admin_usage_stats()` — `security definer`, service role only |
 
 ## Source files
 
-`supabase/migrations/0001` through `0032`, `ARCHITECTURE.md` §4 (independently corroborates this synthesis).
+`supabase/migrations/0001` through `0038`, `ARCHITECTURE.md` §4 (independently corroborates this synthesis).

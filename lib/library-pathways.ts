@@ -1,17 +1,15 @@
 // Card-tile data for /explore (the Diffusion Library), ported verbatim from
-// the standalone Diffusion Library app's app/lib/pathways.ts. This is a
-// fully separate entity from the Analyse corpus (content/wiki/pathways/) —
-// same brand tokens, deliberately different content, tone, and pathway set.
-// Kept as static data (not fetched) exactly like the original: this file
-// only carries what the card needs to display; the chat backend reads the
-// full pathway document from content/library-wiki/pathways/<id>.md (see
-// lib/library-wiki-loader.ts).
+// the standalone Diffusion Library app's app/lib/pathways.ts. Kept as static
+// data (not fetched): this file only carries what the card needs to display.
+// The chat backend reads each pathway's full document from the grounding
+// corpus, content/wiki/pathways/<id>.md (see lib/library-documents.ts) —
+// the library's own content/library-wiki/ copy was removed on 2026-10-20.
 export type Stage = 'Explore' | 'Define' | 'Pilot' | 'Scale';
 
 export type Accent = 'coral' | 'yellow' | 'blue' | 'navy';
 
 export type LibraryPathway = {
-  /** Matches the filename (minus .md) under content/library-wiki/pathways/. */
+  /** Matches the filename (minus .md) under content/wiki/pathways/. */
   id: string;
   title: string;
   location: string;

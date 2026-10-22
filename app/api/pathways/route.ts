@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hasAnyRole, hasRole } from '@/lib/roles'
 
+import { withErrorHandling } from '@/lib/errors'
 function slugify(title: string): string {
   return title
     .toLowerCase()
@@ -30,7 +31,7 @@ async function uniqueSlug(base: string): Promise<string> {
 }
 
 /** List all pathways. Any approved user can browse them for the selector. */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !(await hasAnyRole(supabase))) {
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
 }
 
 /** Create a new pathway. Requires pathway_contributor role. */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -114,3 +115,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(pathway, { status: 201 })
 }
+
+export const GET = withErrorHandling('api/pathways', handleGET)
+export const POST = withErrorHandling('api/pathways', handlePOST)

@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Pagination, { usePagination } from '@/components/Pagination';
+
+const PAGE_SIZE = 10;
 
 export interface AdminContributorRegistrationRow {
   id: string;
@@ -27,6 +30,7 @@ export default function AdminContributorRegistrationsPanel({
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { pageItems, setPage, ...pagination } = usePagination(rows, PAGE_SIZE);
 
   async function act(id: string, action: 'approve' | 'reject') {
     setPending(id);
@@ -57,7 +61,7 @@ export default function AdminContributorRegistrationsPanel({
   return (
     <div className="flex flex-col gap-2">
       {error && <p className="text-xs text-coral">{error}</p>}
-      {rows.map((row) => (
+      {pageItems.map((row) => (
         <div key={row.id} className="rounded-xl border border-navy/10 bg-white p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
@@ -107,6 +111,7 @@ export default function AdminContributorRegistrationsPanel({
           </div>
         </div>
       ))}
+      <Pagination {...pagination} onPageChange={setPage} />
     </div>
   );
 }

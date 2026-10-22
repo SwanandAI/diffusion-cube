@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { hasRole } from '@/lib/roles'
 
+import { logError, withErrorHandling } from '@/lib/errors'
+import { recordAiUsage } from '@/lib/ai-usage'
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // Forced tool-use rather than free text — the only thing this call needs to
@@ -32,7 +34,7 @@ const MATCH_TOOL: Anthropic.Tool = {
  * best-effort first line of defense; the admin's own offline review remains
  * the fallback for anything this misses.
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -81,12 +83,18 @@ A "match" means the candidate is genuinely the same underlying deployment or ado
       tool_choice: { type: 'tool', name: 'report_match' },
       messages: [{ role: 'user', content: prompt }],
     })
+    recordAiUsage({ mode: 'check-similar', model: result.model, usage: result.usage, ok: true })
     const toolUse = result.content.find((b) => b.type === 'tool_use')
     if (!toolUse || toolUse.type !== 'tool_use') return NextResponse.json({ matchId: null })
     const matchId = (toolUse.input as { matchId?: string | null }).matchId ?? null
     return NextResponse.json({ matchId })
   } catch (err) {
-    console.error('[check-similar] LLM match check failed:', err)
+    // Still answers "no match" so pathway creation isn't blocked, but the
+    // failure is recorded like any other.
+    recordAiUsage({ mode: 'check-similar', model: 'claude-sonnet-4-6', ok: false })
+    logError('api/pathways/check-similar', err, { kind: 'unexpected', path: '/api/pathways/check-similar', method: 'POST' })
     return NextResponse.json({ matchId: null })
   }
 }
+
+export const POST = withErrorHandling('api/pathways/check-similar', handlePOST)

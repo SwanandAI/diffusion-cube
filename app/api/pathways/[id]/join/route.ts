@@ -4,7 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { hasRole } from '@/lib/roles'
 import { ensureOrganisation } from '@/lib/organisations'
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+import { withErrorHandling } from '@/lib/errors'
+async function handlePOST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: pathwayId } = await params
 
   const supabase = await createClient()
@@ -51,12 +52,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   // Find or create the org
-  let orgId: string | null = null
-  try {
-    orgId = await ensureOrganisation(orgName, orgRole, orgUrl)
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
+  // A failure here throws to withErrorHandling, which records the stack and
+  // answers with the generic message.
+  const orgId: string | null = await ensureOrganisation(orgName, orgRole, orgUrl)
 
   // Insert the contributor row — user's own RLS allows this
   const { error } = await supabase.from('pathway_contributors').insert({
@@ -75,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 // removes their own membership row; the pathway and anything already
 // published for it stay. Service-role because 0021 has no delete policy on
 // pathway_contributors.
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: pathwayId } = await params
 
   const supabase = await createClient()
@@ -93,3 +91,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
   return NextResponse.json({ ok: true })
 }
+
+export const POST = withErrorHandling('api/pathways/[id]/join', handlePOST)
+export const DELETE = withErrorHandling('api/pathways/[id]/join', handleDELETE)

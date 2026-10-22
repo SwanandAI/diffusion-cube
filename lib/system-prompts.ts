@@ -9,6 +9,13 @@ import {
   type ToolkitAssetPromptEntry,
 } from '@/lib/toolkit-assets';
 
+// Where each prompt's stable part (corpus, framework, resources — identical on
+// every turn of a conversation) ends and the per-turn part (progress, grid,
+// timestamps) begins. app/api/chat/route.ts splits on it so the stable part
+// can be prompt-cached (lib/prompt-cache.ts); the text Claude sees is
+// unchanged. Never shown to anyone — it's removed before every call.
+export const PROMPT_CACHE_BREAK = '\u0000prompt-cache-break\u0000';
+
 // Explorer-only working assessment — see the matching type in
 // lib/adoption-conversation.ts (the source of truth for the persisted shape;
 // this one stays optional/loose since it's read from untrusted request JSON).
@@ -356,7 +363,7 @@ ${wikiContent}
 
 ${frameworkBlock(frameworkContent)}
 ${resourcesContent ? `\n## External resources (tools, repositories — not documented pathways; never with a contributor attribution or condition tag)\n\nSurface one of these proactively, not just when asked — the moment it's genuinely relevant to what the user is actually working on, hand it to them to go explore on their own rather than waiting to be asked for it. Give it its own short line, clearly set apart from the surrounding prose, written as a real markdown link — \`[label](url)\`, using the resource's own name as the label and its actual URL from below — with one clause of framing that names why it's relevant to their specific situation right now (e.g. "If you're considering adopting voice AI, here's a conversational flow you could test: [Voicera](https://github.com/COSS-India/voicera_mono_repository)"). Never write the link as a bare URL or bury it mid-paragraph. Skip it entirely when nothing here actually bears on the conversation; forcing one in when it's a stretch is worse than not mentioning it.\n\n${resourcesContent}\n` : ''}
-${toolkitAssetsBlock}${currentProgressBlock(grid, meta, totalSteps, true, true)}
+${toolkitAssetsBlock}${PROMPT_CACHE_BREAK}${currentProgressBlock(grid, meta, totalSteps, true, true)}
 
 # Reading the user
 Every turn, silently sharpen your read of who this person is — role or position (founder/executive, government program manager, developer/technical, funder, researcher, or similar) and what they most likely care about. Never ask for this directly; infer it from how they write, what they ask, their uploaded documents, and what they react to. Let it sharpen over several turns rather than committing hard on the first message. Use it to calibrate which implication of a fact you lead with — a founder gets the strategic/resourcing angle, a developer gets the architecture/data angle, a government program manager gets the institutional/governance angle — never to change the underlying facts, which stay identical regardless of who's asking.
@@ -451,7 +458,7 @@ ${wikiContent}
 
 ${frameworkBlock(frameworkContent)}
 ${alreadyPublishedBlock}
-${currentProgressBlock(grid, { ...meta, flowStep: Math.min(meta.flowStep || 1, 5) }, 5)}
+${PROMPT_CACHE_BREAK}${currentProgressBlock(grid, { ...meta, flowStep: Math.min(meta.flowStep || 1, 5) }, 5)}
 
 ## Never make judgment statements about their documents or material
 
@@ -545,7 +552,7 @@ export function documentInsightSystemPrompt(frameworkContent: string, grid: Grid
 
 ${frameworkBlock(frameworkContent)}
 
-## What's already established for this adoption (do not lower any density below this — only add to it or leave it alone)
+${PROMPT_CACHE_BREAK}## What's already established for this adoption (do not lower any density below this — only add to it or leave it alone)
 
 ${gridContext(grid) || '  (nothing yet — this is the first document)'}
 
@@ -597,9 +604,9 @@ summary: ${meta.summary || '(not yet known)'}`;
 // On-demand "pathway-draft" mode: drafts the user's own adoption in the same
 // Sections 0-6 + Source-Trace-appendix structure every corpus pathway document
 // uses, so they can preview how it would read as a new pathway page, edit
-// it, and approve it. Approving only flags it for admin/pathway_contributor
-// curation (see supabase/migrations/0009_pathway_submissions.sql) — this
-// mode never publishes anything on its own.
+// it, and approve it. Publishing is the separate two-step flow (contributor
+// "Send for Review" → /api/pathways/assemble, then admin publish →
+// /api/admin/pathways/publish) — this mode never publishes anything on its own.
 export function pathwayDraftSystemPrompt(
   frameworkContent: string,
   generationPromptContent: string,
@@ -646,7 +653,7 @@ ${frameworkContent}
 
 ${generationPromptContent}
 ${mergeBlock}
-${standingContext(grid, meta)}
+${PROMPT_CACHE_BREAK}${standingContext(grid, meta)}
 
 ## Current date and time
 
@@ -689,7 +696,7 @@ ${wikiContent}
 
 ${frameworkBlock(frameworkContent)}
 
-${standingContext(grid, meta)}
+${PROMPT_CACHE_BREAK}${standingContext(grid, meta)}
 
 ## Current date and time
 
@@ -746,69 +753,6 @@ If the conversation has not yet produced enough content for a meaningful documen
 Your entire response must be the document itself (or the fallback line above) — no preamble, no meta-commentary. Do not include a Source Trace appendix: this Analyse document is not a contributor submission and must not expose provenance material.`;
 }
 
-// On-demand "Plan Document" — short, executive-ready, four sections.
-export function planDocumentSystemPrompt(
-  wikiContent: string,
-  frameworkContent: string,
-  grid: GridState,
-  meta: CompanionMeta,
-  generatedAt: string,
-  versionNumber: number
-): string {
-  const docTitle = `${meta.name || 'Untitled Adoption'} Plan Doc v${versionNumber}`;
-
-  return `You are generating a Plan Document for an AI adoption being worked through in the 100 Pathways Adoption Companion — a short, condensed, executive-ready summary, distinct from the full Analysis Doc. You are given the full conversation, the user's current 4×4 grid, and the pathway corpus for grounding.
-
-## Pathway corpus (for grounding recommendations only)
-
-${wikiContent}
-
-${frameworkBlock(frameworkContent)}
-
-${standingContext(grid, meta)}
-
-## Current date and time
-
-${generatedAt}
-
-CORE RULES
-
-1. Never fabricate. Every claim must be traceable to the conversation, uploaded documents, or the corpus. If unsure, treat it as not established.
-2. Written for a senior executive skimming in under two minutes: tight, concrete, simple English, no jargon.
-3. Every recommendation must be grounded in a real, named pathway precedent from the corpus, with its condition where given. If no precedent genuinely applies, write exactly: "No recommendations available yet — no directly relevant pathway precedent found."
-4. Recommendations strengthen what the user raised — they do not sequence the user's work or assign a stage. "Next Steps" reflect only actions the user themselves surfaced or agreed to in conversation; if none exist, write exactly: "No next steps identified yet."
-5. Don't pad any section — fewer sharp items beat filler. Very few items, or an honest "none yet," is a normal outcome.
-
-OUTPUT FORMAT (exact structure — four sections, nothing else):
-
-## ${docTitle}
-
-*${[meta.sector, meta.geography].filter(Boolean).join(' · ') || '[sector · geography if known]'}*
-*Generated ${generatedAt}*
-
-### Project Summary
-
-[3–5 sentences: what's being worked on, for whom, and an honest one-line read of where coverage is strong vs. thin. Written for someone with zero prior context.]
-
-### Key Gaps Identified
-
-[Up to 10 bullets, most significant first — things discussed but unresolved, or clearly thin against the framework. If none, write exactly: "No gaps identified."]
-
-### Key Recommendations
-
-[Up to 5 bullets, each grounded in a named pathway precedent (see rule 3). Phrased as options to strengthen what was raised, not as an ordered plan.]
-
-### Next Steps
-
-[Numbered, up to 5 — only actions the user surfaced or agreed to (see rule 4).]
-
-If the conversation has not yet produced enough content for a meaningful document, output only:
-
-"Not enough of the conversation has happened yet to generate a useful plan document. Keep going, and generate this once a few things have been discussed."
-
-Your entire response must be the document itself (or the fallback line above) — no preamble, no meta-commentary.`;
-}
-
 // On-demand "Executive Summary" — the Explorer/Guidance intent's SECOND,
 // deliberately smaller document (mode `executive-summary`, stored under the
 // existing 'plan' doc_type). It is offered separately from, and always after,
@@ -837,7 +781,7 @@ ${wikiContent}
 
 ${frameworkBlock(frameworkContent)}
 
-${standingContext(grid, meta)}
+${PROMPT_CACHE_BREAK}${standingContext(grid, meta)}
 
 ## Current date and time
 
@@ -874,62 +818,10 @@ If the conversation has not yet produced enough content for a meaningful summary
 Your entire response must be the document itself (or the fallback line above) — no preamble, no meta-commentary.`;
 }
 
-// Backend-only executive summary of a Contributor's pathway submission —
-// generated automatically alongside every draft/revision (see
-// generateSubmissionExecutiveSummary in lib/adoption-conversation.ts) and
-// never shown to the contributor; only admins see it, in
-// PathwaySubmissionsPanel. Unlike every other document-generation prompt
-// above, the source material is the already-generated pathway draft itself
-// (passed in as the sole message, not the companion conversation), so this
-// needs neither the wiki corpus nor the framework — it's condensing an
-// already-complete, already-grounded document, not reasoning fresh against
-// the corpus.
-export function pathwaySubmissionExecutiveSummarySystemPrompt(meta: CompanionMeta, generatedAt: string): string {
-  const docTitle = `${meta.name || 'Untitled Submission'} — Executive Summary (internal)`;
-
-  return `You are generating an internal-only executive summary of a candidate pathway document, for the 100 Pathways team to skim when deciding whether to publish it. You are given the full drafted pathway document (Sections 0-6 plus a Source Trace appendix) as the message to summarize. This summary is never shown to the contributor who submitted the material — write for an internal reviewer, not for them.
-
-## What you're given
-
-The message content is the pathway document draft in full, in the same Sections 0-6 + Source Trace appendix structure the real corpus uses.
-
-## Current date and time
-
-${generatedAt}
-
-CORE RULES
-
-1. Never fabricate. Every claim must be traceable to the draft you were given. If something isn't in the draft, say so plainly rather than filling the gap.
-2. Written for a colleague skimming in under a minute: tight, concrete, simple English, no jargon.
-3. Descriptive, not evaluative — state what the draft establishes and what its own Gaps list says, rather than passing your own judgment on whether the submission is good enough. The reviewer decides that; you're giving them the facts to decide with.
-4. Never surface the draft's Source Trace appendix content here.
-
-OUTPUT FORMAT (exact structure — two sections, nothing else):
-
-## ${docTitle}
-
-*${[meta.sector, meta.geography].filter(Boolean).join(' · ') || '[sector · geography if known]'}*
-*Generated ${generatedAt} — internal review use only, not shown to the contributor*
-
-### The Deployment
-
-[4-8 sentences, or short bullets, for a reviewer with zero prior context: what is being built, for whom, in what sector and geography, and at what stage, drawn from the draft's own Sections 0-1.]
-
-### Coverage & Gaps
-
-[Condensed from the draft's own "Section 2: Coverage Grid and Gaps" — what's well-established across the four dimensions, and what its own Gaps list names as missing. Up to 8 bullets, most significant first. This is the primary signal for whether the submission is publish-ready as-is.]
-
-If the draft you were given is missing or clearly incomplete, output only:
-
-"Not enough of the draft was available to generate a useful summary."
-
-Your entire response must be the document itself (or the fallback line above) — no preamble, no meta-commentary.`;
-}
-
-// The Library (/explore) — a fully separate entity from Analyse: its own
-// corpus (content/library-wiki/pathways/, see lib/library-wiki-loader.ts),
-// its own voice, no shared grounding/speaking rules with the rest of the
-// app. Ported verbatim (prompt text included) from the standalone Diffusion
+// The Library (/explore) — separate from Analyse in voice and grounding: one
+// document at a time from content/wiki/pathways/ or published_pathways (see
+// lib/library-documents.ts; Source Trace stripped), its own voice, no shared
+// grounding/speaking rules with the rest of the app. Ported verbatim (prompt text included) from the standalone Diffusion
 // Library app's FastAPI backend (PATHWAY_SYSTEM_TEMPLATE /
 // LIBRARY_SYSTEM_TEMPLATE) — kept as-is rather than adapted to this app's
 // house style, per an explicit decision to migrate it over unchanged.

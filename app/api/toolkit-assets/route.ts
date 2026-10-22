@@ -16,6 +16,7 @@ import {
   toSummary,
 } from '@/lib/toolkit-assets-server'
 
+import { withErrorHandling } from '@/lib/errors'
 const DIMENSIONS = ['persona', 'solution', 'institution', 'ecosystem']
 const STAGES = ['explore', 'define', 'pilot', 'scale']
 
@@ -28,7 +29,7 @@ function text(value: unknown, max: number): string {
 // replies. Unknown or unpublished ids are silently left out, so the client
 // can pass whatever ids the model referenced and render only real ones.
 // Never returns a storage path or URL.
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const ids = [...new Set((req.nextUrl.searchParams.get('ids') ?? '').split(','))].filter(isAssetId).slice(0, 20)
   const assets = await loadPublishedToolkitAssets({ ids })
   return NextResponse.json({ assets: assets.map(toSummary) })
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
 // publishes the pathway whose reviewed document lists it
 // (app/api/admin/pathways/publish). Written with the service-role client
 // because migration 0034 removed every client write policy on this table.
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
 
   const supabase = await createClient()
@@ -132,3 +133,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ id, status: 'awaiting_pathway_review' }, { status: 201 })
 }
+
+export const GET = withErrorHandling('api/toolkit-assets', handleGET)
+export const POST = withErrorHandling('api/toolkit-assets', handlePOST)

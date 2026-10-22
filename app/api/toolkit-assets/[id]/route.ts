@@ -9,6 +9,7 @@ import {
   removeAssetObjects,
 } from '@/lib/toolkit-assets-server'
 
+import { withErrorHandling } from '@/lib/errors'
 function notFound() {
   return NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
@@ -27,7 +28,7 @@ function notFound() {
 // document the admin reviews and publishes (pathways.content_cache), so the
 // admin never approves an asset that no longer exists. The copy committed to
 // GitHub catches up on the next Send for Review.
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   if (!isAssetId(id)) return notFound()
 
@@ -63,3 +64,5 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   await dropAssetsFromReviewCopy(asset.pathway_id, [id])
   return NextResponse.json({ ok: true })
 }
+
+export const DELETE = withErrorHandling('api/toolkit-assets/[id]', handleDELETE)

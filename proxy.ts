@@ -39,10 +39,26 @@ const PUBLIC_PATHS = [
   // Called server-to-server by Supabase Auth (no session); authenticated by
   // its webhook signature inside the route instead.
   '/api/auth/send-email',
+  // Browser error reports from app/error.tsx — a page can crash before or
+  // without sign-in. Rate-limited per IP and size-capped inside the route.
+  '/api/errors/client',
 ];
 
+// x-user-email is trusted by server components ((app)/layout.tsx, /analyse,
+// /contribute, /account, /explore — the last feeds it to isAdmin()), so it
+// must only ever carry what this proxy verified. Every forwarded request
+// starts from a copy with any client-sent value deleted; only the signed-in
+// branch below sets it again. Built fresh from request.headers each time so
+// cookies refreshed by Supabase's setAll() are still carried through.
+function forwardedHeaders(request: NextRequest, verifiedEmail?: string): Headers {
+  const headers = new Headers(request.headers);
+  headers.delete('x-user-email');
+  if (verifiedEmail !== undefined) headers.set('x-user-email', verifiedEmail);
+  return headers;
+}
+
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  let response = NextResponse.next({ request: { headers: forwardedHeaders(request) } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,7 +70,7 @@ export async function proxy(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
+          response = NextResponse.next({ request: { headers: forwardedHeaders(request) } });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
           );
@@ -98,9 +114,9 @@ export async function proxy(request: NextRequest) {
     // app layout doesn't need a second getUser() round trip on every
     // navigation — that duplicate Auth API call was the main source of the
     // slow "Home" click (proxy.ts already paid this cost once above).
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('x-user-email', user.email ?? '');
-    const finalResponse = NextResponse.next({ request: { headers: requestHeaders } });
+    const finalResponse = NextResponse.next({
+      request: { headers: forwardedHeaders(request, user.email ?? '') },
+    });
     response.cookies.getAll().forEach((cookie) => finalResponse.cookies.set(cookie));
     return finalResponse;
   }

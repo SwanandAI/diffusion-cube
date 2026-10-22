@@ -5,38 +5,16 @@ import { isAdmin } from '@/lib/roles';
 import { assetIdsInDocument } from '@/lib/toolkit-assets';
 import { loadPathwayToolkitAssets } from '@/lib/toolkit-assets-server';
 import { CUBE_APP_URL, sendContributionEmail } from '@/lib/email';
+import { parseFrontmatter } from '@/lib/strip-frontmatter';
 
-// Parses YAML frontmatter from a pathway document's content string.
-// Handles scalar values and simple inline arrays: [Tag1, Tag2].
-function parseFrontmatter(content: string): Record<string, string | string[]> {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return {};
-  const result: Record<string, string | string[]> = {};
-  for (const line of match[1].split('\n')) {
-    const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    const val = line.slice(colonIdx + 1).trim();
-    if (val.startsWith('[') && val.endsWith(']')) {
-      result[key] = val
-        .slice(1, -1)
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    } else {
-      result[key] = val;
-    }
-  }
-  return result;
-}
-
+import { withErrorHandling } from '@/lib/errors';
 // Publishes an assembled pathway (pathways.content_cache) to published_pathways
 // so it appears in the Explore library and grounds Analyse conversations.
 // Card metadata (title, hook, stage, sector, location, tags) is parsed from
 // the document's frontmatter — contributors add these when they write the doc.
 // accent is derived deterministically from the slug so it never changes on
 // re-publish and requires no contributor input.
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -69,13 +47,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const fm = parseFrontmatter(pathway.content_cache);
-  const title = (fm.title as string) || pathway.title;
-  const hook = (fm.description as string) || '';
-  const stage = (fm.stage as string) || '';
-  const sector = (fm.sector as string) || pathway.sector || '';
-  const location = (fm.location as string) || '';
-  const tags = Array.isArray(fm.tags) ? (fm.tags as string[]) : [];
+  const fm = parseFrontmatter(pathway.content_cache) ?? {};
+  const title = fm.title || pathway.title;
+  const hook = fm.description || '';
+  const stage = fm.stage || '';
+  const sector = fm.sector || pathway.sector || '';
+  const location = fm.location || '';
+  const tags = fm.tags ?? [];
   const category = tags.length > 0 ? tags.slice(0, 2).join(' · ') : 'Community';
 
   const { error: upsertErr } = await admin.from('published_pathways').upsert(
@@ -180,3 +158,5 @@ async function notifyContributor(
     console.error('[admin/pathways/publish] contributor email:', err);
   }
 }
+
+export const POST = withErrorHandling('api/admin/pathways/publish', handlePOST);

@@ -7,6 +7,7 @@ import {
   createAssetUploadUrl,
 } from '@/lib/toolkit-assets-server'
 
+import { withErrorHandling } from '@/lib/errors'
 // Step 1 of attaching a toolkit asset file, called only after the contributor
 // said Yes to "OK to share this publicly?". Returns a one-time signed upload
 // URL for a server-built path under this pathway; the browser then uploads
@@ -14,7 +15,7 @@ import {
 // size limit) and calls POST /api/toolkit-assets to register it. The bucket
 // itself enforces the 25 MB / MIME limits (migration 0034) — the checks here
 // just refuse early with a clear message.
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const { pathwayId, fileName, size } = body as { pathwayId?: unknown; fileName?: unknown; size?: unknown }
 
@@ -36,11 +37,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Toolkit asset files must be under 25 MB.' }, { status: 400 })
   }
 
-  try {
-    const upload = await createAssetUploadUrl(buildAssetStoragePath(auth.pathwayId, fileName))
-    return NextResponse.json({ ...upload, contentType: ASSET_MIME_BY_EXTENSION[ext] })
-  } catch (err) {
-    console.error('[toolkit-assets/upload-url]', err)
-    return NextResponse.json({ error: 'Could not prepare the upload. Try again.' }, { status: 500 })
-  }
+  // A failure throws to withErrorHandling (stack recorded, generic message).
+  const upload = await createAssetUploadUrl(buildAssetStoragePath(auth.pathwayId, fileName))
+  return NextResponse.json({ ...upload, contentType: ASSET_MIME_BY_EXTENSION[ext] })
 }
+
+export const POST = withErrorHandling('api/toolkit-assets/upload-url', handlePOST)

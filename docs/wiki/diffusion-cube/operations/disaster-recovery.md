@@ -4,9 +4,9 @@
 
 ## What can be reasoned about from the code
 
-- **Corpus content has a natural recovery path for the static half**: `content/wiki/pathways/` and `content/library-wiki/pathways/` are committed to this Git repository, so their history is recoverable via normal Git operations (`git log`, `git revert`) independent of any database state.
+- **Corpus content has a natural recovery path for the static half**: `content/wiki/pathways/` is committed to this Git repository, so their history is recoverable via normal Git operations (`git log`, `git revert`) independent of any database state.
 - **Contributor-assembled (but not yet admin-published) pathway content also lives in Git** — on the `GITHUB_REPO`/`GITHUB_BRANCH` configured in `lib/github.ts` — separately from whatever's committed to *this* repository's own `content/wiki/`. A pathway assembled against a different branch than the one this repo tracks would need an explicit merge/pull to reconcile.
-- **`published_pathways` (the live public corpus) exists only in Supabase**, with no static-file mirror. Losing that table's data would remove all community-contributed pathways from `/explore` and from companion grounding, with no in-repo fallback — the original 7–12 curated pathways in `content/wiki/pathways/`/`content/library-wiki/pathways/` would remain unaffected, since they're file-backed.
+- **`published_pathways` (the live public corpus) exists only in Supabase**, with no static-file mirror. Losing that table's data would remove all community-contributed pathways from `/explore` and from companion grounding, with no in-repo fallback — the original 7–12 curated pathways in `content/wiki/pathways/` would remain unaffected, since they're file-backed.
 - **`design_documents`, `designs`, `pathways`, `pathway_contributors`, `organisations`, `contributor_registrations` all exist only in Supabase** — no export/backup tooling for these is present in this repository.
 
 ## Recommended (not yet implemented)
@@ -17,4 +17,4 @@
 
 ## Source files
 
-`lib/github.ts`, `content/wiki/pathways/`, `content/library-wiki/pathways/`, `supabase/migrations/0012_published_pathways.sql`.
+`lib/github.ts`, `content/wiki/pathways/`, `supabase/migrations/0012_published_pathways.sql`.

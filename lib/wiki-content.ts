@@ -1,6 +1,6 @@
-import { readFile } from 'fs/promises';
 import path from 'path';
 import { createClient } from '@/lib/supabase/server';
+import { readStaticFile } from '@/lib/static-content';
 import { stripFrontmatter } from '@/lib/strip-frontmatter';
 
 // Reads the same in-repo corpus lib/wiki-loader.ts injects into prompts, but
@@ -9,13 +9,8 @@ import { stripFrontmatter } from '@/lib/strip-frontmatter';
 // directly. WIKI_PATH lets both point at the same override if set.
 const WIKI_PATH = process.env.WIKI_PATH ?? path.join(process.cwd(), 'content', 'wiki');
 
-async function readSource(filePath: string): Promise<string> {
-  try {
-    return await readFile(filePath, 'utf-8');
-  } catch {
-    return '';
-  }
-}
+// Kept in memory per server instance in production (lib/static-content.ts).
+const readSource = readStaticFile;
 
 export interface WikiPathwaySummary {
   slug: string;
@@ -27,9 +22,9 @@ export interface WikiPathwaySummary {
   // a technology grouping like "Voice AI", not a sector). For static pathway
   // docs this comes from the file's own `sector:` frontmatter; for
   // community-published ones it's carried over at publish time from the
-  // adoption's own AdoptionMeta.sector (see app/api/pathway-submissions/push
-  // /route.ts) — undefined only for pathways published before that carry-over
-  // existed. "Cross-Sector" marks a deliberately horizontal pathway (a
+  // pathway's frontmatter or its pathways.sector (see
+  // app/api/admin/pathways/publish/route.ts) — undefined only for pathways
+  // published before that carry-over existed. "Cross-Sector" marks a deliberately horizontal pathway (a
   // synthesis or diagnostic spanning many sectors) rather than a real sector
   // — callers that want an actual sector list should filter it out, same as
   // an undefined sector.
@@ -128,8 +123,9 @@ export async function getWikiStats(): Promise<WikiStats> {
 // The Source Trace appendix (previously "Provenance appendix") is contributor-
 // only — never surfaced to adopters in any mode, including this browsing page.
 // Cuts at the first heading whose text mentions "Source Trace" or "Provenance"
-// (the old name, still present in existing static pathway files).
-function stripProvenanceAppendix(markdown: string): string {
+// (the old name, still present in existing static pathway files). Also used
+// by lib/library-documents.ts for the public /explore chat.
+export function stripProvenanceAppendix(markdown: string): string {
   const match = markdown.match(/^#{1,6}\s*.*(provenance|source trace).*$/im);
   if (!match || match.index === undefined) return markdown;
   return markdown.slice(0, match.index).trim();

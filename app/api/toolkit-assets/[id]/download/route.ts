@@ -4,6 +4,7 @@ import { isAdmin } from '@/lib/roles'
 import { assetPreviewType, isAssetId } from '@/lib/toolkit-assets'
 import { loadToolkitAsset, openAssetFileStream } from '@/lib/toolkit-assets-server'
 
+import { withErrorHandling } from '@/lib/errors'
 function notFound() {
   return NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
@@ -28,7 +29,7 @@ function dispositionHeader(type: 'attachment' | 'inline', fileName: string): str
 // in the browser instead of saving it: text is always sent as text/plain and
 // sandboxed, so an uploaded file can never run as a page. Any other type
 // (Office files) downloads as usual.
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   if (!isAssetId(id)) return notFound()
 
@@ -65,3 +66,5 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (file.size) headers.set('Content-Length', file.size)
   return new NextResponse(file.body, { status: 200, headers })
 }
+
+export const GET = withErrorHandling('api/toolkit-assets/[id]/download', handleGET)

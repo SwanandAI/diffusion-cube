@@ -4,6 +4,9 @@ import { useState } from 'react';
 import AdminPathwayRowCard from '@/components/AdminPathwayRowCard';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
+import Pagination, { usePagination } from '@/components/Pagination';
+
+const PAGE_SIZE = 10;
 
 export interface AdminPathwayRow {
   id: string;
@@ -35,6 +38,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const { pageItems, setPage, ...pagination } = usePagination(rows, PAGE_SIZE);
 
   async function publish(id: string) {
     setPending(id);
@@ -95,7 +99,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
     <div className="flex flex-col gap-2">
       {confirmDialog}
       {error && <p className="text-xs text-coral mb-1">{error}</p>}
-      {rows.map((row) => (
+      {pageItems.map((row) => (
         <AdminPathwayRowCard
           key={row.id}
           row={row}
@@ -104,6 +108,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
           onRemove={() => remove(row.id, row.title)}
         />
       ))}
+      <Pagination {...pagination} onPageChange={setPage} />
     </div>
   );
 }

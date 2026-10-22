@@ -7,6 +7,7 @@ import { isValidSlug } from '@/lib/slug'
 import { applyToolkitAssetFiles } from '@/lib/toolkit-assets'
 import { loadPathwayToolkitAssets, toBlockEntry } from '@/lib/toolkit-assets-server'
 
+import { withErrorHandling } from '@/lib/errors'
 // Publishes a contributor's current pathway draft as the pathway's live
 // document, verbatim — whatever design_documents (doc_type='draft') holds
 // for this design becomes content/wiki/pathways/<slug>.md and
@@ -22,7 +23,7 @@ import { loadPathwayToolkitAssets, toBlockEntry } from '@/lib/toolkit-assets-ser
 // lib/toolkit-assets.ts), regenerated from contribution_units and written
 // into the committed/cached document so the admin reviews the assets as
 // part of the pathway. The draft itself never carries them.
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -99,24 +100,24 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  try {
-    const assets = await loadPathwayToolkitAssets(pathwayId)
-    const assembled = applyToolkitAssetFiles(draftRow.content, assets.map(toBlockEntry))
+  // A GitHub or storage failure throws to withErrorHandling, which records the
+  // stack and answers with the generic message (the raw error text no longer
+  // goes back to the browser as `detail`).
+  const assets = await loadPathwayToolkitAssets(pathwayId)
+  const assembled = applyToolkitAssetFiles(draftRow.content, assets.map(toBlockEntry))
 
-    const assembledPath = `content/wiki/pathways/${pathway.slug}.md`
-    const existing = await ghReadFile(assembledPath)
-    await ghWriteFile(assembledPath, assembled, `publish pathway: ${pathway.slug}`, existing?.sha)
+  const assembledPath = `content/wiki/pathways/${pathway.slug}.md`
+  const existing = await ghReadFile(assembledPath)
+  await ghWriteFile(assembledPath, assembled, `publish pathway: ${pathway.slug}`, existing?.sha)
 
-    // Best-effort — the GitHub commit already succeeded either way.
-    await admin.from('pathways').update({
-      content_cache: assembled,
-      review_requested: true,
-      assembled_design_doc_id: draftRow.id,
-    }).eq('id', pathwayId)
+  // Best-effort — the GitHub commit already succeeded either way.
+  await admin.from('pathways').update({
+    content_cache: assembled,
+    review_requested: true,
+    assembled_design_doc_id: draftRow.id,
+  }).eq('id', pathwayId)
 
-    return NextResponse.json({ content: draftRow.content, slug: pathway.slug, assembled_design_doc_id: draftRow.id })
-  } catch (err) {
-    console.error('[assemble] publish failed:', err)
-    return NextResponse.json({ error: 'Publish failed', detail: String(err) }, { status: 500 })
-  }
+  return NextResponse.json({ content: draftRow.content, slug: pathway.slug, assembled_design_doc_id: draftRow.id })
 }
+
+export const POST = withErrorHandling('api/pathways/assemble', handlePOST)

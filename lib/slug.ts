@@ -1,6 +1,5 @@
 // Pathway slugs double as file names (content/wiki/pathways/<slug>.md, the
-// GitHub path assemble commits to, content/library-wiki/pathways/<slug>.md)
-// and lookup keys, so anything that reaches a path must match this shape —
+// GitHub path assemble commits to) and lookup keys, so anything that reaches a path must match this shape —
 // lowercase letters/digits in single-hyphen-separated runs, nothing that
 // could act as a path segment. Matches what app/api/pathways/route.ts's
 // slugify produces; a row inserted any other way that doesn't match is
