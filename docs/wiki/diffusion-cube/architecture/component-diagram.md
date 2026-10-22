@@ -12,12 +12,12 @@ flowchart TB
     end
 
     PROXY["proxy.ts — Next.js middleware<br/>session gate; public: /login /explore /analyse /navigate /contribute /api/chat /api/wiki-pathways /api/auth/send-email"]
-    CHAT["app/api/chat/route.ts<br/>8 modes, streamed, role re-validated server-side"]
+    CHAT["app/api/chat/route.ts<br/>7 modes, streamed, role re-validated server-side"]
     CLAUDE["Anthropic API<br/>claude-sonnet-4-6"]
     GH["GitHub Contents API<br/>lib/github.ts"]
 
     subgraph Corpus["content/ (static, in-repo)"]
-        LIBF["library-wiki/pathways/<br/>8 docs — Library corpus"]
+        LIBF["wiki/pathways/&lt;slug&gt;.md<br/>one document per library chat<br/>(Source Trace stripped)"]
         WIKIF["wiki/pathways/<br/>12 docs + index.md — grounding corpus"]
         FW["framework.md — question bank + weights"]
     end
@@ -32,7 +32,7 @@ flowchart TB
     end
 
     SMTP["SMTP server<br/>lib/email.ts"]
-    SHEETS["Google Sheets<br/>lib/logger.ts"]
+    MON["sys_errors + ai_usage<br/>lib/errors.ts, lib/ai-usage.ts"]
 
     EX --> PROXY
     AN --> PROXY
@@ -52,7 +52,7 @@ flowchart TB
     CLAUDE -- "stream + trailing grid_update" --> CHAT
     CHAT --> DESIGNS
     CHAT --> DOCS
-    CHAT -.fire-and-forget.-> SHEETS
+    CHAT -.after().-> MON
     EX --> LIBCONV
     CO --> PATHW
     PATHW -- "contributor assemble" --> GH
@@ -90,7 +90,7 @@ flowchart TB
     subgraph LibCore["lib/ core modules"]
         SP["system-prompts.ts"]
         WL["wiki-loader.ts"]
-        LWL["library-wiki-loader.ts"]
+        LWL["library-documents.ts"]
         WC["wiki-content.ts"]
         DIM["dimensions.ts"]
         GU["grid-update.ts"]

@@ -1,6 +1,6 @@
-import { readFile } from 'fs/promises';
 import path from 'path';
 import { createClient } from '@/lib/supabase/server';
+import { readStaticFile } from '@/lib/static-content';
 
 // The corpus lives inside this repo (content/wiki/) so it deploys on Vercel
 // with no extra step; S3 is the likely eventual home once the corpus grows
@@ -28,13 +28,11 @@ const PATHWAY_GENERATION_PROMPT_FILE = path.join(process.cwd(), 'content', 'path
 // content/resources.md for the citation discipline itself.
 const RESOURCES_FILE = path.join(process.cwd(), 'content', 'resources.md');
 
+// Kept in memory per server instance in production (lib/static-content.ts).
 async function readSource(filePath: string): Promise<string> {
-  try {
-    return await readFile(filePath, 'utf-8');
-  } catch {
-    console.error(`[wiki-loader] Could not read ${filePath}`);
-    return '';
-  }
+  const text = await readStaticFile(filePath);
+  if (!text) console.error(`[wiki-loader] Could not read ${filePath}`);
+  return text;
 }
 
 // Parse pathway slugs from the pathways index's relative links:

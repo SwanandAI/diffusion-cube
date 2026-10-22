@@ -111,7 +111,21 @@ export default async function AdminPage() {
           ← Back
         </Link>
         <h1 className="font-display text-2xl font-medium text-navy mt-2 mb-1">Admin</h1>
-        <p className="text-sm text-ink-soft mb-6">Approve signups and manage roles.</p>
+        <p className="text-sm text-ink-soft mb-2">Approve signups and manage roles.</p>
+        <div className="mb-6 flex flex-wrap gap-3">
+          <Link
+            href="/admin/usage"
+            className="inline-flex items-center rounded-lg border border-navy/15 bg-white px-4 py-2 text-sm font-medium text-navy shadow-sm transition hover:border-coral hover:bg-coral-soft hover:text-coral"
+          >
+            Usage
+          </Link>
+          <Link
+            href="/admin/errors"
+            className="inline-flex items-center rounded-lg border border-navy/15 bg-white px-4 py-2 text-sm font-medium text-navy shadow-sm transition hover:border-coral hover:bg-coral-soft hover:text-coral"
+          >
+            Recent errors
+          </Link>
+        </div>
         <AdminDashboard initialRows={rows} />
 
         <h2 className="font-display text-lg font-medium text-navy mt-10 mb-1">Contributor Registrations</h2>

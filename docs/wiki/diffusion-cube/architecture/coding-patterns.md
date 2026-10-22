@@ -28,11 +28,15 @@ Three separate hand-rolled markdown-subset parsers exist by design, not oversigh
 
 ## Fire-and-forget side effects, swallowed errors
 
-Non-critical-path writes — the `adoption_queries` insert, Google Sheets logging (`lib/logger.ts`), `extractInsightsForAttachment`'s best-effort grid seeding — are dispatched without awaiting their result on the critical path, and their failures are caught and `console.error`'d only, never surfaced to the user or retried. This is a consistent, repeated pattern across the codebase, not isolated to one call site — treat any new "nice to have but not required for the response" write the same way, but be aware it means these paths have no failure visibility beyond server logs.
+Non-critical-path writes — the `adoption_queries` insert, the `sys_errors`/`ai_usage` inserts (scheduled with Next's `after()`), `extractInsightsForAttachment`'s best-effort grid seeding — are dispatched without awaiting their result on the critical path, and their failures are caught and `console.error`'d only, never surfaced to the user or retried. Treat any new "nice to have but not required for the response" write the same way; if its failure matters, also call `logError()` (`lib/errors.ts`) so it lands in `sys_errors`.
 
-## One `readSource()` for all static-file corpus reads
+## Route handlers go through `withErrorHandling`
 
-`lib/wiki-loader.ts`, `lib/library-wiki-loader.ts`, and `lib/wiki-content.ts` all funnel filesystem reads through one shared low-level read function so that a future move to object storage (S3 or similar) is a single-point change rather than a repo-wide one.
+Every `app/api/**/route.ts` defines `async function handle<METHOD>(...)` and exports `export const <METHOD> = withErrorHandling('api/<path>', handle<METHOD>)`. Return 4xx responses or throw `ValidationError`/`AuthError`/`NotFoundError` for expected failures; let anything else throw. Never put raw error text in a response meant for the browser — the wrapper replaces every 5xx body with `GENERIC_ERROR_MESSAGE` (`lib/error-messages.ts`, the client-safe import) and records the real text in `sys_errors`. Streaming responses must catch their own mid-stream failures (see `streamFailed()` in `app/api/chat/route.ts`).
+
+## One `readStaticFile()` for committed `content/` reads
+
+`lib/wiki-loader.ts` and `lib/wiki-content.ts` funnel their filesystem reads through `lib/static-content.ts`'s `readStaticFile()` (memoised per instance in production, re-read in development), so caching or a future move to object storage is a single-point change. `lib/library-documents.ts` (the library chat) reads through it too. Never route database content through this cache.
 
 ## Role checks: UX at the page, enforcement at the API
 

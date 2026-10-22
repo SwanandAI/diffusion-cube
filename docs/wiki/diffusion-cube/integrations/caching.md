@@ -1,6 +1,6 @@
 # Caching
 
-There is no dedicated cache layer (no Redis, no CDN cache config, no `CACHES` setting) anywhere in this application. Two distinct, unrelated caching mechanisms exist instead, both in-application:
+There is no dedicated cache layer (no Redis, no CDN cache config, no `CACHES` setting) anywhere in this application. Four distinct, unrelated caching mechanisms exist instead — two in the client, one in the server process, and one at Anthropic:
 
 ## 1. Generated-document content-hash cache
 
@@ -24,12 +24,26 @@ There is no dedicated cache layer (no Redis, no CDN cache config, no `CACHES` se
 
 **Invalidation strategy**: explicit — any adoption create/update calls the cache's invalidation directly. `fetchAdoption(id)` (a single row, used for deep links via `?open=<id>`) is **deliberately never served from this cache**, to guarantee freshness on a direct link open.
 
+## 3. Production memoisation of committed `content/` files
+
+**Where**: [`lib/static-content.ts`](../../../lib/static-content.ts) `readStaticFile()`, used by `lib/wiki-loader.ts` and `lib/wiki-content.ts` (framework, resources, generation prompt, grounding corpus under `content/wiki/`).
+
+**Mechanism**: an in-memory `Map` of file path → read promise, **per server instance, in production only** (`NODE_ENV === 'production'`); development re-reads on every call so edits show immediately. A failed read returns `''` and is not kept, so a missing file is retried.
+
+**Invalidation**: none needed — these files only change with a deploy, which starts new instances. **Database content is never cached here**: `loadWikiContext()` still queries `published_pathways` on every call, so an admin publish appears on the next request. `lib/library-documents.ts` (the library chat) reads through the same cache.
+
+## 4. Anthropic prompt caching
+
+**Where**: [`lib/prompt-cache.ts`](../../../lib/prompt-cache.ts), used by both `messages.stream` calls in `app/api/chat/route.ts`.
+
+**Mechanism**: for `companion` and `library` only, the stable part of the system prompt (everything before `PROMPT_CACHE_BREAK`) and the last message carry `cache_control: {type: 'ephemeral'}`, so the next turn within the **5-minute TTL** reads the corpus prefix and history from Anthropic's cache. One-shot modes are not cached. Cache read/write tokens are recorded in `ai_usage` and shown on `/admin/usage`. Detail: [`ai-llm.md`](ai-llm.md#prompt-caching).
+
 ## Deprecated/inert cache tables (database, not application cache)
 
 `pathway_cache` (migration `0002`) and `wiki_cache` (migration `0004`) are Supabase tables originally built as AI-output and GitHub-raw-fetch caches respectively. **Neither is read or written by any current code path** — confirmed by repo-wide grep. They are dead schema, not a live caching layer. See [`../knowledge/technical-debt.md`](../knowledge/technical-debt.md).
 
-> **Note:** If response latency or Anthropic API cost becomes a concern beyond what content-hash caching already avoids, no framework-level caching (Redis, HTTP cache headers, CDN edge caching) is configured today — this would be new infrastructure, not a matter of enabling something already present.
+> **Note:** No framework-level caching (Redis, HTTP cache headers, CDN edge caching) is configured today — adding it would be new infrastructure, not a matter of enabling something already present.
 
 ## Source files
 
-`lib/design-documents.ts`, `lib/adoptions-cache.ts`, `supabase/migrations/0002_pathway_cache.sql`, `supabase/migrations/0004_wiki_cache.sql`.
+`lib/design-documents.ts`, `lib/adoptions-cache.ts`, `lib/static-content.ts`, `lib/prompt-cache.ts`, `supabase/migrations/0002_pathway_cache.sql`, `supabase/migrations/0004_wiki_cache.sql`.

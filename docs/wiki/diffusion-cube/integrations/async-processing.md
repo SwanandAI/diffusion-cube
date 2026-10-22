@@ -1,13 +1,14 @@
 # Async Processing
 
-There is no job queue, worker process, or background-task framework (no BullMQ, no Celery-equivalent, no cron) anywhere in this application. "Async processing" here means the fire-and-forget patterns used within request handlers.
+There is no job queue, worker process, or background-task framework (no BullMQ, no Celery-equivalent, no cron, no `pg_cron`) anywhere in this application. "Async processing" here means the fire-and-forget patterns used within request handlers.
 
 ## Fire-and-forget writes (not awaited on the critical path)
 
 | Operation | Triggered by | Where | Failure handling |
 |---|---|---|---|
 | `adoption_queries` insert | Every `companion`-mode `/api/chat` call | `app/api/chat/route.ts` | Caught, `console.error` only — never retried, never surfaced |
-| Google Sheets conversation log | Every `/api/chat` call (all modes) | `app/api/chat/route.ts` → `lib/logger.ts` | Caught, `console.error` only |
+| `sys_errors` insert (+ hourly opportunistic purge) | Every recorded error | `lib/errors.ts` via Next's `after()` | Caught, `console.error` only — never affects the response |
+| `ai_usage` insert | Every Claude call | `lib/ai-usage.ts` via `after()` | Caught, `console.error` only |
 | `extractInsightsForAttachment` | Every file upload, before any chat turn | `lib/adoption-conversation.ts` | Explicitly documented in-code as "best-effort enhancement — silently give up" on failure |
 
 These are genuinely fire-and-forget: the HTTP response to the user is not delayed by, nor does it depend on, any of these completing or succeeding.
@@ -29,4 +30,4 @@ Both calls are within the same user session and both block on their own response
 
 ## Source files
 
-`app/api/chat/route.ts`, `lib/logger.ts`, `lib/adoption-conversation.ts`, `supabase/migrations/0010_adoption_queries.sql`.
+`app/api/chat/route.ts`, `lib/errors.ts`, `lib/ai-usage.ts`, `lib/adoption-conversation.ts`, `supabase/migrations/0010_adoption_queries.sql`.

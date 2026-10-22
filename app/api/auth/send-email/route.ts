@@ -6,6 +6,7 @@ import {
   sendSignupCodeEmail,
 } from '@/lib/email';
 
+import { withErrorHandling } from '@/lib/errors';
 // Supabase Auth "Send Email" hook (Dashboard → Authentication → Auth Hooks).
 // With the hook enabled Supabase sends no auth email itself: it still
 // generates, stores, expires and verifies every OTP and link, then POSTs them
@@ -79,7 +80,7 @@ function hookError(httpCode: number, message: string) {
   return Response.json({ error: { http_code: httpCode, message } }, { status: httpCode });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const secret = process.env.SEND_EMAIL_HOOK_SECRET;
   if (!secret) {
     console.error('send-email hook: SEND_EMAIL_HOOK_SECRET is not configured');
@@ -137,9 +138,12 @@ export async function POST(request: Request) {
         return hookError(400, 'This type of email is not supported.');
     }
   } catch (err) {
-    console.error(`send-email hook: failed to send ${data.email_action_type} email`, err);
-    return hookError(500, 'We couldn’t send the email. Please try again in a moment.');
+    // withErrorHandling records the stack and answers in the hook's own
+    // error format (errorBody: hookError) with the generic message.
+    throw err;
   }
 
   return Response.json({});
 }
+
+export const POST = withErrorHandling('api/auth/send-email', handlePOST, { errorBody: hookError });

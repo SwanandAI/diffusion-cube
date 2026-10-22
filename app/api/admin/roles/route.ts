@@ -3,9 +3,10 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { DEFAULT_ROLE_GRANTED_FLAG, isAdmin, type Role } from '@/lib/roles';
 import { approveContributor, revokeContributor } from '@/lib/contributor-registration-server';
 
+import { withErrorHandling } from '@/lib/errors';
 const VALID_ROLES: Role[] = ['general_user', 'adopter', 'pathway_contributor', 'admin'];
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   // Never trust the client on this — re-check against the caller's own
   // session, same as the real enforcement boundary in app/api/chat/route.ts.
   const supabase = await createClient();
@@ -58,3 +59,5 @@ export async function POST(req: Request) {
 
   return Response.json({ ok: true });
 }
+
+export const POST = withErrorHandling('api/admin/roles', handlePOST);

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dropAssetsFromReviewCopy, removeAssetObjects } from '@/lib/toolkit-assets-server'
 
+import { withErrorHandling } from '@/lib/errors'
 // The contributor's "No — delete this contribution" answer to "May this
 // pathway be published?": deletes their workspace, its drafts, and every
 // toolkit asset they shared from it that isn't live yet (files included).
@@ -17,7 +18,7 @@ import { dropAssetsFromReviewCopy, removeAssetObjects } from '@/lib/toolkit-asse
 // this workspace's draft rows, which would otherwise block the delete
 // (0032's foreign keys have no ON DELETE action). If this workspace's draft
 // was waiting for review, that review request is withdrawn too.
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ designId: string }> }) {
+async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ designId: string }> }) {
   const { designId } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -81,3 +82,5 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
   return NextResponse.json({ ok: true })
 }
+
+export const DELETE = withErrorHandling('api/contributions/[designId]', handleDELETE)

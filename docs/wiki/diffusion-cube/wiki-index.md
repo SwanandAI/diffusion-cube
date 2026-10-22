@@ -54,6 +54,7 @@ Navigational hub for this wiki. For the executive entry point, see [`README.md`]
 | Service | Diffusion Cube (`ai-diffusion-cube-app`) |
 | Branch analyzed | `Swanand_DC` |
 | Generated | 2026-09-28 |
+| Last updated | 2026-10-20 — targeted refresh (story MLC-21, branch `monitoring-logging-cleanup`) for error handling, usage monitoring, Explore rate limiting, prompt caching and the technical cleanup ([`specs/MONITORING_LOGGING_CLEANUP_SPEC.md`](../../../specs/MONITORING_LOGGING_CLEANUP_SPEC.md)); migrations now 38. Pages touched: `ai-context`, `repository-map`, `application/*`, `architecture/{configuration,coding-patterns,component-diagram,sequence-diagrams,architecture-overview}`, `business/workflows`, `integrations/{ai-llm,third-party-integrations,caching,async-processing}`, `operations/{monitoring,troubleshooting}`, `knowledge/technical-debt`. The toolkit-assets feature (migration `0034`) is **not** yet reflected in this wiki |
 | Method | Full repository read (routes, components, `lib/`, all 32 migrations, content corpus, infra/CI config) plus reconciliation against this repo's own root-level architecture/design documents |
 | Gaps | Called out with plain-language **Note** sections where details are not documented in this wiki (see [`repository-map.md`](repository-map.md) for the raw-documents note) |
 

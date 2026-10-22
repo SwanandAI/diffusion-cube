@@ -2,20 +2,11 @@ import type { CellState } from '@/lib/dimensions';
 import type { ExplorerIntent } from '@/lib/explorer-intents';
 import { isAssetId, type ToolkitAssetCandidate, type ToolkitAssetMention } from '@/lib/toolkit-assets';
 
-// Step 5 (Generate Output) wraps the Deep Dive Report / Holistic Adoption
-// Plan's full markdown in this tag pair — shared between ChatPanel (renders
-// a Download PDF card in place of it) and adoption-conversation.ts (which
-// stops live-streaming the message body the moment this tag appears, so the
-// document reveals as a finished whole rather than typing itself out).
-export const DELIVERABLE_START = '<deliverable>';
-export const DELIVERABLE_END = '</deliverable>';
-
 // Marks where a client-constructed (not model-authored) Contributor-flow
 // chat message should render a card that reopens the current pathway
 // document — see lib/adoption-conversation.ts's pathwayAction handling and
-// components/ChatPanel.tsx's rendering of it. Unlike DELIVERABLE_START/END,
-// this wraps no content — the card fetches the document from
-// pathway_submission_versions when opened, so nothing needs storing twice.
+// components/ChatPanel.tsx's rendering of it. It wraps no content — the card fetches the document from
+// design_documents (doc_type='draft') when opened, so nothing needs storing twice.
 export const PATHWAY_DOC_MARKER = '<pathway_doc/>';
 
 // The Explorer equivalents: markers in a client-constructed chat message that

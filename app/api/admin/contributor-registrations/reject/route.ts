@@ -2,10 +2,11 @@ import { createClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/roles';
 import { revokeContributor } from '@/lib/contributor-registration-server';
 
+import { withErrorHandling } from '@/lib/errors';
 // Rejecting also removes the pathway_contributor role (revokeContributor) —
 // every contributor API gates on the role alone, so flipping access_status
 // by itself left a rejected user able to keep contributing.
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -25,3 +26,5 @@ export async function POST(req: Request) {
 
   return Response.json({ ok: true });
 }
+
+export const POST = withErrorHandling('api/admin/contributor-registrations/reject', handlePOST);

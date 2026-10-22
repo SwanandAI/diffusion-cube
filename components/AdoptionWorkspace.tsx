@@ -392,7 +392,6 @@ export default function AdoptionWorkspace({
           {(rightPanel === 'analysis' || rightPanel === 'summary') && explorerDocType && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <AdoptionPlanModal
-                mode="panel"
                 title={EXPLORER_DOC_LABELS[explorerDocType].title}
                 markdown={explorerDocMarkdown}
                 loading={explorerDoc.generating === explorerDocType}

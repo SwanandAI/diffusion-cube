@@ -3,7 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { hasAnyRole } from '@/lib/roles'
 import { searchOrganisations } from '@/lib/organisations'
 
-export async function GET(req: NextRequest) {
+import { withErrorHandling } from '@/lib/errors'
+async function handleGET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !(await hasAnyRole(supabase))) {
@@ -14,3 +15,5 @@ export async function GET(req: NextRequest) {
   const results = await searchOrganisations(q)
   return NextResponse.json(results)
 }
+
+export const GET = withErrorHandling('api/organisations', handleGET)

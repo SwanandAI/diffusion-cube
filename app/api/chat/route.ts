@@ -1,38 +1,38 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { loadWikiContext, loadFrameworkContent, loadPathwayGenerationPrompt, loadResourcesContent, datedLine } from '@/lib/wiki-loader';
-import { readLibraryPathwayDocument, buildLibraryOverview } from '@/lib/library-wiki-loader';
+import { readLibraryPathwayDocument, buildLibraryOverview, libraryDocumentFromPublished } from '@/lib/library-documents';
 import {
   explorerSystemPrompt,
   contributorSystemPrompt,
   analysisDocSystemPrompt,
-  planDocumentSystemPrompt,
   documentInsightSystemPrompt,
   pathwayDraftSystemPrompt,
   executiveSummarySystemPrompt,
-  pathwaySubmissionExecutiveSummarySystemPrompt,
   libraryPathwaySystemPrompt,
   libraryOverviewSystemPrompt,
   assetReuseSystemPrompt,
   LIBRARY_KICKOFF_PROMPT,
 } from '@/lib/system-prompts';
-import { logConversation } from '@/lib/logger';
 import { createClient } from '@/lib/supabase/server';
 import { hasAnyRole, hasRole } from '@/lib/roles';
 import { EMPTY_GRID } from '@/lib/dimensions';
 import { parseGridUpdate } from '@/lib/grid-update';
 import { isValidSlug } from '@/lib/slug';
+import { isValidExploreConversation } from '@/lib/explore-guard';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { recordAiUsage } from '@/lib/ai-usage';
+import { messagesForMode, systemForMode } from '@/lib/prompt-cache';
 import { loadPublishedToolkitAssets } from '@/lib/toolkit-assets-server';
 
+import { logError, sessionUserId, withErrorHandling } from '@/lib/errors';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const MODES = [
   'companion',
   'analysis-doc',
   'executive-summary',
-  'plan-document',
   'extract-insights',
   'pathway-draft',
-  'pathway-exec-summary',
   'library',
   'asset-reuse',
 ] as const;
@@ -48,11 +48,47 @@ function lastUserMessageText(messages: { role: string; content: unknown }[]): st
   return '';
 }
 
-export async function POST(req: Request) {
-  const { messages, mode, grid, meta, versionNumber, designId, flow, existingPublishedDoc, pathwayId } = await req.json();
+// A reply that fails after streaming has begun (the response is already a
+// 200, so withErrorHandling can't see it): record it, then error the stream
+// so the client's reader rejects and it shows GENERIC_ERROR_MESSAGE under
+// whatever text already arrived, without saving the broken reply.
+async function streamFailed(
+  controller: ReadableStreamDefaultController,
+  err: unknown,
+  context: { mode: string; flow?: string; design_id?: string; pathway_slug?: string }
+) {
+  logError('api/chat', err, { ...context, kind: 'unexpected', path: '/api/chat', method: 'POST', user_id: await sessionUserId() });
+  recordAiUsage({ mode: context.mode, flow: context.flow, model: 'claude-sonnet-4-6', ok: false });
+  controller.error(err);
+}
+
+// One ai_usage row for a reply that streamed to the end, from the SDK's final
+// message (input/output and cache token counts).
+async function recordStreamUsage(stream: ReturnType<typeof anthropic.messages.stream>, mode: string, flow?: string) {
+  try {
+    const final = await stream.finalMessage();
+    recordAiUsage({ mode, flow, model: final.model, usage: final.usage, ok: true });
+  } catch (err) {
+    console.error('[chat] could not read final usage:', err);
+  }
+}
+
+async function handlePOST(req: Request) {
+  const { messages, mode, grid, meta, designId, flow, existingPublishedDoc, pathwayId } = await req.json();
 
   if (!MODES.includes(mode)) {
     return Response.json({ error: 'Unknown mode.' }, { status: 400 });
+  }
+
+  // 'library' is the one mode open to anonymous callers, so it's limited and
+  // checked before anything else touches the database or Claude. The rate
+  // limit comes first so a flood of malformed requests is capped too — each
+  // rejected 400 is recorded in sys_errors, a 429 isn't.
+  if (mode === 'library' && !(await checkRateLimit(req, 'explore'))) {
+    return Response.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+  if (mode === 'library' && !isValidExploreConversation(messages)) {
+    return Response.json({ error: 'Invalid request.' }, { status: 400 });
   }
 
   // The whole app is the companion now — access requires an approved account
@@ -88,12 +124,19 @@ export async function POST(req: Request) {
     if (!(await hasRole(supabase, 'pathway_contributor'))) {
       return Response.json({ error: 'Sharing assets requires the Contributor role.' }, { status: 403 });
     }
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 400,
-      system: assetReuseSystemPrompt(),
-      messages,
-    });
+    let response: Anthropic.Message;
+    try {
+      response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 400,
+        system: assetReuseSystemPrompt(),
+        messages,
+      });
+    } catch (err) {
+      recordAiUsage({ mode, model: 'claude-sonnet-4-6', ok: false });
+      throw err;
+    }
+    recordAiUsage({ mode, model: response.model, usage: response.usage, ok: true });
     const text = response.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
     return new Response(text, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   }
@@ -102,10 +145,11 @@ export async function POST(req: Request) {
   let apiMessages = messages;
   const generatedAt = new Date().toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
 
-  // The Library (/explore) is a fully separate entity. Static pathways live in
-  // content/library-wiki/pathways/; published pathways from the contributor
-  // flow live in published_pathways (Supabase). Both are checked — static first,
-  // DB as fallback — so cards from either source open into a grounded chat.
+  // The Library (/explore). Static pathways come from the grounding corpus
+  // (content/wiki/pathways/, the same files Analyse uses); published pathways
+  // from published_pathways (Supabase). Both are checked — static first, DB as
+  // fallback — so cards from either source open into a grounded chat. The
+  // Source Trace appendix is stripped from both (lib/library-documents.ts).
   if (mode === 'library') {
     if (typeof pathwayId === 'string' && pathwayId) {
       // pathwayId comes straight from an unauthenticated request and becomes
@@ -122,7 +166,7 @@ export async function POST(req: Request) {
         // Same date line the explorer corpus carries, so the library
         // prompt's dates rule has something to read when the community
         // pathway's own frontmatter has no timestamp.
-        document = data ? `${datedLine(data.content, data.created_at)}${data.content}` : null;
+        document = data ? `${datedLine(data.content, data.created_at)}${libraryDocumentFromPublished(data.content)}` : null;
       }
       if (!document) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
       // Published toolkit assets for this pathway (only DB pathways have
@@ -142,29 +186,41 @@ export async function POST(req: Request) {
     const stream = await anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      system: systemPrompt,
-      messages: apiMessages,
+      system: systemForMode(mode, systemPrompt),
+      messages: messagesForMode(mode, apiMessages),
     });
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
-        for await (const chunk of stream) {
-          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-            controller.enqueue(encoder.encode(chunk.delta.text));
+        try {
+          for await (const chunk of stream) {
+            if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+              controller.enqueue(encoder.encode(chunk.delta.text));
+            }
           }
+          controller.close();
+        } catch (err) {
+          await streamFailed(controller, err, { mode, pathway_slug: pathwayId });
+          return;
         }
-        controller.close();
+        await recordStreamUsage(stream, mode);
       },
     });
 
     return new Response(readable, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   }
 
+  // Load only what this mode's prompt uses: extract-insights and pathway-draft
+  // never read the corpus, and only the Explorer companion reads resources.
+  // (Static files are memoised in production — lib/static-content.ts; the
+  // published pathways inside loadWikiContext are always read fresh.)
+  const needsCorpus = mode !== 'extract-insights' && mode !== 'pathway-draft';
+  const needsResources = mode === 'companion' && flow !== 'contributor';
   const [wikiContent, frameworkContent, resourcesContent] = await Promise.all([
-    loadWikiContext(),
+    needsCorpus ? loadWikiContext() : '',
     loadFrameworkContent(),
-    loadResourcesContent(),
+    needsResources ? loadResourcesContent() : '',
   ]);
 
   if (mode === 'analysis-doc') {
@@ -176,15 +232,6 @@ export async function POST(req: Request) {
       grid ?? EMPTY_GRID,
       meta ?? {},
       generatedAt
-    );
-  } else if (mode === 'plan-document') {
-    systemPrompt = planDocumentSystemPrompt(
-      wikiContent,
-      frameworkContent,
-      grid ?? EMPTY_GRID,
-      meta ?? {},
-      generatedAt,
-      versionNumber ?? 1
     );
   } else if (mode === 'extract-insights') {
     systemPrompt = documentInsightSystemPrompt(frameworkContent, grid ?? EMPTY_GRID);
@@ -198,8 +245,6 @@ export async function POST(req: Request) {
       generatedAt,
       typeof existingPublishedDoc === 'string' ? existingPublishedDoc : null
     );
-  } else if (mode === 'pathway-exec-summary') {
-    systemPrompt = pathwaySubmissionExecutiveSummarySystemPrompt(meta ?? {}, generatedAt);
   } else if (flow === 'contributor') {
     systemPrompt = contributorSystemPrompt(
       wikiContent,
@@ -222,35 +267,31 @@ export async function POST(req: Request) {
 
   const stream = await anthropic.messages.stream({
     model: 'claude-sonnet-4-6',
-    // companion used to be a short conversational turn every time (2048 was
-    // plenty), but the Explorer flow's Step 5 now generates a full Deep Dive
-    // Report / Holistic Adoption Plan inline within this same mode (wrapped
-    // in <deliverable> tags — see explorerSystemPrompt) instead of a
-    // separate document-generation mode. A real document plus the trailing
-    // <grid_update> JSON can easily exceed 2048 tokens, silently truncating
-    // mid-document — the closing </deliverable> tag never arrives, so the
-    // client can't extract it and falls back to showing raw text. 8192
-    // comfortably covers a full report; ordinary short replies are
-    // unaffected since this is a ceiling, not a target.
+    // A long companion reply plus its trailing <grid_update> JSON can run
+    // past 2048 tokens and be cut off mid-block, so companion keeps 8192.
+    // Ordinary short replies are unaffected — this is a ceiling, not a target.
     max_tokens: mode === 'companion' ? 8192 : mode === 'extract-insights' ? 1024 : mode === 'pathway-draft' ? 9000 : 4096,
-    system: systemPrompt,
-    messages,
+    system: systemForMode(mode, systemPrompt),
+    messages: messagesForMode(mode, messages),
   });
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
       let fullResponse = '';
-      for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-          fullResponse += chunk.delta.text;
-          controller.enqueue(encoder.encode(chunk.delta.text));
+      try {
+        for await (const chunk of stream) {
+          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+            fullResponse += chunk.delta.text;
+            controller.enqueue(encoder.encode(chunk.delta.text));
+          }
         }
+        controller.close();
+      } catch (err) {
+        await streamFailed(controller, err, { mode, flow, design_id: designId });
+        return;
       }
-      controller.close();
-
-      // Fire-and-forget — never blocks the response
-      logConversation({ mode, messages, response: fullResponse });
+      await recordStreamUsage(stream, mode, flow);
 
       // TEMPORARY dev-only diagnostic for toolkit-asset testing (see
       // specs/TOOLKIT_ASSETS_SPEC.md) — prints the contributor companion's raw
@@ -284,3 +325,5 @@ export async function POST(req: Request) {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
 }
+
+export const POST = withErrorHandling('api/chat', handlePOST);

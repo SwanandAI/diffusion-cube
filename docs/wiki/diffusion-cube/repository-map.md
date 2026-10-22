@@ -20,7 +20,7 @@ diffusion-cube/
 ├── content/                   corpus + framework (see below)
 ├── lib/                        24 modules: prompts, Supabase access, corpus loaders, utilities
 ├── proxy.ts                     Next.js middleware — session gate, public-route allow-list
-├── supabase/migrations/           32 SQL migrations, apply in order
+├── supabase/migrations/           38 SQL migrations, apply in order
 ├── scripts/smtp-test.mjs           manual SMTP diagnostic (not wired into npm scripts)
 ├── .github/workflows/deploy.yml    Vercel deploy on push to main
 ├── Dockerfile, .dockerignore        AWS/ARM64-targeted container build (separate from CI)
@@ -67,7 +67,7 @@ All prompt assembly lives in [`lib/system-prompts.ts`](../../../lib/system-promp
 
 ## Database models
 
-No ORM — raw Supabase client calls (`.from('table')...`) throughout `lib/` and `app/api/`. Schema of record is [`supabase/migrations/`](../../../supabase/migrations/) (32 files, apply in numeric order). Full current-schema table and ERD: [`application/database.md`](application/database.md).
+No ORM — raw Supabase client calls (`.from('table')...`) throughout `lib/` and `app/api/`. Schema of record is [`supabase/migrations/`](../../../supabase/migrations/) (38 files, apply in numeric order). Full current-schema table and ERD: [`application/database.md`](application/database.md).
 
 ## Infrastructure files
 
@@ -93,18 +93,18 @@ No ORM — raw Supabase client calls (`.from('table')...`) throughout `lib/` and
 
 - **Purpose**: everything that isn't UI — prompt assembly, Supabase access, corpus loading, PDF/markdown parsing, roles.
 - **Dependencies**: `content/` (corpus + framework files), Supabase clients (`lib/supabase/*`), `@anthropic-ai/sdk` types.
-- **Important files**: `system-prompts.ts`, `adoption-conversation.ts`, `dimensions.ts`, `roles.ts`, `wiki-loader.ts` / `library-wiki-loader.ts` / `wiki-content.ts` (three distinct corpus readers — do not conflate), `github.ts` (real GitHub commit for contributor publish).
+- **Important files**: `system-prompts.ts`, `adoption-conversation.ts`, `dimensions.ts`, `roles.ts`, `wiki-loader.ts` / `library-documents.ts` / `wiki-content.ts` (three distinct corpus readers — do not conflate), `github.ts` (real GitHub commit for contributor publish).
 - **Typical modifications**: changing model behavior for a mode → edit the matching function in `system-prompts.ts`; changing what counts as "relevant corpus" → edit `content/framework.md`, not code.
 
 ### `content/`
 
 - **Purpose**: the framework definition and the two pathway corpora.
-- **Structure**: `framework.md` (question bank + weights, prompt-injected), `pathway-generation-prompt.md` (contributor-draft generation rules, prompt-injected), `resources.md` (external-citation rules), `wiki/pathways/` (12 files + `index.md` — the grounding corpus for `/analyse` and `/contribute`), `library-wiki/pathways/` (8 files, no index — the separate `/explore` corpus).
+- **Structure**: `framework.md` (question bank + weights, prompt-injected), `pathway-generation-prompt.md` (contributor-draft generation rules, prompt-injected), `resources.md` (external-citation rules), `wiki/pathways/` (`index.md` + pathway files — the one static corpus: Analyse loads the `index.md`-linked files, the `/explore` library chat reads any file by slug). The separate `library-wiki/` corpus was removed on 2026-10-20.
 - **Typical modifications**: adding a pathway to the grounding corpus requires **both** dropping the `.md` file *and* linking it from `content/wiki/pathways/index.md` — six existing files are on-disk but unlinked from the index and therefore excluded from both prompt-grounding and the `/wiki` browse listing (see [`knowledge/technical-debt.md`](knowledge/technical-debt.md)).
 
 ### `supabase/migrations/`
 
-- **Purpose**: the schema of record, 32 sequential SQL files.
+- **Purpose**: the schema of record, 38 sequential SQL files.
 - **Typical modifications**: always additive, numbered one higher than the current max; migration `0008` and `0018` are the two destructive/table-dropping exceptions in this repo's history. See [`application/database.md`](application/database.md) for the full current-schema synthesis.
 
 ### Root-level files

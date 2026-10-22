@@ -1,11 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { downloadPlanAsPdf } from '@/lib/adoption-plan-pdf';
 import {
   ANALYSIS_DOC_MARKER,
-  DELIVERABLE_START,
-  DELIVERABLE_END,
   EXEC_SUMMARY_MARKER,
   PATHWAY_DOC_MARKER,
 } from '@/lib/grid-update';
@@ -40,11 +37,6 @@ export interface Message {
   // holds a short instruction (plus any text-attachment content) and this
   // carries the actual bytes sent to the model.
   images?: Array<{ mediaType: string; base64: string }>;
-  // Set transiently (never persisted) while a <deliverable> block is still
-  // streaming in on the server — see adoption-conversation.ts's sendMessage,
-  // which freezes the visible content and sets this instead of live-typing
-  // the document out. Shows a "Generating your document…" placeholder.
-  generatingDoc?: boolean;
   // Pathway slugs this assistant message drew on — parsed from <grid_update>
   // and stored alongside the message so source attribution chips can be
   // rendered below the bubble on reload as well as first display.
@@ -71,6 +63,10 @@ export interface Message {
   // Explorer flow: ids of published toolkit assets this assistant message
   // offered (from <grid_update>) — rendered as download cards under it.
   toolkitAssetsReferenced?: string[];
+  // A client-made status bubble (a failed or rejected turn: the generic
+  // message, after any partial reply). Shown, but never sent back to
+  // /api/chat as history and never saved — see toApiMessages / persist.
+  notice?: true;
 }
 
 // Legacy marker from an earlier design where the model signalled a grid
@@ -270,48 +266,6 @@ function renderChatMarkdown(text: string): React.ReactNode {
   return <div className="space-y-0">{nodes}</div>;
 }
 
-function extractDeliverable(text: string): { before: string; markdown: string; after: string } | null {
-  const startIdx = text.indexOf(DELIVERABLE_START);
-  if (startIdx === -1) return null;
-  const endIdx = text.indexOf(DELIVERABLE_END, startIdx);
-  if (endIdx === -1) return null;
-  return {
-    before: text.slice(0, startIdx).trim(),
-    markdown: text.slice(startIdx + DELIVERABLE_START.length, endIdx).trim(),
-    after: text.slice(endIdx + DELIVERABLE_END.length).trim(),
-  };
-}
-
-function deliverableTitle(markdown: string): string {
-  return markdown.match(/^##\s+(.+)$/m)?.[1].trim() || 'Adoption Report';
-}
-
-function slugify(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'report';
-}
-
-function DeliverableCard({ markdown }: { markdown: string }) {
-  const title = deliverableTitle(markdown);
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-navy/15 bg-paper-dim px-4 py-3">
-      <span className="text-xl" aria-hidden>
-        📄
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-navy">{title}</p>
-        <p className="text-xs text-ink-soft">Ready to download</p>
-      </div>
-      <button
-        type="button"
-        onClick={() => downloadPlanAsPdf(markdown, `${slugify(title)}.pdf`)}
-        className="flex-shrink-0 rounded-lg bg-navy px-3 py-1.5 text-xs font-medium text-white transition hover:bg-coral"
-      >
-        Download PDF
-      </button>
-    </div>
-  );
-}
-
 // The card a client-constructed doc message embeds — the Contributor flow's
 // pathway document (see lib/adoption-conversation.ts's
 // appendPathwayDocMessage/appendPublishOutcomeMessage) and the Explorer
@@ -339,22 +293,13 @@ function DocCard({ title, cta, onOpen }: { title: string; cta: string; onOpen: (
 }
 
 // Splits a message on the first document marker it carries and renders the
-// real grid / download card / doc card in place — surrounding text still goes
+// doc card in place — surrounding text still goes
 // through renderInlineMarkdown. A message only ever carries one of these.
 function renderMessageContent(
   text: string,
   onOpenPathwayDocument: (() => void) | undefined,
   onOpenExplorerDocument: ((docType: DocType) => void) | undefined
 ): React.ReactNode[] {
-  const deliverable = extractDeliverable(text);
-  if (deliverable) {
-    const nodes: React.ReactNode[] = [];
-    if (deliverable.before) nodes.push(<div key="before">{renderChatMarkdown(deliverable.before)}</div>);
-    nodes.push(<DeliverableCard key="card" markdown={deliverable.markdown} />);
-    if (deliverable.after) nodes.push(<div key="after">{renderChatMarkdown(deliverable.after)}</div>);
-    return nodes;
-  }
-
   const docMarker = onOpenPathwayDocument
     ? { marker: PATHWAY_DOC_MARKER, title: 'Pathway Document', cta: 'View Pathway Document', open: onOpenPathwayDocument }
     : onOpenExplorerDocument && text.includes(ANALYSIS_DOC_MARKER)
@@ -614,8 +559,7 @@ export default function ChatPanel({
           const text = (m.displayContent ?? m.content).split(CUBE_GRID_MARKER).join('');
           const isRich =
             m.role === 'assistant' &&
-            (text.includes(DELIVERABLE_START) ||
-              (onOpenPathwayDocument && text.includes(PATHWAY_DOC_MARKER)) ||
+            ((onOpenPathwayDocument && text.includes(PATHWAY_DOC_MARKER)) ||
               (onOpenExplorerDocument &&
                 (text.includes(ANALYSIS_DOC_MARKER) || text.includes(EXEC_SUMMARY_MARKER))));
           const isFirstAssistant = m.role === 'assistant' && messages.slice(0, i).every(msg => msg.role !== 'assistant');
@@ -670,21 +614,13 @@ export default function ChatPanel({
               className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`${isRich || m.generatingDoc ? 'w-full' : 'max-w-[80%]'} rounded-2xl px-5 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+                className={`${isRich ? 'w-full' : 'max-w-[80%]'} rounded-2xl px-5 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
                   m.role === 'user'
                     ? 'bg-coral text-white'
                     : 'bg-paper-dim text-ink'
                 }`}
               >
-                {m.generatingDoc ? (
-                  <div className="space-y-3">
-                    {text && <span>{renderInlineMarkdown(text)}</span>}
-                    <div className="flex items-center gap-2 text-ink-soft animate-pulse">
-                      <span aria-hidden>📄</span>
-                      Generating your document…
-                    </div>
-                  </div>
-                ) : isRich ? (
+                {isRich ? (
                   <div className="space-y-3">
                     {renderMessageContent(text, onOpenPathwayDocument, onOpenExplorerDocument)}
                     {assetsBlock}

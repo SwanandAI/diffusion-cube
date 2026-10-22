@@ -37,7 +37,7 @@ sequenceDiagram
         C->>U: just the prose reply
     end
 
-    R--)DB: fire-and-forget — adoption_queries insert + Google Sheets log (lib/logger.ts)
+    R--)DB: after() — adoption_queries insert + ai_usage row (sys_errors row on failure)
 ```
 
 ## W2 — Contributor publishes a pathway (two-step: assemble → admin publish)

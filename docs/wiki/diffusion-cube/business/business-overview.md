@@ -15,7 +15,7 @@ Per `docs/raw_documents/AI DIffusion Cube - Product Charter.docx`'s stated visio
 
 | Capability | Traced to |
 |---|---|
-| Public browsing + single-document chat over a pathway library | `app/explore/`, `lib/library-wiki-loader.ts` |
+| Public browsing + single-document chat over a pathway library | `app/explore/`, `lib/library-documents.ts` |
 | Signed-in analysis of a user's own AI adoption against the whole corpus, tracked on a 4×4 grid | `app/analyse/`, `lib/system-prompts.ts` (`explorerSystemPrompt`), `lib/dimensions.ts` |
 | Generated Analysis Document + Executive Summary, versioned and reopenable | `lib/design-documents.ts`, `app/api/chat/route.ts` (`analysis-doc`/`executive-summary` modes) |
 | Contributor pipeline: document intake → stage confirmation → auto-drafted pathway document → conversational revision | `lib/system-prompts.ts` (`contributorSystemPrompt`, `pathwayDraftSystemPrompt`) |

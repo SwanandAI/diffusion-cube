@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isSharingLevel, sharingColumns } from '@/lib/contributor-registration';
 
+import { withErrorHandling } from '@/lib/errors';
 // Change an approved contributor's personal contact-sharing choice from the
 // Manage Account page (/account). Applies going forward only — nothing
 // already shown for a published pathway is rewritten.
@@ -10,7 +11,7 @@ import { isSharingLevel, sharingColumns } from '@/lib/contributor-registration';
 // the three sharing columns only. contributor_registrations deliberately has
 // no user UPDATE policy: RLS is row-level, so one would also let a user set
 // their own access_status to 'approved'.
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -42,3 +43,5 @@ export async function POST(req: Request) {
 
   return Response.json({ ok: true });
 }
+
+export const POST = withErrorHandling('api/account/contact-sharing', handlePOST);

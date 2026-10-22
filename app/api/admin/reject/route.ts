@@ -3,7 +3,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin, isAdminEmail } from '@/lib/roles';
 import { deleteAccount } from '@/lib/account-deletion-server';
 
-export async function POST(req: Request) {
+import { withErrorHandling } from '@/lib/errors';
+async function handlePOST(req: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -47,3 +48,5 @@ export async function POST(req: Request) {
 
   return Response.json({ ok: true });
 }
+
+export const POST = withErrorHandling('api/admin/reject', handlePOST);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EMPTY_GRID, type GridState } from '@/lib/dimensions';
 import { Message } from '@/components/ChatPanel';
 import { createClient } from '@/lib/supabase/client';
+import { GENERIC_ERROR_MESSAGE } from '@/lib/error-messages';
 import { extractTextFromFile, fileToImageBlock, getFileExtension, isImageFile } from '@/lib/extract-text';
 import {
   TOOLKIT_ASSET_BUCKET,
@@ -29,7 +30,6 @@ import {
   parseGridUpdate,
   stripGridUpdate,
   ANALYSIS_DOC_MARKER,
-  DELIVERABLE_START,
   EXEC_SUMMARY_MARKER,
   PATHWAY_DOC_MARKER,
   PUBLISH_CONSENT_MARKER,
@@ -590,8 +590,25 @@ function publishConsentContent(consent: PublishConsentState): string {
   }
 }
 
+// What to show for a /api/chat response that isn't a reply: an expected
+// error's own message (4xx — e.g. a missing role), otherwise the generic one.
+// The 5xx body is already the generic message (withErrorHandling); reading it
+// is skipped so a non-JSON body can't leak through either.
+async function chatErrorText(res: Response): Promise<string> {
+  if (res.status >= 400 && res.status < 500) {
+    const body = await res.json().catch(() => null);
+    if (typeof body?.error === 'string') return body.error;
+  }
+  return GENERIC_ERROR_MESSAGE;
+}
+
+// Thrown when /api/chat answers with an error instead of a document, so the
+// document generators can show that message (and never save the error body as
+// a document version).
+class ChatRequestError extends Error {}
+
 export function toApiMessages(messages: Message[]) {
-  return messages.map(({ role, content, images }) => ({
+  return messages.filter((m) => !m.notice).map(({ role, content, images }) => ({
     role,
     content:
       images && images.length > 0
@@ -778,7 +795,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       .update({
         meta: c.meta,
         grid_state: c.grid,
-        messages: c.messages,
+        messages: c.messages.filter((m) => !m.notice),
         updated_at: updatedAt,
       })
       .eq('id', c.id);
@@ -844,7 +861,8 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
           existingPublishedDoc,
         }),
       });
-      if (!res.body) throw new Error('No response from the server.');
+      // Never save an error body as a draft version.
+      if (!res.ok || !res.body) throw new ChatRequestError(await chatErrorText(res));
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -876,11 +894,11 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       }));
 
       return text;
-    } catch {
+    } catch (err) {
       updatePathwayDoc((prev) => ({
         ...prev,
         loading: false,
-        error: 'Could not draft this pathway page. Try again.',
+        error: err instanceof ChatRequestError ? err.message : GENERIC_ERROR_MESSAGE,
       }));
       return null;
     }
@@ -1818,7 +1836,8 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
           meta: c.meta,
         }),
       });
-      if (!res.body) throw new Error('No response from the server.');
+      // Never save an error body as a document version.
+      if (!res.ok || !res.body) throw new ChatRequestError(await chatErrorText(res));
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -1834,11 +1853,11 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
 
       updateExplorerDoc((prev) => ({ ...prev, [stateKey]: row, generating: null }));
       return row;
-    } catch {
+    } catch (err) {
       updateExplorerDoc((prev) => ({
         ...prev,
         generating: null,
-        error: 'Could not generate that document. Try again.',
+        error: err instanceof ChatRequestError ? err.message : GENERIC_ERROR_MESSAGE,
       }));
       return null;
     }
@@ -1957,26 +1976,46 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       update((c) => ({ ...c, messages: next }));
       setLoading(true);
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: toApiMessages(next),
-          mode: 'companion',
-          designId: id,
-          flow,
-          grid,
-          meta,
-          // Lets the Contributor flow recognize it's adding to an already-
-          // published pathway (see contributorSystemPrompt) rather than
-          // demanding a from-scratch write-up — same field pathway-draft
-          // generation already uses to merge into it (see
-          // generatePathwayDraft above).
-          existingPublishedDoc: flow === 'contributor' ? pathwayDocRef.current.pathwayPublishedContent : undefined,
-        }),
-      });
+      // A turn that can't complete ends in a notice bubble (never sent back as
+      // history or saved) and stops the loading state; nothing else in the
+      // turn — grid writes, persistence, pathway/explorer actions — runs.
+      const failTurn = (content: string, replaceLast = false) => {
+        update((c) => {
+          const msgs = replaceLast ? c.messages.slice(0, -1) : [...c.messages];
+          return { ...c, messages: [...msgs, { role: 'assistant', content, notice: true }] };
+        });
+        setLoading(false);
+      };
 
-      if (!res.body) { setLoading(false); return; }
+      let res: Response;
+      try {
+        res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: toApiMessages(next),
+            mode: 'companion',
+            designId: id,
+            flow,
+            grid,
+            meta,
+            // Lets the Contributor flow recognize it's adding to an already-
+            // published pathway (see contributorSystemPrompt) rather than
+            // demanding a from-scratch write-up — same field pathway-draft
+            // generation already uses to merge into it (see
+            // generatePathwayDraft above).
+            existingPublishedDoc: flow === 'contributor' ? pathwayDocRef.current.pathwayPublishedContent : undefined,
+          }),
+        });
+      } catch {
+        failTurn(GENERIC_ERROR_MESSAGE);
+        return;
+      }
+
+      if (!res.ok || !res.body) {
+        failTurn(await chatErrorText(res));
+        return;
+      }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -1986,7 +2025,17 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       update((c) => ({ ...c, messages: [...c.messages, { role: 'assistant', content: '' }] }));
 
       while (true) {
-        const { done, value } = await reader.read();
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch {
+          // The reply broke off partway: keep what arrived, add the generic
+          // message under it, and stop — the partial reply isn't Cube's answer.
+          const partial = stripGridUpdate(assistantText).trim();
+          failTurn(partial ? `${partial}\n\n${GENERIC_ERROR_MESSAGE}` : GENERIC_ERROR_MESSAGE, true);
+          return;
+        }
+        const { done, value } = chunk;
         if (done) break;
         assistantText += decoder.decode(value, { stream: true });
 
@@ -2038,27 +2087,15 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
           });
         }
 
-        // Step 5 (Generate Output) wraps the full document in <deliverable>
-        // tags — once that tag shows up, stop live-typing the message out.
-        // Freeze the visible content at whatever came before the tag (the
-        // short intro sentence) and show a loading state instead, so the
-        // document itself appears as a finished whole once the stream
-        // completes below, rather than streaming in piece by piece.
         const stripped = stripGridUpdate(assistantText);
-        const deliverableIdx = stripped.indexOf(DELIVERABLE_START);
         update((c) => {
           const msgs = [...c.messages];
-          msgs[msgs.length - 1] =
-            deliverableIdx === -1
-              ? { role: 'assistant', content: stripped }
-              : { role: 'assistant', content: stripped.slice(0, deliverableIdx).trim(), generatingDoc: true };
+          msgs[msgs.length - 1] = { role: 'assistant', content: stripped };
           return { ...c, messages: msgs };
         });
       }
 
-      // Final reveal — for a deliverable message this is the first time the
-      // real content (including the finished document) replaces the loading
-      // state; for a normal message it's a no-op past what's already shown.
+      // Final message, with the turn's grid_update fields attached.
       // pathwaysReferenced is stored on the message so source attribution
       // survives reload without re-parsing the stripped grid_update.
       const finalContent = stripGridUpdate(assistantText);
@@ -2228,9 +2265,11 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
           messages: [{ role: 'user', content: text }],
           mode: 'extract-insights',
           grid: c.grid,
+          // Lets the Usage page count this upload under Analyse or Contribute.
+          flow: c.meta.flow,
         }),
       });
-      if (!res.body) return;
+      if (!res.ok || !res.body) return;
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

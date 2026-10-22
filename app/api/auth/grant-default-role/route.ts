@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { DEFAULT_ROLE_GRANTED_FLAG } from '@/lib/roles';
 
+import { withErrorHandling } from '@/lib/errors';
 // Called by the client immediately after a successful sign-up so a brand-new
 // account lands with the 'adopter' role already in place — no admin approval
 // wait for the Analyse flow. user_roles has RLS with no client-side insert
@@ -13,7 +14,7 @@ import { DEFAULT_ROLE_GRANTED_FLAG } from '@/lib/roles';
 // 'adopter' durable — before, any signed-in user could POST here at any time
 // and get the role straight back. app/api/admin/roles sets the same flag on
 // any role removal, so accounts granted before the flag existed are covered.
-export async function POST() {
+async function handlePOST() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -55,3 +56,5 @@ export async function POST() {
 
   return Response.json({ ok: true });
 }
+
+export const POST = withErrorHandling('api/auth/grant-default-role', handlePOST);
