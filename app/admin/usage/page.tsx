@@ -152,10 +152,10 @@ export default async function AdminUsagePage() {
 
         <Section
           title="AI usage"
-          note="Claude calls and tokens since usage recording started. Input tokens are the total sent to Claude; cached input is the part of that read back from the prompt cache, which is billed at about a tenth of the normal rate."
+          note="LLM calls and tokens since usage recording started. Input tokens are the total sent to the LLM; cached input is the part of that read back from the prompt cache, which is billed at about a tenth of the normal rate."
         >
           <Table
-            head={['Area', 'Claude calls', 'Failed', 'Input tokens', 'Output tokens', 'Cached input tokens']}
+            head={['Area', 'LLM calls', 'Failed', 'Input tokens', 'Output tokens', 'Cached input tokens']}
             rows={AREAS.map((a) => [
               a.label,
               ai(a.key)?.calls ?? 0,
