@@ -47,6 +47,22 @@ function parsePathwaySlugs(indexMd: string): string[] {
   return slugs;
 }
 
+// The curated corpus, by slug: the pathways index.md lists. Only these static
+// files are ever served (Analyse prompts, /wiki, the /explore chat). Any other
+// file under content/wiki/pathways/ is a contributor's assembled draft —
+// assemble commits there before any admin review — and goes live only
+// through published_pathways.
+export async function curatedPathwaySlugs(): Promise<Set<string>> {
+  const index = await readSource(path.join(WIKI_PATH, 'pathways', 'index.md'));
+  return new Set(parsePathwaySlugs(index).map((file) => file.replace(/\.md$/, '')));
+}
+
+// A pathway's slug is the file assemble commits to, so a new pathway may not
+// take a curated slug (or the index's own name) — it would overwrite that file.
+export async function isReservedPathwaySlug(slug: string): Promise<boolean> {
+  return slug === 'index' || (await curatedPathwaySlugs()).has(slug);
+}
+
 // The AI Diffusion Pathway Framework — dimensions, sub-categories, stage
 // weighting, the full question bank (core questions, listening-for, insight
 // forms, corpus examples), unit types, and tagging rules. Injected into

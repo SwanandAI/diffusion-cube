@@ -1,10 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type Role = 'general_user' | 'adopter' | 'pathway_contributor' | 'admin';
-
-// app_metadata key recording that an account's one-time default 'adopter'
-// grant is settled — see app/api/auth/grant-default-role/route.ts.
-export const DEFAULT_ROLE_GRANTED_FLAG = 'default_role_granted';
+// Every account holds 'adopter' from creation (a trigger on auth.users —
+// migration 0039); the other two are granted by an admin.
+export type Role = 'adopter' | 'pathway_contributor' | 'admin';
 
 // Checks the CURRENT signed-in user's own roles via the normal per-request
 // client (not the service-role client) — relies on user_roles' "select own
@@ -14,9 +12,16 @@ export async function hasRole(supabase: SupabaseClient, role: Role): Promise<boo
   return !!data;
 }
 
-// A signup with zero roles at all is "pending" — no admin has approved them
-// yet. Approving is granting at least one role, so this doubles as the
-// approval check (see app/(app)/layout.tsx).
+// All of the current user's roles in one query (same RLS as hasRole) — for a
+// route that checks several.
+export async function currentRoles(supabase: SupabaseClient): Promise<Set<Role>> {
+  const { data } = await supabase.from('user_roles').select('role');
+  return new Set((data ?? []).map((r) => r.role as Role));
+}
+
+// Every account gets 'adopter' when it's created (migration 0039), so a
+// zero-role account shouldn't exist any more — this stays as a guard on the
+// signed-in-only pages and routes (see app/(app)/layout.tsx).
 export async function hasAnyRole(supabase: SupabaseClient): Promise<boolean> {
   const { data } = await supabase.from('user_roles').select('role').limit(1).maybeSingle();
   return !!data;

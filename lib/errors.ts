@@ -246,7 +246,20 @@ export function withErrorHandling<A extends unknown[]>(
     };
     const record = (error: unknown, kind: ErrorKind, status: number) => {
       console.error(`[${source}]`, kind === 'expected' ? `${status} ${errorText(error)}` : error);
-      schedule(async () => recordError(source, error, { ...requestContext, kind, status, user_id: await sessionUserId() }));
+      schedule(async () => {
+        const user_id = await sessionUserId();
+        // An anonymous caller's 4xx is recorded only while their IP is within
+        // the 'anon-error' allowance, so a script hammering a public route
+        // (/api/toolkit-assets, the Auth hook, a bad /api/chat body) can't
+        // flood sys_errors and push real errors off /admin/errors. Imported
+        // here rather than at the top because lib/rate-limit.ts records its
+        // own failures through this file.
+        if (kind === 'expected' && !user_id && req) {
+          const { checkRateLimit } = await import('@/lib/rate-limit');
+          if (!(await checkRateLimit(req, 'anon-error'))) return;
+        }
+        await recordError(source, error, { ...requestContext, kind, status, user_id });
+      });
     };
 
     try {

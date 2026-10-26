@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { readStaticFile } from '@/lib/static-content';
 import { stripProvenanceAppendix } from '@/lib/wiki-content';
 import { libraryPathways } from '@/lib/library-pathways';
+import { curatedPathwaySlugs } from '@/lib/wiki-loader';
 
 // The documents behind /explore (the Diffusion Library) chat. Since
 // 2026-10-20 the library reads the same grounding corpus as Analyse
@@ -15,10 +16,12 @@ import { libraryPathways } from '@/lib/library-pathways';
 
 const WIKI_PATH = process.env.WIKI_PATH ?? path.join(process.cwd(), 'content', 'wiki');
 
-// A static pathway's document by slug, appendix removed; null if there's no
-// such file. The slug is validated by the caller (isValidSlug) before it gets
-// here, since it becomes a file path.
+// A curated pathway's document by slug, appendix removed; null if it isn't
+// one. The slug is validated by the caller (isValidSlug) before it gets here,
+// since it becomes a file path. An assembled-but-unpublished draft in the same
+// folder is never served — the caller falls back to published_pathways.
 export async function readLibraryPathwayDocument(id: string): Promise<string | null> {
+  if (!(await curatedPathwaySlugs()).has(id)) return null;
   const text = await readStaticFile(path.join(WIKI_PATH, 'pathways', `${id}.md`));
   return text ? stripProvenanceAppendix(text) : null;
 }

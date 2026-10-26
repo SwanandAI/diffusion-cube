@@ -1,10 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { DEFAULT_ROLE_GRANTED_FLAG, isAdmin, type Role } from '@/lib/roles';
+import { isAdmin, type Role } from '@/lib/roles';
 import { approveContributor, revokeContributor } from '@/lib/contributor-registration-server';
 
 import { withErrorHandling } from '@/lib/errors';
-const VALID_ROLES: Role[] = ['general_user', 'adopter', 'pathway_contributor', 'admin'];
+// 'adopter' isn't here: every account holds it from signup (migration 0039)
+// and it isn't something an admin grants or removes.
+const VALID_ROLES: Role[] = ['pathway_contributor', 'admin'];
 
 async function handlePOST(req: Request) {
   // Never trust the client on this — re-check against the caller's own
@@ -44,16 +46,6 @@ async function handlePOST(req: Request) {
     if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
   } else {
     const { error } = await admin.from('user_roles').delete().eq('user_id', user_id).eq('role', role);
-    if (error) return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  // Any removal settles the one-time default grant, so the user can't get
-  // 'adopter' back by calling /api/auth/grant-default-role (which it would
-  // otherwise do for an account granted before that flag existed).
-  if (action === 'remove') {
-    const { error } = await admin.auth.admin.updateUserById(user_id, {
-      app_metadata: { [DEFAULT_ROLE_GRANTED_FLAG]: true },
-    });
     if (error) return Response.json({ error: error.message }, { status: 500 });
   }
 

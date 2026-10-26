@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import type { Role } from '@/lib/roles';
-import { useConfirm } from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 import Pagination, { usePagination } from '@/components/Pagination';
 
@@ -16,9 +15,9 @@ export interface AdminUserRow {
 
 const PAGE_SIZE = 20;
 
+// Only the roles an admin grants. 'adopter' isn't a column: every account
+// holds it from signup (migration 0039).
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
-  { value: 'general_user', label: 'General User' },
-  { value: 'adopter', label: 'Adopter' },
   { value: 'pathway_contributor', label: 'Pathway Contributor' },
   { value: 'admin', label: 'Admin' },
 ];
@@ -27,7 +26,6 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const q = query.trim().toLowerCase();
   const filteredRows = q
@@ -58,40 +56,12 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
     }
   }
 
-  async function reject(userId: string) {
-    const ok = await confirm({
-      title: 'Reject this signup?',
-      message: "The account will be permanently deleted. They can sign up again with the same email. This can't be undone.",
-      confirmLabel: 'Reject and delete',
-      danger: true,
-    });
-    if (!ok) return;
-    setPending(`${userId}:reject`);
-    try {
-      const res = await fetch('/api/admin/reject', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        showToast(data.error ?? 'Could not reject that account. Please try again.', 'error');
-        return;
-      }
-      setRows((prev) => prev.filter((r) => r.id !== userId));
-      showToast('Signup rejected and account deleted.');
-    } finally {
-      setPending(null);
-    }
-  }
-
   if (rows.length === 0) {
     return <p className="text-sm text-ink-soft">No users yet.</p>;
   }
 
   return (
     <div>
-      {confirmDialog}
       <input
         type="search"
         value={query}
@@ -117,14 +87,12 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
                     {r.label}
                   </th>
                 ))}
-                <th className="py-2" />
               </tr>
             </thead>
             <tbody>
               {pageItems.map((row) => {
-                const isPendingRow = row.roles.length === 0;
                 return (
-                  <tr key={row.id} className={`border-b border-navy/5 ${isPendingRow ? 'bg-yellow-soft' : ''}`}>
+                  <tr key={row.id} className="border-b border-navy/5">
                     <td className="py-2 pr-4">{row.name || '—'}</td>
                     <td className="py-2 pr-4">{row.email}</td>
                     <td className="py-2 pr-4">{row.organization || '—'}</td>
@@ -142,17 +110,6 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
                         </td>
                       );
                     })}
-                    <td className="py-2">
-                      {isPendingRow && (
-                        <button
-                          onClick={() => reject(row.id)}
-                          disabled={pending === `${row.id}:reject`}
-                          className="text-xs text-coral border border-coral/40 rounded-lg px-2.5 py-1 hover:bg-coral-soft transition-colors disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 );
               })}

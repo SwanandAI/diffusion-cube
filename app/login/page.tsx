@@ -52,16 +52,6 @@ function safeNextPath(value: string | null): string {
   return value;
 }
 
-// Settles the one-time default 'adopter' grant (see
-// app/api/auth/grant-default-role). Run on every sign-in as well as sign-up,
-// so a grant that failed at sign-up (network blip, tab closed before the
-// call) self-heals on the next sign-in rather than leaving the account on
-// "Awaiting approval". The route is a no-op once the grant is settled, and
-// never re-grants a role an admin removed. Never blocks navigation.
-async function settleDefaultRole() {
-  await fetch('/api/auth/grant-default-role', { method: 'POST' }).catch(() => {});
-}
-
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -168,7 +158,6 @@ function LoginForm() {
       return;
     }
 
-    await settleDefaultRole();
     showToast('Signed in successfully.');
     router.replace(next);
     router.refresh();
@@ -230,16 +219,10 @@ function LoginForm() {
   }
 
   async function completeSignup() {
-    // Grant the adopter role now that there's a verified session, so the
-    // account can use Analyse without an admin approval step. A failure here
-    // is non-fatal — the user still ends up on /explore (which needs no
-    // role), and the grant is retried on their next sign-in.
-    await settleDefaultRole();
-
-    // A fresh signup always lands on /explore — it's open with no approval
-    // needed, so it's the one place a pending account has something to do
-    // while waiting, rather than landing back on whatever gated page sent
-    // them here (see `next`, which sign-IN above still honors).
+    // No role grant here: the account got 'adopter' when it was created
+    // (migration 0039). A fresh signup always lands on /explore rather than
+    // whatever gated page sent them here (see `next`, which sign-IN above
+    // still honors).
     showToast('Account created successfully. Welcome to Diffusion Cube!');
     router.replace('/explore');
     router.refresh();
@@ -305,7 +288,6 @@ function LoginForm() {
       return;
     }
 
-    await settleDefaultRole();
     showToast("Password updated successfully. You're signed in.");
     router.replace(next);
     router.refresh();

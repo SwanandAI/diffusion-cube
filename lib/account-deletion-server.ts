@@ -1,7 +1,6 @@
-// Server-only — uses the service-role client. Shared by self-serve deletion
-// (app/api/account/delete) and an admin rejecting a pending signup
-// (app/api/admin/reject), so both take the same cleanup path rather than the
-// admin route calling deleteUser bare and leaving draft asset files behind.
+// Server-only — uses the service-role client. Used by self-serve deletion
+// (app/api/account/delete); does the full cleanup rather than calling
+// deleteUser bare and leaving draft asset files behind.
 
 import { createAdminClient } from '@/lib/supabase/admin';
 import { removeAssetObjects } from '@/lib/toolkit-assets-server';

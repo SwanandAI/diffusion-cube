@@ -101,8 +101,7 @@ export default async function AdminPage() {
       name: (u.user_metadata?.name as string) ?? '',
       organization: (u.user_metadata?.organization as string) ?? '',
       roles: rolesByUser.get(u.id) ?? [],
-    }))
-    .sort((a, b) => a.roles.length - b.roles.length);
+    }));
 
   return (
     <div className="min-h-screen bg-paper text-ink p-4 sm:p-8">
@@ -111,7 +110,7 @@ export default async function AdminPage() {
           ← Back
         </Link>
         <h1 className="font-display text-2xl font-medium text-navy mt-2 mb-1">Admin</h1>
-        <p className="text-sm text-ink-soft mb-2">Approve signups and manage roles.</p>
+        <p className="text-sm text-ink-soft mb-2">Manage contributor and admin roles. Every account is an Adopter from signup.</p>
         <div className="mb-6 flex flex-wrap gap-3">
           <Link
             href="/admin/usage"
