@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { hasAnyRole, hasRole } from '@/lib/roles'
+import { hasRole, isAdmin } from '@/lib/roles'
 import { isReservedPathwaySlug } from '@/lib/wiki-loader'
 
 import { withErrorHandling } from '@/lib/errors'
+// Always a valid slug (isValidSlug) — assemble refuses anything else, so a
+// pathway created with one could never be published. Hyphens are trimmed after
+// the 80-char cut; a title with no ASCII letters or digits (e.g. Devanagari)
+// falls back to 'pathway', which uniqueSlug suffixes as needed.
 function slugify(title: string): string {
-  return title
+  const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 80)
+    .replace(/^-+|-+$/g, '')
+  return slug || 'pathway'
 }
 
 // Taken means another pathway has it, or it's reserved by the curated corpus
@@ -36,15 +42,22 @@ async function uniqueSlug(base: string): Promise<string> {
   }
 }
 
-/** List all pathways. Any approved user can browse them for the selector. */
+/**
+ * List every pathway for the contributor's selector (join an existing one, or
+ * spot a duplicate before creating). Contributors and admins only — and
+ * listing columns only, never content_cache: the pathways table's own RLS
+ * (migration 0040) lets a user read just the pathways they contribute to, so
+ * the full list is read here with the service role.
+ */
 async function handleGET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !(await hasAnyRole(supabase))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!(await hasRole(supabase, 'pathway_contributor')) && !(await isAdmin(supabase, user.email))) {
+    return NextResponse.json({ error: 'Contributor role required' }, { status: 403 })
   }
 
-  const { data: pathways, error } = await supabase
+  const { data: pathways, error } = await createAdminClient()
     .from('pathways')
     .select('id, slug, title, sector, description, created_at, review_requested')
     .order('created_at', { ascending: false })
@@ -95,10 +108,13 @@ async function handlePOST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}))
-  const { title, sector, description } = body as { title?: string; sector?: string; description?: string }
-  if (!title?.trim()) return NextResponse.json({ error: 'title required' }, { status: 400 })
-  if (!sector?.trim()) return NextResponse.json({ error: 'sector required' }, { status: 400 })
-  if (!description?.trim()) return NextResponse.json({ error: 'description required' }, { status: 400 })
+  const { title, sector, description } = body as { title?: unknown; sector?: unknown; description?: unknown }
+  // A non-string (e.g. a number) is as missing as an absent field.
+  if (typeof title !== 'string' || !title.trim()) return NextResponse.json({ error: 'title required' }, { status: 400 })
+  if (typeof sector !== 'string' || !sector.trim()) return NextResponse.json({ error: 'sector required' }, { status: 400 })
+  if (typeof description !== 'string' || !description.trim()) {
+    return NextResponse.json({ error: 'description required' }, { status: 400 })
+  }
 
   const slug = await uniqueSlug(slugify(title.trim()))
   const admin = createAdminClient()

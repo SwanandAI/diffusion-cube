@@ -13,8 +13,10 @@ async function handlePOST(req: Request) {
     return Response.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
   }
 
+  // Counted in UTF-8 bytes: raw.length counts UTF-16 characters, which would
+  // let ~48KB of multi-byte text through a 16KB cap.
   const raw = await req.text();
-  if (raw.length > MAX_BODY_BYTES) {
+  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) {
     return Response.json({ error: 'Report too large.' }, { status: 400 });
   }
 
@@ -22,6 +24,11 @@ async function handlePOST(req: Request) {
   try {
     body = JSON.parse(raw);
   } catch {
+    return Response.json({ error: 'Invalid report.' }, { status: 400 });
+  }
+  // Valid JSON that isn't an object (null, a number, an array) is just as
+  // malformed a report.
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return Response.json({ error: 'Invalid report.' }, { status: 400 });
   }
   const message = typeof body.message === 'string' ? body.message : '';

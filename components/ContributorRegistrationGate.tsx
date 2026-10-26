@@ -8,6 +8,7 @@ import {
   type SharingLevel,
 } from '@/lib/contributor-registration';
 import OrganisationInput from '@/components/OrganisationInput';
+import Select from '@/components/Select';
 import { TERMS_PATH, legalHref } from '@/lib/legal';
 
 // "Before you contribute to the Cube: Declaration and Terms" — T&C doc, Tab 4.
@@ -190,16 +191,13 @@ export default function ContributorRegistrationGate({
               <label htmlFor="pathwayRole" className={labelClass}>
                 Organisation&apos;s role in this pathway
               </label>
-              <select
+              <Select
                 id="pathwayRole"
                 value={pathwayRole}
-                onChange={(e) => setPathwayRole(e.target.value)}
+                onChange={setPathwayRole}
+                options={PATHWAY_ROLES.map((r) => ({ value: r, label: r }))}
                 className={inputClass}
-              >
-                {PATHWAY_ROLES.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
+              />
             </div>
 
             <div className="flex flex-col gap-1.5">

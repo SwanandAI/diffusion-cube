@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import WikiMarkdown from '@/components/WikiMarkdown';
 import PathwayFrontmatterBlock from '@/components/PathwayFrontmatterBlock';
-import { createClient } from '@/lib/supabase/client';
 import { stripFrontmatter, parseFrontmatter } from '@/lib/strip-frontmatter';
 import type { AdminPathwayRow, AdminToolkitAsset } from '@/components/AdminPathwaysPanel';
 import { assetIdsInDocument } from '@/lib/toolkit-assets';
@@ -66,14 +65,14 @@ export default function AdminPathwayRowCard({ row, isPending, onPublish, onRemov
     setExpanded(true);
     if (docContent !== null) return; // already fetched
     setDocLoading(true);
+    // Through the admin route, not the browser client: the pathways RLS can't
+    // see ADMIN_EMAILS-only admins (app/api/admin/pathways/document).
     try {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('pathways')
-        .select('content_cache')
-        .eq('id', row.id)
-        .maybeSingle();
-      setDocContent(data?.content_cache ?? '');
+      const res = await fetch(`/api/admin/pathways/document?pathway_id=${encodeURIComponent(row.id)}`);
+      const data = await res.json().catch(() => ({}));
+      setDocContent(res.ok && typeof data.content === 'string' ? data.content : '');
+    } catch {
+      setDocContent('');
     } finally {
       setDocLoading(false);
     }

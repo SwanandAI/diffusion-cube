@@ -36,10 +36,12 @@ export interface WikiPathwaySummary {
   contributor?: string;
 }
 
-// Parses the pathways index's grouped bullet list:
+// The curated corpus — parses the pathways index's grouped bullet list:
 // # Category
 // * [Title](slug.md) - description.
-async function listStaticPathways(): Promise<WikiPathwaySummary[]> {
+// Also used by /api/pathways/check-similar, so a new pathway that repeats a
+// curated one is caught too.
+export async function listStaticPathways(): Promise<WikiPathwaySummary[]> {
   const index = await readSource(path.join(WIKI_PATH, 'pathways', 'index.md'));
   if (!index) return [];
 

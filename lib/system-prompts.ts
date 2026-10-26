@@ -269,9 +269,12 @@ hypothesis, biggestRisk, confidence, decision, and conversationMode are your own
 // Dimensions absent from all three arrays are computed as Unknown here
 // rather than stored — see the CubeAssessment type above.
 function renderCubeAssessment(assessment: CubeAssessment | undefined): string {
-  const covered = assessment?.coveredDimensions ?? [];
-  const partial = assessment?.partialDimensions ?? [];
-  const missing = assessment?.missingDimensions ?? [];
+  // Arrays are checked, not trusted: meta comes back from the client and may
+  // have been saved from a malformed reply before parseGridUpdate shaped it.
+  const list = (value: unknown) => (Array.isArray(value) ? value : []);
+  const covered = list(assessment?.coveredDimensions);
+  const partial = list(assessment?.partialDimensions);
+  const missing = list(assessment?.missingDimensions);
   const bucketed = new Set([...covered, ...partial, ...missing]);
   const unknown = DIMENSIONS.map((d) => d.name).filter((name) => !bucketed.has(name));
 

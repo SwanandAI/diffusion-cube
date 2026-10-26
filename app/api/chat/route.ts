@@ -109,6 +109,46 @@ function isValidMessages(messages: unknown): boolean {
   );
 }
 
+// Anthropic's own request-size limit — a bigger body would be refused there
+// anyway. Attached images ride in the messages as base64, so this is the cap
+// that bounds them.
+const MAX_BODY_CHARS = 32 * 1024 * 1024;
+
+// The text a request adds to the prompt (messages, grid, meta and the
+// published doc). ~200k tokens, the model's whole context window — the system
+// prompt takes part of that too, so a request past this could never succeed,
+// and is refused before it costs a Claude call.
+const MAX_TEXT_CHARS = 800_000;
+
+function requestTextChars(messages: { content: unknown }[], grid: unknown, meta: unknown, doc: unknown): number {
+  let chars = 0;
+  for (const { content } of messages) {
+    if (typeof content === 'string') {
+      chars += content.length;
+    } else if (Array.isArray(content)) {
+      for (const block of content) {
+        if (typeof block?.text === 'string') chars += block.text.length;
+      }
+    }
+  }
+  chars += JSON.stringify(grid ?? null).length + JSON.stringify(meta ?? null).length;
+  return chars + (typeof doc === 'string' ? doc.length : 0);
+}
+
+function parseJson(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// grid and meta are optional, but when sent they must be plain objects — the
+// prompt builders read fields off them.
+function isOptionalObject(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'object' && !Array.isArray(value));
+}
+
 async function handlePOST(req: Request) {
   const supabase = await createClient();
   const {
@@ -126,9 +166,14 @@ async function handlePOST(req: Request) {
     return Response.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
   }
 
+  const raw = await req.text();
+  if (raw.length > MAX_BODY_CHARS) {
+    return Response.json({ error: 'This request is too large.' }, { status: 413 });
+  }
+
   // A body that isn't a JSON object is the caller's mistake, not a server
   // failure.
-  const body = await req.json().catch(() => null);
+  const body = parseJson(raw);
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return Response.json({ error: 'Invalid request.' }, { status: 400 });
   }
@@ -144,8 +189,8 @@ async function handlePOST(req: Request) {
     return Response.json({ error: 'Invalid request.' }, { status: 400 });
   }
 
-  // The whole app is the companion now — access requires an approved account
-  // (any role at all; "pending" is zero roles) — except 'library' (/explore),
+  // The whole app is the companion now — access requires a signed-in account
+  // (every account holds 'adopter' from signup) — except 'library' (/explore),
   // which is deliberately open with no login or registration at all. proxy.ts
   // lets /api/chat through without a session for that reason; this is the
   // real enforcement for the model-calling surface. The role must also match
@@ -160,8 +205,11 @@ async function handlePOST(req: Request) {
     if (!roles.has(required.role)) {
       return Response.json({ error: required.message }, { status: 403 });
     }
-    if (!isValidMessages(messages)) {
+    if (!isValidMessages(messages) || !isOptionalObject(grid) || !isOptionalObject(meta)) {
       return Response.json({ error: 'Invalid request.' }, { status: 400 });
+    }
+    if (requestTextChars(messages, grid, meta, existingPublishedDoc) > MAX_TEXT_CHARS) {
+      return Response.json({ error: 'This conversation is too long to send in one request.' }, { status: 413 });
     }
   }
 
@@ -204,11 +252,12 @@ async function handlePOST(req: Request) {
       if (!isValidSlug(pathwayId)) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
       let document = await readLibraryPathwayDocument(pathwayId);
       if (!document) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('published_pathways')
           .select('content, created_at')
           .eq('slug', pathwayId)
           .maybeSingle();
+        if (error) throw error;
         // Same date line the explorer corpus carries, so the library
         // prompt's dates rule has something to read when the community
         // pathway's own frontmatter has no timestamp.

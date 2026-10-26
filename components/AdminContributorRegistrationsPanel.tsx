@@ -28,12 +28,14 @@ export default function AdminContributorRegistrationsPanel({
   initialRows: AdminContributorRegistrationRow[];
 }) {
   const [rows, setRows] = useState(initialRows);
-  const [pending, setPending] = useState<string | null>(null);
+  // Which row is busy and with which action, so only the clicked button's
+  // label changes.
+  const [pending, setPending] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { pageItems, setPage, ...pagination } = usePagination(rows, PAGE_SIZE);
 
   async function act(id: string, action: 'approve' | 'reject') {
-    setPending(id);
+    setPending({ id, action });
     setError(null);
     try {
       const res = await fetch(`/api/admin/contributor-registrations/${action}`, {
@@ -49,6 +51,9 @@ export default function AdminContributorRegistrationsPanel({
       setRows((prev) =>
         prev.map((r) => (r.id === id ? { ...r, accessStatus: action === 'approve' ? 'approved' : 'rejected' } : r))
       );
+    } catch {
+      // fetch itself failed (offline, DNS) — no response to read an error from.
+      setError(`Could not ${action} this registration. Check your connection and try again.`);
     } finally {
       setPending(null);
     }
@@ -92,19 +97,19 @@ export default function AdminContributorRegistrationsPanel({
                   <button
                     type="button"
                     onClick={() => act(row.id, 'reject')}
-                    disabled={pending === row.id}
+                    disabled={pending?.id === row.id}
                     className="rounded-lg border border-coral/30 px-2.5 py-1 text-xs font-medium text-coral transition hover:bg-coral hover:text-white disabled:opacity-50"
                   >
-                    Reject
+                    {pending?.id === row.id && pending.action === 'reject' ? 'Rejecting…' : 'Reject'}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => act(row.id, 'approve')}
-                  disabled={pending === row.id}
+                  disabled={pending?.id === row.id}
                   className="rounded-lg bg-navy px-2.5 py-1 text-xs font-medium text-white transition hover:bg-coral disabled:opacity-50"
                 >
-                  {pending === row.id ? 'Approving…' : 'Approve'}
+                  {pending?.id === row.id && pending.action === 'approve' ? 'Approving…' : 'Approve'}
                 </button>
               </div>
             )}

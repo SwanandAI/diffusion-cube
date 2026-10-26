@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import WikiMarkdown from '@/components/WikiMarkdown';
 import ToolkitAssetStatusList from '@/components/ToolkitAssetStatusList';
 import PathwayFrontmatterBlock from '@/components/PathwayFrontmatterBlock';
+import Select from '@/components/Select';
 import type { VersionOption } from '@/components/AdoptionPlanModal';
 import { downloadPlanAsPdf } from '@/lib/adoption-plan-pdf';
 import { stripFrontmatter, parseFrontmatter } from '@/lib/strip-frontmatter';
@@ -65,7 +66,10 @@ export default function PathwayDocumentPane({
   const fm = markdown ? parseFrontmatter(markdown) : null;
 
   function handleDownloadPdf() {
-    const safeName = (deploymentName || 'pathway').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    // Edge hyphens trimmed so a name ending in punctuation ("Kisan Voice!")
+    // doesn't give a double hyphen before the suffix.
+    const safeName =
+      (deploymentName || '').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'pathway';
     downloadPlanAsPdf(markdown, `${safeName}-pathway.pdf`);
   }
 
@@ -92,24 +96,24 @@ export default function PathwayDocumentPane({
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
           {versions.length > 0 && (
-            <select
-              value={selectedVersionNumber ?? latestVersionNumber}
-              onChange={(e) => onSelectVersion(Number(e.target.value))}
-              className="rounded-lg border border-navy/15 bg-white px-2 py-1.5 text-xs text-ink"
+            <Select
+              value={String(selectedVersionNumber ?? latestVersionNumber)}
+              onChange={(v) => onSelectVersion(Number(v))}
               aria-label="Select version"
-            >
-              {versions.map((v) => (
-                <option key={v.version_number} value={v.version_number}>
-                  v0.{v.version_number}
-                  {v.version_number === latestVersionNumber
+              align="right"
+              menuClassName="text-xs"
+              className="rounded-lg border border-navy/15 px-2 py-1.5 text-xs text-ink"
+              options={versions.map((v) => ({
+                value: String(v.version_number),
+                label: `v0.${v.version_number}${
+                  v.version_number === latestVersionNumber
                     ? ' (latest)'
                     : v.version_number === publishedVersionNumber
                       ? ' (published)'
-                      : ''}{' '}
-                  — {new Date(v.created_at).toLocaleString()}
-                </option>
-              ))}
-            </select>
+                      : ''
+                } — ${new Date(v.created_at).toLocaleString()}`,
+              }))}
+            />
           )}
           <button onClick={onClose} aria-label="Close" className="px-1 text-lg leading-none text-ink-soft transition hover:text-navy">
             ×
