@@ -2,6 +2,8 @@ import path from 'path';
 import { createClient } from '@/lib/supabase/server';
 import { readStaticFile } from '@/lib/static-content';
 import { stripFrontmatter } from '@/lib/strip-frontmatter';
+import { isValidSlug } from '@/lib/slug';
+import { curatedPathwaySlugs } from '@/lib/wiki-loader';
 
 // Reads the same in-repo corpus lib/wiki-loader.ts injects into prompts, but
 // for on-demand browsing in the app UI — separate concerns: wiki-loader.ts
@@ -138,7 +140,14 @@ export interface WikiPathwayContent {
 }
 
 export async function getWikiPathway(slug: string): Promise<WikiPathwayContent | null> {
-  const raw = await readSource(path.join(WIKI_PATH, 'pathways', `${slug}.md`));
+  // The slug comes from the URL and becomes a file path — only a real slug
+  // shape gets that far, never "../../x".
+  if (!isValidSlug(slug)) return null;
+  // Only a curated file is read from disk; an assembled-but-unpublished draft
+  // in the same folder is not public (see curatedPathwaySlugs).
+  const raw = (await curatedPathwaySlugs()).has(slug)
+    ? await readSource(path.join(WIKI_PATH, 'pathways', `${slug}.md`))
+    : '';
   if (raw) {
     const titleMatch = raw.match(/^title:\s*(.+)$/m);
     return {

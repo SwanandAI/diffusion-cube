@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { hasAnyRole, hasRole } from '@/lib/roles'
 import { ghReadFile, ghWriteFile } from '@/lib/github'
 import { isValidSlug } from '@/lib/slug'
+import { isReservedPathwaySlug } from '@/lib/wiki-loader'
 import { applyToolkitAssetFiles } from '@/lib/toolkit-assets'
 import { loadPathwayToolkitAssets, toBlockEntry } from '@/lib/toolkit-assets-server'
 
@@ -77,6 +78,13 @@ async function handlePOST(req: NextRequest) {
   if (!isValidSlug(pathway.slug)) {
     console.error('[assemble] refusing invalid pathway slug:', pathway.slug)
     return NextResponse.json({ error: 'This pathway has an invalid slug and cannot be published.' }, { status: 400 })
+  }
+  // New pathways can't take a curated slug (uniqueSlug in
+  // app/api/pathways/route.ts), but a row created before that rule, or
+  // inserted any other way, must still never overwrite a curated file.
+  if (await isReservedPathwaySlug(pathway.slug)) {
+    console.error('[assemble] refusing reserved pathway slug:', pathway.slug)
+    return NextResponse.json({ error: 'This pathway shares its name with a curated pathway and cannot be published.' }, { status: 409 })
   }
 
   // Drafts are versioned (every generate/revise appends a row — see

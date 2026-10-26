@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hasAnyRole, hasRole } from '@/lib/roles'
+import { isReservedPathwaySlug } from '@/lib/wiki-loader'
 
 import { withErrorHandling } from '@/lib/errors'
 function slugify(title: string): string {
@@ -14,17 +15,22 @@ function slugify(title: string): string {
     .slice(0, 80)
 }
 
+// Taken means another pathway has it, or it's reserved by the curated corpus
+// (isReservedPathwaySlug) — assemble commits to content/wiki/pathways/<slug>.md,
+// so a "Blue Dots" or "Index" pathway would otherwise overwrite that file.
 async function uniqueSlug(base: string): Promise<string> {
   const admin = createAdminClient()
   let candidate = base
   let suffix = 0
   while (true) {
-    const { data } = await admin
-      .from('pathways')
-      .select('id')
-      .eq('slug', candidate)
-      .maybeSingle()
-    if (!data) return candidate
+    if (!(await isReservedPathwaySlug(candidate))) {
+      const { data } = await admin
+        .from('pathways')
+        .select('id')
+        .eq('slug', candidate)
+        .maybeSingle()
+      if (!data) return candidate
+    }
     suffix++
     candidate = `${base}-${suffix}`
   }

@@ -1,6 +1,6 @@
 # Spec: System Error Handling, Usage Monitoring and Technical Cleanup
 
-Status: **Code complete (21/21). Done: MLC-01, 02, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21. Code done, browser checks open: MLC-03, 04. Migrations 0035–0038 applied to dev. Next: owner browser checks, live deploy steps, commit/PR.** · Updated: 2026-10-21 · Owner: Anurag Goutam · Branch: `monitoring-logging-cleanup`
+Status: **Code complete (21/21). Done: MLC-01, 02, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21. Code done, browser checks open: MLC-03, 04. Migrations 0035–0038 applied to dev. Next: owner browser checks, live deploy steps, commit/PR.** · Updated: 2026-10-22 (audit High findings H1–H4 fixed, see §4) · Owner: Anurag Goutam · Branch: `monitoring-logging-cleanup`
 
 Planning artifacts are in [`docs/features/monitoring-logging-cleanup/`](../docs/features/monitoring-logging-cleanup/):
 - [requirement](../docs/features/monitoring-logging-cleanup/requirement_monitoring_logging_cleanup.md)
@@ -615,3 +615,50 @@ This spec records **what has actually been done**. The progress log (§4) is upd
   - **Page not-found:** the requirement says it is recorded as expected; the code doesn't record it.
   - **Proxy 401:** architecture Q6 says every 4xx is recorded; the proxy's 401 for signed-out `/api/*` calls isn't.
   - **429 in the plan:** the classification table doesn't note that 429 is unrecorded, but the requirement and the code agree it isn't recorded.
+
+### 2026-10-22: Audit High findings fixed (H1–H4)
+- **Why:** the full-codebase audit (`docs/audits/2026-10-22/`) raised four High findings. Two of them (H3, H4) are gaps in this branch's own rate-limit and error-logging work.
+- **What was done:**
+  - **H1 — new pathways can't take a curated slug:**
+    - **The rule:** `isReservedPathwaySlug()` (new, `lib/wiki-loader.ts`) treats every slug `content/wiki/pathways/index.md` lists, plus `index` itself, as taken.
+    - **Where it applies:**
+      - `uniqueSlug` in `app/api/pathways/route.ts` skips reserved slugs. "Blue Dots" becomes `blue-dots-1` and "Index" becomes `index-1`.
+      - `assemble` refuses a reserved slug with 409 before any GitHub write. This covers rows created before the rule.
+  - **H2 — assembled drafts are not served:**
+    - `curatedPathwaySlugs()` (new, `lib/wiki-loader.ts`) is the curated corpus, i.e. what `index.md` lists.
+    - `readLibraryPathwayDocument` (the /explore chat) and `getWikiPathway` (`/wiki/[slug]`) now read a static file only for a curated slug. Anything else falls back to `published_pathways`, so an assembled-but-unpublished file in the folder is no longer public. This matches the documented rule that assemble does not make a pathway visible.
+    - `getWikiPathway` also now refuses a slug that fails `isValidSlug` (the audit's Medium path-traversal finding at the same spot).
+    - `content/wiki/pathways/test-assets-langchat.md` stays in the repo but is no longer served from disk. On dev it is published, so it is served from the DB copy.
+  - **H3 — sys_errors can't be flooded:**
+    - **`/api/chat`:** the rate limit now runs first, before the body is parsed. A body that isn't a JSON object returns 400 `Invalid request.` instead of 500.
+    - **`withErrorHandling` (`lib/errors.ts`):** an anonymous caller's 4xx is recorded only while their IP is within a new `anon-error` allowance (EXPLORE_RATE_LIMIT_* values, 20/min, 200/day). The response itself is unchanged. 5xx errors and signed-in 4xx are always recorded.
+    - `lib/rate-limit.ts` is loaded with a dynamic import, because rate-limit records its own failures through errors.ts.
+  - **H4 — Claude spend is bounded per account and gated by role:**
+    - **Rate limits:** signed-in `/api/chat` callers are rate-limited per account (new `chat-user` scope keyed on the user id; `CHAT_USER_RATE_LIMIT_PER_MIN`/`_PER_DAY`, defaults 30/300). Anonymous callers stay per IP on the `explore` allowance.
+    - **Role gates** (`requiredRole`, via the new `currentRoles()` in `lib/roles.ts`, one query):
+      - `pathway-draft`, `asset-reuse`, and `companion`/`extract-insights` with `flow: 'contributor'` need `pathway_contributor`.
+      - Everything else needs `adopter`. That includes `analysis-doc`, `executive-summary`, and a companion call with a missing or unknown flow, which closes the CH-07 gap.
+    - **Message checks:** every non-library mode now needs a non-empty array of user/assistant turns, at most 500 (`isValidMessages`). Anything else returns 400 before any Claude call.
+  - **`lib/rate-limit.ts`:** limits are now set per scope (the `LIMITS` table), and `checkRateLimit(req, scope, subject?)` takes an optional subject.
+  - **`.env.example`:** added `CHAT_USER_RATE_LIMIT_PER_MIN`/`_PER_DAY`, and rewrote the rate-limit comment.
+- **Verified:**
+  - **Static checks:**
+    - `tsc --noEmit`: exit 0.
+    - `eslint .`: the same 11 problems as before (3 errors, 8 warnings, all of them existing ones). Nothing new.
+  - **Live, on the local dev server against DEV Supabase (`pcpdgu…`), with no Claude calls:**
+    - `library` with `pathwayId` `community-health` / `citizen-help` (assembled files, unpublished) → 404. `index` → 404.
+    - Malformed JSON → 400; a `null` body → 400. Both were 500 before.
+    - An anonymous companion call → 403.
+    - 22 unknown-mode requests from one IP → 20×400, then 429×2.
+    - 25 anonymous 404s on `/api/toolkit-assets/<uuid>/download` from one IP → still 25×404, but only **20** `sys_errors` rows (2 → 22).
+  - **Unit, in-process (vitest, from the scratchpad — not committed):**
+    - The 16 new tests pass: curated set = the 8 index entries; reserved slugs; library and `/wiki` read curated files only and fall back to the DB; traversal is rejected; POST `/api/pathways` gives `blue-dots-1` / `index-1`; chat applies the limiter before parsing (both scopes); every role and flow combination; message-shape caps (500 OK, 501 rejected); the anonymous-4xx recording throttle.
+    - The QA suite's Supabase mock was made awaitable, like the real builder. With that, CH-07, CH-08, CH-09 and CH-11 pass.
+    - The remaining 25 failures are the audit's known Medium/Low defects, not regressions. SL-08 still fails because it tests `slugify` alone, not `uniqueSlug`.
+- **Not verified:**
+  - Signed-in role gates and the per-account limit against the real dev server (no test accounts). They are covered only by in-process tests.
+  - Assemble's 409 with a real GitHub write.
+- **Open:**
+  - **Rate limits:** the `chat-user` defaults (30/300) are a judgement call; tune them with real usage. The per-IP limiter still trusts the first X-Forwarded-For hop (audit Medium), which matters on the Docker/AWS path.
+  - **Payload size:** no cap per message or on the total payload yet; attachments make the legitimate size unclear.
+  - **Wiki:** `api-specification.md`, `configuration.md` and `business-rules.md` need a refresh for the new limits, role gates and curated-only serving.

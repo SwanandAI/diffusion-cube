@@ -14,7 +14,7 @@ import {
   LIBRARY_KICKOFF_PROMPT,
 } from '@/lib/system-prompts';
 import { createClient } from '@/lib/supabase/server';
-import { hasAnyRole, hasRole } from '@/lib/roles';
+import { currentRoles, type Role } from '@/lib/roles';
 import { EMPTY_GRID } from '@/lib/dimensions';
 import { parseGridUpdate } from '@/lib/grid-update';
 import { isValidSlug } from '@/lib/slug';
@@ -73,20 +73,73 @@ async function recordStreamUsage(stream: ReturnType<typeof anthropic.messages.st
   }
 }
 
+// The role each non-library mode needs — enforced here, not trusted from the
+// UI. Contributor work needs pathway_contributor, Explorer work adopter.
+// companion and extract-insights serve both flows, so they follow the
+// adoption's flow: anything other than 'contributor' (a missing flow
+// included) runs the Explorer prompt, so it needs adopter.
+function requiredRole(mode: string, flow: unknown): { role: Role; message: string } {
+  const contributorWork =
+    mode === 'pathway-draft' ||
+    mode === 'asset-reuse' ||
+    ((mode === 'companion' || mode === 'extract-insights') && flow === 'contributor');
+  return contributorWork
+    ? { role: 'pathway_contributor', message: 'This needs the Contributor role.' }
+    : { role: 'adopter', message: 'This needs the Adopter role.' };
+}
+
+// A long Contributor conversation stays well under this; it caps what one
+// request can send to Claude.
+const MAX_MESSAGES = 500;
+
+// The shape every non-library mode sends (the library has its own, stricter
+// isValidExploreConversation): a non-empty list of user/assistant turns.
+function isValidMessages(messages: unknown): boolean {
+  return (
+    Array.isArray(messages) &&
+    messages.length > 0 &&
+    messages.length <= MAX_MESSAGES &&
+    messages.every(
+      (m) =>
+        typeof m === 'object' &&
+        m !== null &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        (typeof m.content === 'string' || Array.isArray(m.content))
+    )
+  );
+}
+
 async function handlePOST(req: Request) {
-  const { messages, mode, grid, meta, designId, flow, existingPublishedDoc, pathwayId } = await req.json();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // The rate limit runs before the body is even parsed, so a flood of
+  // malformed or unauthorised requests is capped too — each rejected 4xx is
+  // recorded in sys_errors, a 429 isn't. Signed-in callers are counted per
+  // account (every signup is auto-approved, so this is what caps Claude spend
+  // per person); anonymous ones per IP, on the allowance /explore has always
+  // had.
+  const allowed = user ? await checkRateLimit(req, 'chat-user', user.id) : await checkRateLimit(req, 'explore');
+  if (!allowed) {
+    return Response.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
+  // A body that isn't a JSON object is the caller's mistake, not a server
+  // failure.
+  const body = await req.json().catch(() => null);
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ error: 'Invalid request.' }, { status: 400 });
+  }
+  const { messages, mode, grid, meta, designId, flow, existingPublishedDoc, pathwayId } = body;
 
   if (!MODES.includes(mode)) {
     return Response.json({ error: 'Unknown mode.' }, { status: 400 });
   }
 
-  // 'library' is the one mode open to anonymous callers, so it's limited and
-  // checked before anything else touches the database or Claude. The rate
-  // limit comes first so a flood of malformed requests is capped too — each
-  // rejected 400 is recorded in sys_errors, a 429 isn't.
-  if (mode === 'library' && !(await checkRateLimit(req, 'explore'))) {
-    return Response.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
-  }
+  // 'library' is the one mode open to anonymous callers, so its input is
+  // checked before anything else touches the database or Claude.
   if (mode === 'library' && !isValidExploreConversation(messages)) {
     return Response.json({ error: 'Invalid request.' }, { status: 400 });
   }
@@ -94,26 +147,21 @@ async function handlePOST(req: Request) {
   // The whole app is the companion now — access requires an approved account
   // (any role at all; "pending" is zero roles) — except 'library' (/explore),
   // which is deliberately open with no login or registration at all. proxy.ts
-  // already guarantees a session for every other mode; this is the real
-  // enforcement for the model-calling surface.
-  const supabase = await createClient();
+  // lets /api/chat through without a session for that reason; this is the
+  // real enforcement for the model-calling surface. The role must also match
+  // the mode and flow (requiredRole) — the UI showing a choice is not the
+  // enforcement boundary.
   if (mode !== 'library') {
-    const approved = await hasAnyRole(supabase);
-    if (!approved) {
+    const roles = user ? await currentRoles(supabase) : new Set<Role>();
+    if (roles.size === 0) {
       return Response.json({ error: 'Your account is awaiting approval.' }, { status: 403 });
     }
-  }
-
-  // A companion turn's flow is fixed by the adoption's own meta.flow, chosen
-  // once on the welcome screen — but the UI showing that choice is not the
-  // real enforcement boundary, so re-check it against the caller's actual
-  // roles here (same pattern the old `design` mode used for `adopter`).
-  if (mode === 'companion') {
-    if (flow === 'contributor' && !(await hasRole(supabase, 'pathway_contributor'))) {
-      return Response.json({ error: 'The Contributor flow requires the Contributor role.' }, { status: 403 });
+    const required = requiredRole(mode, flow);
+    if (!roles.has(required.role)) {
+      return Response.json({ error: required.message }, { status: 403 });
     }
-    if (flow === 'explorer' && !(await hasRole(supabase, 'adopter'))) {
-      return Response.json({ error: 'The Explorer flow requires the Adopter role.' }, { status: 403 });
+    if (!isValidMessages(messages)) {
+      return Response.json({ error: 'Invalid request.' }, { status: 400 });
     }
   }
 
@@ -121,9 +169,6 @@ async function handlePOST(req: Request) {
   // "What is it used for?" → the asset's purpose and Section 4 reuse
   // condition, as JSON (see assetReuseSystemPrompt).
   if (mode === 'asset-reuse') {
-    if (!(await hasRole(supabase, 'pathway_contributor'))) {
-      return Response.json({ error: 'Sharing assets requires the Contributor role.' }, { status: 403 });
-    }
     let response: Anthropic.Message;
     try {
       response = await anthropic.messages.create({
@@ -145,10 +190,11 @@ async function handlePOST(req: Request) {
   let apiMessages = messages;
   const generatedAt = new Date().toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
 
-  // The Library (/explore). Static pathways come from the grounding corpus
-  // (content/wiki/pathways/, the same files Analyse uses); published pathways
-  // from published_pathways (Supabase). Both are checked — static first, DB as
-  // fallback — so cards from either source open into a grounded chat. The
+  // The Library (/explore). Static pathways come from the curated grounding
+  // corpus (the files content/wiki/pathways/index.md lists, the same ones
+  // Analyse uses); published pathways from published_pathways (Supabase). Both
+  // are checked — static first, DB as fallback — so cards from either source
+  // open into a grounded chat. The
   // Source Trace appendix is stripped from both (lib/library-documents.ts).
   if (mode === 'library') {
     if (typeof pathwayId === 'string' && pathwayId) {
