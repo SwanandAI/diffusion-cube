@@ -57,6 +57,9 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
       } else {
         showToast('Pathway published successfully.');
       }
+    } catch {
+      // fetch itself failed (offline, DNS) — no response to read an error from.
+      setError('Could not publish pathway. Check your connection and try again.');
     } finally {
       setPending(null);
     }
@@ -86,6 +89,8 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
       }
       setRows((prev) => prev.filter((r) => r.id !== id));
       showToast('Pathway deleted successfully.');
+    } catch {
+      setError('Could not delete pathway. Check your connection and try again.');
     } finally {
       setPending(null);
     }

@@ -25,7 +25,7 @@ export const LEGAL_BACK_TARGETS = {
 export type LegalFrom = keyof typeof LEGAL_BACK_TARGETS;
 
 export function isLegalFrom(value: unknown): value is LegalFrom {
-  return typeof value === 'string' && value in LEGAL_BACK_TARGETS;
+  return typeof value === 'string' && Object.hasOwn(LEGAL_BACK_TARGETS, value);
 }
 
 export function legalHref(path: string, from: LegalFrom): string {

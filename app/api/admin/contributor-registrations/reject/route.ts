@@ -16,7 +16,8 @@ async function handlePOST(req: Request) {
     return Response.json({ error: 'Not authorized.' }, { status: 403 });
   }
 
-  const { registration_id } = await req.json();
+  // Malformed JSON falls through to the 400 below rather than a 500.
+  const { registration_id } = (await req.json().catch(() => null)) ?? {};
   if (typeof registration_id !== 'string') {
     return Response.json({ error: 'Invalid request.' }, { status: 400 });
   }

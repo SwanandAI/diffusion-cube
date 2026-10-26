@@ -174,6 +174,33 @@ function parseToolkitAssetMentions(value: unknown): ToolkitAssetMention[] | unde
   return out.slice(0, 10);
 }
 
+function stringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : undefined;
+}
+
+// meta is carried forward and rendered back into every later prompt, so the
+// parts those prompts iterate over are kept only in the shape they expect —
+// one malformed reply must not break every turn after it.
+function parseMeta(value: unknown): ParsedGridUpdate['meta'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const meta: Record<string, unknown> = { ...value };
+  const assessment = meta.cubeAssessment;
+  if (assessment !== undefined) {
+    if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)) {
+      delete meta.cubeAssessment;
+    } else {
+      const a = assessment as Record<string, unknown>;
+      meta.cubeAssessment = {
+        ...a,
+        coveredDimensions: stringArray(a.coveredDimensions),
+        partialDimensions: stringArray(a.partialDimensions),
+        missingDimensions: stringArray(a.missingDimensions),
+      };
+    }
+  }
+  return meta as ParsedGridUpdate['meta'];
+}
+
 export function parseGridUpdate(text: string): ParsedGridUpdate | null {
   const match = text.match(/<grid_update>([\s\S]*?)<\/grid_update>/);
   if (!match) return null;
@@ -181,7 +208,7 @@ export function parseGridUpdate(text: string): ParsedGridUpdate | null {
     const parsed = JSON.parse(match[1]);
     return {
       cells: parsed.cells ?? {},
-      meta: parsed.meta,
+      meta: parseMeta(parsed.meta),
       pathwaysReferenced: parsed.pathwaysReferenced,
       flowStep: typeof parsed.flowStep === 'number' ? parsed.flowStep : undefined,
       pathwayAction: parsed.pathwayAction,

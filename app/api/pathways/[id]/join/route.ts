@@ -15,8 +15,9 @@ async function handlePOST(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: 'Contributor role required' }, { status: 403 })
   }
 
-  // Verify the pathway exists
-  const { data: pathway } = await supabase
+  // Verify the pathway exists — with the service role, since the caller isn't
+  // a member yet and the pathways RLS (migration 0040) only shows members.
+  const { data: pathway } = await createAdminClient()
     .from('pathways')
     .select('id')
     .eq('id', pathwayId)

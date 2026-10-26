@@ -51,6 +51,9 @@ export default function AdminDashboard({ initialRows }: { initialRows: AdminUser
           r.id === userId ? { ...r, roles: hasIt ? r.roles.filter((x) => x !== role) : [...r.roles, role] } : r
         )
       );
+    } catch {
+      // fetch itself failed (offline, DNS) — the checkbox stays as it was.
+      showToast('Could not update that role. Check your connection and try again.', 'error');
     } finally {
       setPending(null);
     }

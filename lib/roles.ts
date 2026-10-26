@@ -14,8 +14,11 @@ export async function hasRole(supabase: SupabaseClient, role: Role): Promise<boo
 
 // All of the current user's roles in one query (same RLS as hasRole) — for a
 // route that checks several.
+// Throws if the read fails, so a database error surfaces as a 500 rather
+// than being mistaken for an account with no roles.
 export async function currentRoles(supabase: SupabaseClient): Promise<Set<Role>> {
-  const { data } = await supabase.from('user_roles').select('role');
+  const { data, error } = await supabase.from('user_roles').select('role');
+  if (error) throw error;
   return new Set((data ?? []).map((r) => r.role as Role));
 }
 

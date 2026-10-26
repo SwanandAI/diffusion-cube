@@ -129,7 +129,7 @@ function ContributeGridContent() {
 
   // Only pathways this person has actually joined — not the whole corpus.
   // Joining a new one happens through "+ New Contribution" (PathwaySelector),
-  // which browses everything; this grid is just "my contributions."
+  // which browses published pathways; this grid is just "my contributions."
   const myPathways = pathways.filter((p) => p.isContributor);
 
   // All orgs among MY pathways, in first-seen order — drives both the filter

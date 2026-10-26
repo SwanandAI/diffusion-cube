@@ -10,15 +10,22 @@ export interface Organisation {
   url: string | null
 }
 
+// ilike treats % and _ as wildcards and \ as their escape — a name containing
+// them must match literally.
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&')
+}
+
 /** Search by name prefix — used for the autocomplete in OrganisationInput. */
 export async function searchOrganisations(query: string): Promise<Organisation[]> {
   const admin = createAdminClient()
-  const { data } = await admin
+  const { data, error } = await admin
     .from('organisations')
     .select('id, name, canonical_role, url')
-    .ilike('name', `%${query}%`)
+    .ilike('name', `%${escapeLike(query)}%`)
     .order('name', { ascending: true })
     .limit(10)
+  if (error) throw error
   return (data as Organisation[]) ?? []
 }
 
@@ -36,7 +43,7 @@ export async function ensureOrganisation(name: string, canonicalRole?: string, u
   const { data: existing } = await admin
     .from('organisations')
     .select('id')
-    .ilike('name', trimmed)
+    .ilike('name', escapeLike(trimmed))
     .limit(1)
     .maybeSingle()
 

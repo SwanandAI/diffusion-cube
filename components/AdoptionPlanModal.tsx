@@ -34,7 +34,10 @@ export default function AdoptionPlanModal({
   loadingLabel,
 }: Props) {
   function handleDownload() {
-    const safeName = (deploymentName || 'deployment').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    // Edge hyphens trimmed so a name ending in punctuation ("Kisan Voice!")
+    // doesn't give a double hyphen before the suffix.
+    const safeName =
+      (deploymentName || '').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'deployment';
     downloadPlanAsPdf(markdown, `${safeName}-${filenameSuffix}.pdf`);
   }
 
