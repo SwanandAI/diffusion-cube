@@ -68,7 +68,7 @@ describe('AdminPathwaysPanel', () => {
     const user = userEvent.setup();
     render(<AdminPathwaysPanel initialRows={[pathway(1, { reviewRequested: true })]} />);
     await user.click(screen.getByRole('button', { name: 'Publish' }));
-    await waitFor(() => expect(screen.getByText('Published')).toBeInTheDocument());
+    await waitFor(() => expect(within(card('Pathway 1')).getByText('Published')).toBeInTheDocument());
     expect(calls).toEqual([{ url: '/api/admin/pathways/publish', method: 'POST', body: { pathway_id: 'pw-1' } }]);
     expect(screen.queryByText('Awaiting Review')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
@@ -86,7 +86,7 @@ describe('AdminPathwaysPanel', () => {
         'error'
       )
     );
-    expect(screen.getByText('Published')).toBeInTheDocument();
+    expect(within(card('Pathway 1')).getByText('Published')).toBeInTheDocument();
   });
 
   it('shows the server error when publishing fails and keeps the row awaiting', async () => {
@@ -97,6 +97,58 @@ describe('AdminPathwaysPanel', () => {
     expect(await screen.findByText('GitHub commit failed')).toBeInTheDocument();
     expect(screen.getByText('Awaiting Review')).toBeInTheDocument();
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('labels a row that is neither awaiting nor published as Draft', () => {
+    render(<AdminPathwaysPanel initialRows={[pathway(1)]} />);
+    expect(within(card('Pathway 1')).getByText('Draft')).toBeInTheDocument();
+  });
+
+  it('status filter shows per-status counts and narrows the list', async () => {
+    const user = userEvent.setup();
+    render(
+      <AdminPathwaysPanel
+        initialRows={[
+          pathway(1, { reviewRequested: true }),
+          pathway(2, { isPublished: true }),
+          pathway(3, { isPublished: true }),
+          pathway(4),
+        ]}
+      />
+    );
+    const filterButton = (name: RegExp) => screen.getByRole('button', { name });
+    expect(filterButton(/^All \(4\)$/)).toHaveAttribute('aria-pressed', 'true');
+    expect(filterButton(/^Awaiting review \(1\)$/)).toBeInTheDocument();
+    expect(filterButton(/^Published \(2\)$/)).toBeInTheDocument();
+    expect(filterButton(/^Draft \(1\)$/)).toBeInTheDocument();
+
+    await user.click(filterButton(/^Published/));
+    expect(filterButton(/^Published/)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Pathway 2')).toBeInTheDocument();
+    expect(screen.getByText('Pathway 3')).toBeInTheDocument();
+    expect(screen.queryByText('Pathway 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pathway 4')).not.toBeInTheDocument();
+
+    await user.click(filterButton(/^Draft/));
+    expect(screen.getByText('Pathway 4')).toBeInTheDocument();
+    expect(screen.queryByText('Pathway 2')).not.toBeInTheDocument();
+  });
+
+  it('shows an empty message when no pathway matches the filter', async () => {
+    const user = userEvent.setup();
+    render(<AdminPathwaysPanel initialRows={[pathway(1)]} />);
+    await user.click(screen.getByRole('button', { name: /^Published/ }));
+    expect(screen.getByText('No published pathways.')).toBeInTheDocument();
+  });
+
+  it('a published row moves out of the Awaiting review filter', async () => {
+    stubFetch(() => jsonResponse({ ok: true, assetsPublished: true }));
+    const user = userEvent.setup();
+    render(<AdminPathwaysPanel initialRows={[pathway(1, { reviewRequested: true }), pathway(2)]} />);
+    await user.click(screen.getByRole('button', { name: /^Awaiting review/ }));
+    await user.click(screen.getByRole('button', { name: 'Publish' }));
+    expect(await screen.findByText('No awaiting review pathways.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Published \(1\)$/ })).toBeInTheDocument();
   });
 
   it('falls back to a generic publish error for a non-JSON failure', async () => {
@@ -119,7 +171,7 @@ describe('AdminPathwaysPanel', () => {
     await user.click(publishing);
     expect(fn).toHaveBeenCalledTimes(1);
     gate.resolve(jsonResponse({ ok: true }));
-    await waitFor(() => expect(screen.getByText('Published')).toBeInTheDocument());
+    await waitFor(() => expect(within(card('Pathway 1')).getByText('Published')).toBeInTheDocument());
   });
 
   it('delete asks for confirmation first; cancelling sends nothing', async () => {

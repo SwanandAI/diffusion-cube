@@ -82,6 +82,13 @@ describe('AdminPathwayRowCard', () => {
     expect(screen.queryByText('Published')).not.toBeInTheDocument();
   });
 
+  it('a row neither awaiting nor published shows the Draft badge', () => {
+    renderCard({ reviewRequested: false, isPublished: false });
+    expect(screen.getByText('Draft')).toBeInTheDocument();
+    expect(screen.queryByText('Published')).not.toBeInTheDocument();
+    expect(screen.queryByText('Awaiting Review')).not.toBeInTheDocument();
+  });
+
   it('pending: awaiting row labels Publish "Publishing…" and Delete stays "Delete"', () => {
     renderCard({}, true);
     expect(screen.getByRole('button', { name: 'Publishing…' })).toBeDisabled();

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import WikiMarkdown from '@/components/WikiMarkdown';
 import PathwayFrontmatterBlock from '@/components/PathwayFrontmatterBlock';
 import { stripFrontmatter, parseFrontmatter } from '@/lib/strip-frontmatter';
-import type { AdminPathwayRow, AdminToolkitAsset } from '@/components/AdminPathwaysPanel';
+import { pathwayStatus, type AdminPathwayRow, type AdminToolkitAsset } from '@/components/AdminPathwaysPanel';
 import { assetIdsInDocument } from '@/lib/toolkit-assets';
 
 function formatSize(bytes: number | null): string {
@@ -55,7 +55,7 @@ export default function AdminPathwayRowCard({ row, isPending, onPublish, onRemov
   const [docContent, setDocContent] = useState<string | null>(null);
   const [docLoading, setDocLoading] = useState(false);
 
-  const status = row.reviewRequested ? 'awaiting' : row.isPublished ? 'published' : 'draft';
+  const status = pathwayStatus(row);
 
   async function handleToggle() {
     if (expanded) {
@@ -99,6 +99,11 @@ export default function AdminPathwayRowCard({ row, isPending, onPublish, onRemov
               {status === 'awaiting' && (
                 <span className="rounded-full bg-yellow/30 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-navy">
                   Awaiting Review
+                </span>
+              )}
+              {status === 'draft' && (
+                <span className="rounded-full bg-navy/5 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-soft">
+                  Draft
                 </span>
               )}
             </div>
