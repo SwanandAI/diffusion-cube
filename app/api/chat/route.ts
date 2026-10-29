@@ -269,7 +269,8 @@ async function handlePOST(req: Request) {
       const toolkitAssets = await loadPublishedToolkitAssets({ pathwaySlug: pathwayId });
       systemPrompt = libraryPathwaySystemPrompt(document, toolkitAssets);
     } else {
-      systemPrompt = libraryOverviewSystemPrompt(await buildLibraryOverview());
+      const { overview, count } = await buildLibraryOverview();
+      systemPrompt = libraryOverviewSystemPrompt(overview, count);
     }
     // Mirrors the original backend: an empty history means "just opened a
     // pathway," so the model gets a fixed kickoff turn instead — never shown

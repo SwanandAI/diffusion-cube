@@ -64,7 +64,8 @@ describe('libraryDocumentFromPublished', () => {
 
 describe('buildLibraryOverview', () => {
   it('lists each static library card with its frontmatter block when nothing is published', async () => {
-    const overview = await buildLibraryOverview();
+    const { overview, count } = await buildLibraryOverview();
+    expect(count).toBe(libraryPathways.length);
     for (const { id } of libraryPathways) expect(overview).toContain(`[${id}]\n`);
     expect(overview).toContain('[mahavistaar]\ntype: Pathway\ntitle: MahaVISTAAR');
     // Frontmatter only — no document body.
@@ -89,7 +90,9 @@ describe('buildLibraryOverview', () => {
         { slug: 'community-x', title: 'X', description: null, sector: null, stage: null, location: null, tags: [] },
       ],
     });
-    const overview = await buildLibraryOverview();
+    const { overview, count } = await buildLibraryOverview();
+    // mahavistaar is counted once, not as both a static and a published card.
+    expect(count).toBe(libraryPathways.length + 1);
     expect(overview.startsWith('[mahavistaar]\ntitle: MahaVISTAAR (updated)\n')).toBe(true);
     expect(overview).toContain(
       '[mahavistaar]\ntitle: MahaVISTAAR (updated)\ndescription: New desc\nsector: Agriculture\nstage: Scale\nlocation: Maharashtra\ntags: [Voice AI, Agri]'
@@ -101,11 +104,11 @@ describe('buildLibraryOverview', () => {
 
   it('falls back to the static cards when the published query fails', async () => {
     published({ error: { message: 'down' } });
-    const overview = await buildLibraryOverview();
+    const { overview } = await buildLibraryOverview();
     for (const { id } of libraryPathways) expect(overview).toContain(`[${id}]`);
   });
 
   it('never includes a Source Trace appendix', async () => {
-    expect(await buildLibraryOverview()).not.toMatch(/Source Trace/);
+    expect((await buildLibraryOverview()).overview).not.toMatch(/Source Trace/);
   });
 });

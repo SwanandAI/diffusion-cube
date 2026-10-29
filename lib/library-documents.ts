@@ -59,8 +59,10 @@ function formatDbFrontmatter(row: PublishedPathwayRow): string {
 // for the general (no-pathway-selected) system prompt — mirrors the original
 // Diffusion Library backend's build_library_overview(). Covers exactly what
 // the library shows as cards: the static cards (lib/library-pathways.ts)
-// plus published_pathways, DB taking precedence by slug.
-export async function buildLibraryOverview(): Promise<string> {
+// plus published_pathways, DB taking precedence by slug. `count` is the number
+// of entries, stated in the prompt so the model never has to count the list
+// itself (it miscounted: answered 13 for an 11-entry overview).
+export async function buildLibraryOverview(): Promise<{ overview: string; count: number }> {
   const dbResult = await createAdminClient()
     .from('published_pathways')
     .select('slug, title, description, sector, stage, location, tags')
@@ -84,5 +86,6 @@ export async function buildLibraryOverview(): Promise<string> {
 
   const dbSections = dbRows.map((row) => `[${row.slug}]\n${formatDbFrontmatter(row)}`);
 
-  return [...dbSections, ...staticSections.filter((s): s is string => s !== null)].join('\n\n');
+  const sections = [...dbSections, ...staticSections.filter((s): s is string => s !== null)];
+  return { overview: sections.join('\n\n'), count: sections.length };
 }

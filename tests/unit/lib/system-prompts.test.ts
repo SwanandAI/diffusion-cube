@@ -343,9 +343,14 @@ describe('library prompts', () => {
   });
 
   it('libraryOverviewSystemPrompt: grounded in the overview, no grid', () => {
-    const prompt = libraryOverviewSystemPrompt('OVERVIEW-SENTINEL');
+    const prompt = libraryOverviewSystemPrompt('OVERVIEW-SENTINEL', 11);
     expect(prompt).toContain('LIBRARY CONTENTS (pathway id, title, description):\nOVERVIEW-SENTINEL');
     expect(prompt).not.toContain('<grid_update>');
+  });
+
+  it('libraryOverviewSystemPrompt: states the pathway count so the model never counts', () => {
+    expect(libraryOverviewSystemPrompt('X', 11)).toContain('The library holds exactly 11 pathways');
+    expect(libraryOverviewSystemPrompt('X', 1)).toContain('The library holds exactly 1 pathway —');
   });
 
   it('passes document text through verbatim, including tag-like content', () => {
