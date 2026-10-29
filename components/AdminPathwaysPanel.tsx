@@ -33,12 +33,34 @@ export interface AdminToolkitAsset {
   published: boolean;
 }
 
+export type AdminPathwayStatus = 'awaiting' | 'published' | 'draft';
+
+// A pending review outranks an earlier publish: a contributor can send an
+// already-published pathway back for review with new changes.
+export function pathwayStatus(row: AdminPathwayRow): AdminPathwayStatus {
+  return row.reviewRequested ? 'awaiting' : row.isPublished ? 'published' : 'draft';
+}
+
+type StatusFilter = 'all' | AdminPathwayStatus;
+
+const FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'awaiting', label: 'Awaiting review' },
+  { value: 'published', label: 'Published' },
+  { value: 'draft', label: 'Draft' },
+];
+
 export default function AdminPathwaysPanel({ initialRows }: { initialRows: AdminPathwayRow[] }) {
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<StatusFilter>('all');
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const { pageItems, setPage, ...pagination } = usePagination(rows, PAGE_SIZE);
+
+  const counts: Record<StatusFilter, number> = { all: rows.length, awaiting: 0, published: 0, draft: 0 };
+  for (const r of rows) counts[pathwayStatus(r)]++;
+  const filteredRows = filter === 'all' ? rows : rows.filter((r) => pathwayStatus(r) === filter);
+  const { pageItems, setPage, ...pagination } = usePagination(filteredRows, PAGE_SIZE);
 
   async function publish(id: string) {
     setPending(id);
@@ -103,7 +125,32 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
   return (
     <div className="flex flex-col gap-2">
       {confirmDialog}
+      <div className="mb-2 flex flex-wrap gap-2">
+        {FILTERS.map((f) => {
+          const active = filter === f.value;
+          return (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => { setFilter(f.value); setPage(1); }}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                active
+                  ? 'border-navy bg-navy text-white'
+                  : 'border-navy/15 bg-white text-navy hover:border-coral hover:text-coral'
+              }`}
+            >
+              {f.label} <span className={active ? 'text-white/70' : 'text-ink-soft'}>({counts[f.value]})</span>
+            </button>
+          );
+        })}
+      </div>
       {error && <p className="text-xs text-coral mb-1">{error}</p>}
+      {filteredRows.length === 0 && (
+        <p className="text-sm text-ink-soft">
+          No {FILTERS.find((f) => f.value === filter)?.label.toLowerCase()} pathways.
+        </p>
+      )}
       {pageItems.map((row) => (
         <AdminPathwayRowCard
           key={row.id}
