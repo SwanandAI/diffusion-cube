@@ -11,6 +11,12 @@ import { withErrorHandling } from '@/lib/errors';
 // committed to GitHub (content/wiki/pathways/<slug>.md) — this only clears
 // the pathway from the app's own pick list and DB-side data.
 //
+// Also unpublishes it: published_pathways has no FK to pathways (it's keyed
+// by slug), so its row is deleted explicitly — otherwise the pathway would
+// stay in the Explore library and Analyse corpus with no admin row left to
+// manage it. Done before the pathway delete, so a failure here leaves the
+// pathway in the admin panel to retry.
+//
 // Toolkit asset files (any status) are removed from storage first — their
 // contribution_units rows cascade away with the pathway, and a file nobody
 // can reach through a row anymore must not linger in the bucket. A storage
@@ -32,6 +38,12 @@ async function handlePOST(req: Request) {
   }
 
   const admin = createAdminClient();
+  const { data: pathway } = await admin.from('pathways').select('slug').eq('id', pathway_id).maybeSingle();
+  if (pathway?.slug) {
+    const { error: unpublishErr } = await admin.from('published_pathways').delete().eq('slug', pathway.slug);
+    if (unpublishErr) return Response.json({ error: unpublishErr.message }, { status: 500 });
+  }
+
   const { data: assetFiles } = await admin
     .from('contribution_units')
     .select('storage_path')

@@ -43,7 +43,7 @@ There is no separate backend service — "backend" here means the `app/api/**/ro
 - **Role re-validation is duplicated by design, not by accident.** `app/api/chat/route.ts` checks `flow === 'contributor'` against `hasRole(..., 'pathway_contributor')` and `flow === 'explorer'` against `hasRole(..., 'adopter')` independently of whatever the client UI already prevented — this is the one server-side re-enforcement point for the whole companion conversation.
 - **Idempotent role grant.** `app/api/auth/grant-default-role/route.ts` treats a Postgres unique-violation (`23505`) on the `adopter` insert as success, making a retried call safe.
 - **Best-effort duplicate detection.** `app/api/pathways/check-similar/route.ts` wraps its Anthropic call in try/catch and answers any failure with `{matchId: null}` — a real pathway can still be created even if this check errors. The failure is now recorded (`logError` + an `ok:false` `ai_usage` row) rather than only `console.error`ed.
-- **Destructive admin actions are direct, not soft-deleted.** `app/api/admin/reject/route.ts` calls `admin.auth.admin.deleteUser(user_id)` outright; `app/api/admin/pathways/delete/route.ts` deletes a `pathways` row and relies on FK cascade/set-null behavior rather than an app-level cleanup step.
+- **Destructive admin actions are direct, not soft-deleted.** `app/api/admin/reject/route.ts` calls `admin.auth.admin.deleteUser(user_id)` outright; `app/api/admin/pathways/delete/route.ts` deletes a `pathways` row and relies on FK cascade/set-null behavior rather than an app-level cleanup step — except `published_pathways`, which has no FK and is deleted explicitly by slug first.
 
 ## Error handling posture
 

@@ -57,7 +57,7 @@ No OpenAPI/Swagger/GraphQL schema exists in this repository — this table is ha
 | POST | `/api/admin/contributor-registrations/approve` | `.../approve/route.ts` | admin | Sets `access_status='approved'`, backfills `org_id`, upserts the `pathway_contributor` role |
 | POST | `/api/admin/contributor-registrations/reject` | `.../reject/route.ts` | admin | Sets `access_status='rejected'` |
 | POST | `/api/admin/pathways/publish` | `app/api/admin/pathways/publish/route.ts` | admin | Reads `pathways.content_cache`, upserts into `published_pathways` (on `slug`), clears `review_requested`, sets `published_design_doc_id` |
-| POST | `/api/admin/pathways/delete` | `app/api/admin/pathways/delete/route.ts` | admin | Deletes a `pathways` row; relies on FK cascade/set-null for dependents |
+| POST | `/api/admin/pathways/delete` | `app/api/admin/pathways/delete/route.ts` | admin | Deletes a `pathways` row (and its `published_pathways` row by slug — no FK links them); relies on FK cascade/set-null for other dependents |
 
 ## Response conventions
 

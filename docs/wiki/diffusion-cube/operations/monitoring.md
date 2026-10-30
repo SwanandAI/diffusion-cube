@@ -19,7 +19,7 @@
 ### Usage — `ai_usage` + `/admin/usage`
 
 - One `ai_usage` row (migration `0036`) per Claude call from `lib/ai-usage.ts`: area (explore/analyse/contribute), mode, flow, model, input/output/cache tokens, `ok`. Counts only — no prompt or reply text.
-- **`/admin/usage`** (admin only) calls `admin_usage_stats()` (migration `0038`) once: users (total, new 7d, active 7d/30d), conversations per area (`designs` by `meta.flow` + `library_conversations` — signed-in Explore only), AI calls/failures/tokens per area (input shown as total = uncached + cache read + cache write), errors per day (UTC) and per source split by kind, plus the published-pathway count. Figures are computed when the page opens.
+- **`/admin/usage`** (admin only) calls `admin_usage_stats()` (migration `0038`) once: users (total, new 7d, active 7d/30d), conversations per area (`designs` by `meta.flow` + `library_conversations` — signed-in Explore only), AI calls/failures/tokens per area (input shown as total = uncached + cache read + cache write), errors per day (IST, migration `0041`) and per source split by kind, plus the published-pathway count. Figures are computed when the page opens.
 
 ### Other
 
