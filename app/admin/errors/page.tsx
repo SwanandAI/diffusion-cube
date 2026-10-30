@@ -21,8 +21,13 @@ interface ErrorRow {
   environment: string;
 }
 
-function utc(iso: string) {
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+// India Standard Time is a fixed UTC+5:30 with no daylight saving, so the
+// shift is a constant rather than a time-zone lookup.
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
+function ist(iso: string) {
+  const shifted = new Date(new Date(iso).getTime() + IST_OFFSET_MS).toISOString();
+  return `${shifted.slice(0, 10)} ${shifted.slice(11, 16)} IST`;
 }
 
 export default async function AdminErrorsPage() {
@@ -75,7 +80,7 @@ export default async function AdminErrorsPage() {
               return (
                 <li key={r.id} className="rounded-xl border border-navy/10 bg-white p-4">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
-                    <span className="tabular-nums">{utc(r.created_at)}</span>
+                    <span className="tabular-nums">{ist(r.created_at)}</span>
                     <span className="font-mono text-navy">{r.source}</span>
                     <span
                       className={`rounded-full px-2 py-0.5 ${

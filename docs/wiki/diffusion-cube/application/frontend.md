@@ -37,7 +37,7 @@ Next.js 16 App Router, React 19, Tailwind CSS v4. No client-side state library (
 
 **`app/admin/usage/page.tsx`** — one service-role `rpc('admin_usage_stats')` call plus the published-pathway count from `listWikiPathways()` (deduplicated by slug). Shows user tiles (total / new 7d / active 7d & 30d), conversations per area, an AI-usage table per area (calls, failed, input tokens = uncached + cache read + cache write, output, cached input), and errors per day / per source split by kind, with a "See the most recent errors" link and a "No errors recorded" empty state.
 
-**`app/admin/errors/page.tsx`** — the latest 50 `sys_errors` rows, newest first: time (UTC), source, kind badge, environment, the user's email (resolved via `getUserById` for the ids on the page only), message, context IDs, and the stack in a collapsed `<details>`. Everything renders as text, never HTML.
+**`app/admin/errors/page.tsx`** — the latest 50 `sys_errors` rows, newest first: time (IST), source, kind badge, environment, the user's email (resolved via `getUserById` for the ids on the page only), message, context IDs, and the stack in a collapsed `<details>`. Everything renders as text, never HTML.
 
 **Error pages** — `app/error.tsx` and `app/global-error.tsx` (the latter brings its own `<html>`/`<body>` + `globals.css`) show `GENERIC_ERROR_MESSAGE` and "Back to home" through `components/ErrorScreen.tsx`, never the error's own text, and call `lib/client-error-report.ts` to POST browser-side errors (those without a `digest`) to `/api/errors/client`; server errors arrive with only a digest and are already recorded by `instrumentation.ts`. `app/not-found.tsx` is Cube's own "Page not found" page.
 

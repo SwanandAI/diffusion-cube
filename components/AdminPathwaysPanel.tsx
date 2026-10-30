@@ -91,7 +91,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
     const ok = await confirm({
       title: `Delete "${title}"?`,
       message:
-        "This removes the pathway, every contributor's units, and its toolkit asset files. It does not remove the pathway document already published to the library. This can't be undone.",
+        "This removes the pathway, every contributor's units, and its toolkit asset files, and unpublishes it from the Explore library and Analyse corpus. This can't be undone.",
       confirmLabel: 'Delete pathway',
       danger: true,
     });

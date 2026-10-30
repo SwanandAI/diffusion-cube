@@ -62,7 +62,7 @@ Postgres functions are PUBLIC-executable by default, so each of these explicitly
 |---|---|---|
 | `purge_old_sys_errors(days default 30)` | `0035` | Deletes `sys_errors` rows older than `days`; called opportunistically by `lib/errors.ts` at most once per server instance per hour (no `pg_cron`) |
 | `check_rate_limit(p_key, p_per_min, p_per_day)` | `0037` | Two atomic upserts (fixed minute + day windows), returns whether both limits hold; a rejected request still counts; ~1% of calls delete keys idle >2 days. Invoker rights (not `security definer`) |
-| `admin_usage_stats()` | `0038` | One JSON object for `/admin/usage`: user totals/new/active, conversations per area, `ai_usage` per area, `sys_errors` per day (UTC) and per source split by kind. `security definer` (reads `auth.users`) with a fixed `search_path` |
+| `admin_usage_stats()` | `0038` | One JSON object for `/admin/usage`: user totals/new/active, conversations per area, `ai_usage` per area, `sys_errors` per day (IST since `0041`, which redefines it) and per source split by kind. `security definer` (reads `auth.users`) with a fixed `search_path` |
 
 ## Inert tables (created, never read/written by current code)
 

@@ -167,7 +167,7 @@ export default async function AdminUsagePage() {
           />
         </Section>
 
-        <Section title="Errors" note="From the system error log, which keeps the last 30 days. Days are in UTC.">
+        <Section title="Errors" note="From the system error log, which keeps the last 30 days. Days are in IST (India Standard Time).">
           <Link href="/admin/errors" className="mb-4 inline-block text-sm font-medium text-coral hover:underline">
             See the most recent errors →
           </Link>
