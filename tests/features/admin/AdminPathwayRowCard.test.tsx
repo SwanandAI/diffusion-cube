@@ -188,3 +188,27 @@ describe('AdminPathwayRowCard', () => {
     expect(screen.getByText(/checklist\.pdf · 1 KB/)).toBeInTheDocument();
   });
 });
+
+// Pathway storage (PS-06): after a publish, lessons that couldn't be indexed
+// for search are named on the card until the next publish.
+describe('AdminPathwayRowCard — index warning', () => {
+  it('shows the warning when one is given', () => {
+    withDoc('# Doc');
+    render(
+      <AdminPathwayRowCard
+        row={{ ...ROW, reviewRequested: false, isPublished: true }}
+        isPending={false}
+        indexWarning="Published. 1 lesson wasn't indexed for search: Unit 3 (missing stage)."
+        onPublish={() => {}}
+        onRemove={() => {}}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent("Unit 3 (missing stage)");
+  });
+
+  it('shows nothing extra without one', () => {
+    withDoc('# Doc');
+    render(<AdminPathwayRowCard row={ROW} isPending={false} onPublish={() => {}} onRemove={() => {}} />);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+});

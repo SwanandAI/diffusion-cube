@@ -223,14 +223,22 @@ describe('POST /api/pathways', () => {
     expect(res.status).toBe(400);
   });
 
+  // No shipped pathway files to collide with any more (pathway-storage):
+  // only an existing pathways row makes a slug taken.
   it.each([
-    ['Blue Dots', 'blue-dots-1'],
-    ['MahaVISTAAR', 'mahavistaar-1'],
-    ['Index', 'index-1'],
-  ])('never takes a reserved curated slug: %s → %s', async (title, slug) => {
+    ['Blue Dots', 'blue-dots'],
+    ['MahaVISTAAR', 'mahavistaar'],
+  ])('a former curated name is an ordinary slug: %s → %s', async (title, slug) => {
     const res = await post({ ...validBody, title });
     expect(res.status).toBe(201);
     expect(insertedSlug()).toBe(slug);
+  });
+
+  it('still suffixes a former curated name once a pathway row has it', async () => {
+    takenSlugs = new Set(['mahavistaar']);
+    const res = await post({ ...validBody, title: 'MahaVISTAAR' });
+    expect(res.status).toBe(201);
+    expect(insertedSlug()).toBe('mahavistaar-1');
   });
 
   it('suffixes a slug another pathway already has, skipping taken suffixes', async () => {

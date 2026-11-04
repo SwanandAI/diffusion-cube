@@ -13,12 +13,9 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn() }));
-// The curated corpus (index.md) — empty unless a test supplies pathways.
-vi.mock('@/lib/wiki-content', () => ({ listStaticPathways: vi.fn(async () => []) }));
 
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { listStaticPathways } from '@/lib/wiki-content';
 import { GENERIC_ERROR_MESSAGE } from '@/lib/error-messages';
 import { POST } from '@/app/api/pathways/check-similar/route';
 
@@ -108,7 +105,7 @@ describe('POST /api/pathways/check-similar — matching', () => {
     expect(anthropic.create).not.toHaveBeenCalled();
   });
 
-  it('answers no match without calling Claude when nothing is published and there is no curated corpus', async () => {
+  it('answers no match without calling Claude when nothing is published', async () => {
     setup(undefined, { data: EXISTING }, USER, { data: [] });
     const res = await post(valid);
     expect(res.status).toBe(200);
@@ -208,52 +205,24 @@ describe('POST /api/pathways/check-similar — matching', () => {
   });
 });
 
-// The curated corpus (content/wiki/pathways/index.md) is in the library too,
-// but has no pathways row: a match there points the contributor at it rather
-// than offering a join.
-describe('POST /api/pathways/check-similar — curated pathways', () => {
-  const CURATED = [
-    { slug: 'mahavistaar', title: 'MahaVISTAAR', description: 'Agri advisory', category: 'Agriculture', sector: 'Agriculture' },
-    { slug: 'data-dhara', title: 'AI for Government Data Interoperability', description: 'Data exchange', category: 'Gov', sector: undefined },
-  ];
-
-  beforeEach(() => {
-    vi.mocked(listStaticPathways).mockResolvedValue(CURATED);
-  });
-
-  it('offers curated pathways as candidates even when nothing is published', async () => {
-    setup(undefined, { data: [] }, USER, { data: [] });
-    await post(valid);
-    expect(anthropic.create).toHaveBeenCalledTimes(1);
-    expect(prompt()).toContain('- id: curated:data-dhara\n  title: AI for Government Data Interoperability\n  sector: (none)');
-  });
-
-  it('lists a curated slug that is also live from the database once, as the joinable database pathway', async () => {
-    await post(valid);
-    expect(prompt()).toContain('- id: p1\n  title: MahaVISTAAR');
-    expect(prompt()).not.toContain('curated:mahavistaar');
-    expect(prompt()).toContain('curated:data-dhara');
-  });
-
-  it('reports a curated match as curatedMatch, never as a joinable matchId', async () => {
-    anthropic.create.mockResolvedValue(fakeToolUseMessage({ matchId: 'curated:data-dhara' }));
-    const res = await post(valid);
-    expect(await res.json()).toEqual({
-      matchId: null,
-      curatedMatch: { slug: 'data-dhara', title: 'AI for Government Data Interoperability', sector: null },
-    });
-  });
-
-  it('still reports a database match as matchId', async () => {
+// Every published pathway is a pathways row now — seeded ones included
+// (docs/features/pathway-storage/) — so every match is joinable.
+describe('POST /api/pathways/check-similar — only live database pathways', () => {
+  it('reports a database match as matchId', async () => {
     anthropic.create.mockResolvedValue(fakeToolUseMessage({ matchId: 'p2' }));
     const res = await post(valid);
     expect(await res.json()).toEqual({ matchId: 'p2' });
   });
 
+  it('offers no curated: candidates and never answers curatedMatch', async () => {
+    anthropic.create.mockResolvedValue(fakeToolUseMessage({ matchId: 'curated:mahavistaar' }));
+    const res = await post(valid);
+    expect(prompt()).not.toContain('curated:');
+    expect(await res.json()).toEqual({ matchId: null });
+  });
+
   it.each([
     ['an id that was never offered', 'p999'],
-    ['a curated id that was never offered', 'curated:not-in-index'],
-    ['a curated id shadowed by a live database pathway', 'curated:mahavistaar'],
     ['a non-string id', 42],
   ])('treats %s as no match', async (_label, matchId) => {
     anthropic.create.mockResolvedValue(fakeToolUseMessage({ matchId }));

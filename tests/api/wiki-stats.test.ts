@@ -10,17 +10,21 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { GET } from '@/app/api/wiki-stats/route';
 
 const USER: MockUser = { id: 'u1', email: 'user@example.com' };
-const CURATED_COUNT = 8;
 
 let session: SupabaseMock;
 
+let admin: SupabaseMock;
+
+// The stats count published pathways from the app's store (the
+// published_pathways view, read with the service role).
 function signIn(user: MockUser | null, roles: string[], published: MockResponse = { data: [] }) {
-  session = createSupabaseMock({ user, tables: { user_roles: rolesTable(roles), published_pathways: published } });
+  session = createSupabaseMock({ user, tables: { user_roles: rolesTable(roles) } });
   vi.mocked(createClient).mockResolvedValue(session.client);
+  admin = createSupabaseMock({ tables: { sys_errors: {}, published_pathways: published } });
+  vi.mocked(createAdminClient).mockReturnValue(admin.client);
 }
 
 beforeEach(() => {
-  vi.mocked(createAdminClient).mockReturnValue(createSupabaseMock({ tables: { sys_errors: {} } }).client);
   signIn(USER, ['adopter']);
 });
 
@@ -29,7 +33,7 @@ describe('GET /api/wiki-stats', () => {
     signIn(null, []);
     const res = await GET();
     expect(res.status).toBe(403);
-    expect(session.ops('published_pathways')).toHaveLength(0);
+    expect(admin.ops('published_pathways')).toHaveLength(0);
   });
 
   it('403s a signed-in account with no roles', async () => {
@@ -45,7 +49,7 @@ describe('GET /api/wiki-stats', () => {
     expect(res.status).toBe(200);
   });
 
-  it('counts curated + published pathways and lists unique real sectors', async () => {
+  it('counts published pathways and lists unique real sectors', async () => {
     signIn(USER, ['adopter'], {
       data: [
         { slug: 'c1', title: 'C1', description: '', category: 'X', sector: 'Zeta Sector' },
@@ -56,7 +60,8 @@ describe('GET /api/wiki-stats', () => {
     });
     const res = await GET();
     const body = (await res.json()) as { total: number; sectors: string[] };
-    expect(body.total).toBe(CURATED_COUNT + 4);
+    expect(body.total).toBe(4);
+    expect(body.sectors).toEqual(['Zeta Sector']);
     expect(body.sectors).toContain('Zeta Sector');
     expect(body.sectors).not.toContain('Cross-Sector');
     expect(new Set(body.sectors).size).toBe(body.sectors.length);

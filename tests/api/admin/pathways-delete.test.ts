@@ -85,6 +85,25 @@ describe('POST /api/admin/pathways/delete', () => {
     expect(routeOps(admin).filter((o) => o.action === 'delete')).toHaveLength(1);
   });
 
+  it("also removes a seeded pathway's original documents from their bucket — and never writes published_pathways (a view)", async () => {
+    signInAs('env-admin@example.com');
+    useAdmin({
+      contribution_units: { data: [] },
+      pathway_sources: { data: [{ storage_path: 'maha/src-01-mou.pdf' }] },
+    });
+    const res = await POST(jsonRequest(URL, { pathway_id: 'p1' }));
+    expect(res.status).toBe(200);
+    const [sources] = admin.ops('pathway_sources', 'select');
+    expect(sources.filters).toEqual([
+      ['eq', 'pathway_id', 'p1'],
+      ['not', 'storage_path', 'is', null],
+    ]);
+    expect(admin.client.storage.from).toHaveBeenCalledWith('pathway-sources');
+    expect(admin.storageBucket.remove).toHaveBeenCalledWith(['maha/src-01-mou.pdf']);
+    expect(admin.ops('published_pathways')).toHaveLength(0);
+    expect(admin.ops('pathways', 'delete')).toHaveLength(1);
+  });
+
   it('skips the storage call when the pathway has no asset files', async () => {
     signInAs('env-admin@example.com');
     useAdmin({ contribution_units: { data: [] } });

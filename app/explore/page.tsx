@@ -1,41 +1,26 @@
 import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin } from '@/lib/roles';
 import AppShell from '@/components/AppShell';
 import ExploreLibrary from './ExploreLibrary';
-import { type LibraryPathway } from '@/lib/library-pathways';
+import { slugToAccent, toLibraryStage, type LibraryPathway } from '@/lib/library-types';
+import { listPublished } from '@/lib/pathway-store';
 
-// Derives an accent colour from a slug — same function as the publish route,
-// kept in sync so the card colour never changes between admin preview and live.
-function slugToAccent(slug: string): LibraryPathway['accent'] {
-  const accents = ['coral', 'yellow', 'blue', 'navy'] as const;
-  const hash = slug.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  return accents[hash % 4];
-}
-
-// Fetches published pathways from Supabase and maps them to LibraryPathway
-// cards. Uses the service-role client so this works for anonymous visitors
-// (RLS on published_pathways already uses `using (true)` — public read —
-// but the server client needs auth context to call createClient, and an
-// anonymous visitor has none, so the admin client sidesteps the issue cleanly).
+// Every published pathway, as a card (lib/pathway-store.ts reads the
+// published_pathways view with the service-role client, so this works for
+// anonymous visitors too). Nothing is hard-coded: a newly published pathway
+// gets its card on the next request.
 async function getPublishedPathways(): Promise<LibraryPathway[]> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from('published_pathways')
-    .select('slug, title, description, sector, stage, location, tags, category')
-    .order('created_at', { ascending: false });
-
-  return (data ?? []).map((p) => ({
+  return (await listPublished()).map((p) => ({
     id: p.slug,
     title: p.title,
-    hook: p.description ?? '',
-    location: p.location ?? '',
+    hook: p.description,
+    location: p.location,
     category: p.category ?? '',
-    stage: (p.stage || 'Explore') as LibraryPathway['stage'],
+    stage: toLibraryStage(p.stage),
     accent: slugToAccent(p.slug),
-    sector: p.sector ?? undefined,
-    tags: (p.tags as string[]) ?? [],
+    sector: p.sector || undefined,
+    tags: p.tags,
   }));
 }
 

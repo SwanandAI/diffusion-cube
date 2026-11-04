@@ -1,0 +1,15 @@
+{
+  "pathways": [
+    {
+      "slug": "mahavistaar",
+      "title": "MahaVISTAAR",
+      "sector": "Agriculture",
+      "organisation": "Government of Maharashtra",
+      "files": [
+        { "path": "docs/mahavistaar/programme-report.pdf", "public": true },
+        { "path": "docs/mahavistaar/vendor-evaluation.docx", "public": true },
+        { "path": "docs/mahavistaar/internal-notes.md" }
+      ]
+    }
+  ]
+}

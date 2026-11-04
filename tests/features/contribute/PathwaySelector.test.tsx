@@ -287,58 +287,20 @@ describe('PathwaySelector — creating a pathway (check-similar flow)', () => {
 
   // A curated library pathway has no pathways row, so it can be viewed but
   // not joined.
-  describe('a curated match', () => {
-    const CURATED = { matchId: null, curatedMatch: { slug: 'mahavistaar', title: 'MahaVISTAAR', sector: 'Agriculture' } };
-
-    it('points at the library pathway instead of offering a join, and creates nothing', async () => {
-      const { user, calls, onSelect } = setup({
-        'POST /api/pathways/check-similar': () => jsonResponse(CURATED),
-      });
-      await waitFor(() => expect(combobox()).toBeEnabled());
-      await fillNew(user);
-      await user.click(createButton());
-      expect(await screen.findByText(/already in the library/)).toHaveTextContent(
-        'This looks like MahaVISTAAR (Agriculture), which is already in the library.'
-      );
-      const view = screen.getByRole('link', { name: 'View that pathway' });
-      expect(view).toHaveAttribute('href', '/wiki/mahavistaar');
-      expect(view).toHaveAttribute('target', '_blank');
-      expect(screen.queryByRole('button', { name: 'Join that one instead' })).not.toBeInTheDocument();
-      expect(createButton()).toBeDisabled();
-      expect(calls.some((c) => c.method === 'POST' && c.url === '/api/pathways')).toBe(false);
-      expect(calls.some((c) => c.url.endsWith('/join'))).toBe(false);
-      expect(onSelect).not.toHaveBeenCalled();
+  // There is no curated corpus any more (pathway-storage): check-similar only
+  // ever answers matchId. A stale curatedMatch field is ignored.
+  it('ignores a curatedMatch field and creates the pathway', async () => {
+    const { user, onSelect } = setup({
+      'POST /api/pathways/check-similar': () =>
+        jsonResponse({ matchId: null, curatedMatch: { slug: 'mahavistaar', title: 'MahaVISTAAR', sector: 'Agriculture' } }),
+      'POST /api/pathways': () => jsonResponse({ id: 'pw-new' }),
+      'POST /api/pathways/pw-new/join': () => jsonResponse({ ok: true }),
     });
-
-    it('"genuinely different" creates and joins the new pathway', async () => {
-      const { user, calls, onSelect } = setup({
-        'POST /api/pathways/check-similar': () => jsonResponse(CURATED),
-        'POST /api/pathways': () => jsonResponse({ id: 'pw-new' }),
-        'POST /api/pathways/pw-new/join': () => jsonResponse({ ok: true }),
-      });
-      await waitFor(() => expect(combobox()).toBeEnabled());
-      await fillNew(user);
-      await user.click(createButton());
-      await user.click(await screen.findByRole('button', { name: 'No, this is genuinely different' }));
-      await waitFor(() => expect(onSelect).toHaveBeenCalledWith('pw-new'));
-      expect(calls.filter((c) => c.url === '/api/pathways/check-similar')).toHaveLength(1);
-    });
-
-    it('editing a field clears it and re-checks on the next create', async () => {
-      const { user, calls } = setup({
-        'POST /api/pathways/check-similar': () => jsonResponse(CURATED),
-      });
-      await waitFor(() => expect(combobox()).toBeEnabled());
-      await fillNew(user);
-      await user.click(createButton());
-      await screen.findByText(/already in the library/);
-      await user.type(screen.getByPlaceholderText(/Agriculture, Health/), 's');
-      expect(screen.queryByText(/already in the library/)).not.toBeInTheDocument();
-      expect(createButton()).toBeEnabled();
-      await user.click(createButton());
-      await screen.findByText(/already in the library/);
-      expect(calls.filter((c) => c.url === '/api/pathways/check-similar')).toHaveLength(2);
-    });
+    await waitFor(() => expect(combobox()).toBeEnabled());
+    await fillNew(user);
+    await user.click(createButton());
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('pw-new'));
+    expect(screen.queryByText(/already in the library/)).not.toBeInTheDocument();
   });
 
   it('a match id not in the loaded list falls through to creating', async () => {

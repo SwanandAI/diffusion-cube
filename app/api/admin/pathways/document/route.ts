@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { latestVersion } from '@/lib/pathway-store';
 import { isAdmin } from '@/lib/roles';
 
 import { withErrorHandling } from '@/lib/errors';
@@ -21,7 +22,8 @@ async function handleGET(req: NextRequest) {
   const pathwayId = req.nextUrl.searchParams.get('pathway_id');
   if (!pathwayId) return NextResponse.json({ error: 'pathway_id required.' }, { status: 400 });
 
-  const { data, error } = await createAdminClient()
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from('pathways')
     .select('content_cache')
     .eq('id', pathwayId)
@@ -29,7 +31,11 @@ async function handleGET(req: NextRequest) {
   if (error) throw error;
   if (!data) return NextResponse.json({ error: 'Pathway not found.' }, { status: 404 });
 
-  return NextResponse.json({ content: data.content_cache ?? '' });
+  // The latest saved version is exactly what Publish would make live
+  // (docs/features/pathway-storage/). Seeded pathways have only versions — no
+  // content_cache — so this is also what makes them viewable here.
+  const version = await latestVersion(pathwayId, admin);
+  return NextResponse.json({ content: version?.content ?? data.content_cache ?? '' });
 }
 
 export const GET = withErrorHandling('api/admin/pathways/document', handleGET);

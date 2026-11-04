@@ -103,3 +103,41 @@ describe('GET /api/admin/pathways/document', () => {
     expect(await res.json()).toEqual({ error: GENERIC_ERROR_MESSAGE });
   });
 });
+
+// pathway-storage: the admin sees the latest saved version — exactly what
+// Publish would make live. Seeded pathways have versions but no content_cache.
+describe('GET /api/admin/pathways/document — versions', () => {
+  beforeEach(() => signInAs('env-admin@example.com'));
+
+  function withVersion(content: string | null, contentCache: string | null) {
+    admin = createSupabaseMock({
+      tables: {
+        pathways: { data: { content_cache: contentCache } },
+        pathway_versions: { data: content === null ? null : { id: 'v2', content, version_number: 2 } },
+        sys_errors: {},
+      },
+    });
+    vi.mocked(createAdminClient).mockReturnValue(admin.client);
+  }
+
+  it('returns the latest version over content_cache', async () => {
+    withVersion('# Latest version', '# Older cache');
+    expect(await (await get()).json()).toEqual({ content: '# Latest version' });
+    const [op] = admin.ops('pathway_versions', 'select');
+    expect(op.filters).toEqual([
+      ['eq', 'pathway_id', 'p1'],
+      ['order', 'version_number', { ascending: false }],
+      ['limit', 1],
+    ]);
+  });
+
+  it("shows a seeded pathway's document (no content_cache)", async () => {
+    withVersion('# Seeded doc', null);
+    expect(await (await get()).json()).toEqual({ content: '# Seeded doc' });
+  });
+
+  it('falls back to content_cache when there is no version yet', async () => {
+    withVersion(null, '# Cache only');
+    expect(await (await get()).json()).toEqual({ content: '# Cache only' });
+  });
+});

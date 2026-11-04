@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hasRole, isAdmin } from '@/lib/roles'
-import { isReservedPathwaySlug } from '@/lib/wiki-loader'
 
 import { withErrorHandling } from '@/lib/errors'
 // Always a valid slug (isValidSlug) — assemble refuses anything else, so a
@@ -21,22 +20,20 @@ function slugify(title: string): string {
   return slug || 'pathway'
 }
 
-// Taken means another pathway has it, or it's reserved by the curated corpus
-// (isReservedPathwaySlug) — assemble commits to content/wiki/pathways/<slug>.md,
-// so a "Blue Dots" or "Index" pathway would otherwise overwrite that file.
+// Taken means another pathway row already has it, whatever its status
+// (pathways.slug is unique). There are no shipped pathway files to collide
+// with any more (docs/features/pathway-storage/).
 async function uniqueSlug(base: string): Promise<string> {
   const admin = createAdminClient()
   let candidate = base
   let suffix = 0
   while (true) {
-    if (!(await isReservedPathwaySlug(candidate))) {
-      const { data } = await admin
-        .from('pathways')
-        .select('id')
-        .eq('slug', candidate)
-        .maybeSingle()
-      if (!data) return candidate
-    }
+    const { data } = await admin
+      .from('pathways')
+      .select('id')
+      .eq('slug', candidate)
+      .maybeSingle()
+    if (!data) return candidate
     suffix++
     candidate = `${base}-${suffix}`
   }

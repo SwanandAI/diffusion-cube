@@ -62,14 +62,16 @@ Each unit:
 - Bold title line: `**N. Short decision-oriented title**`
 - A bulleted tag block immediately below the title:
   - `Dimension: ...`
+  - `Sub-category: ...` — the one sub-category of that dimension the unit belongs to, written as the Framework's letter and name (e.g. `B. UX, Channel, and Integration`). Always from the unit's own dimension; never invent one.
   - `Stage: ...` — where the evidence was discovered. This is what the Section 2 grid counts.
   - `Also relevant at: ...` — optional. Other stages where this unit is genuinely useful to a new adopter, even though the evidence originated elsewhere. Never counted in the Section 2 grid — it exists only to drive Section 6 retrieval and adopter-facing navigation. Omit entirely for genuinely single-stage units.
   - `Type: ...` (Strategic Decision / Tactical Decision / Failure and Fix / Playbook / Toolkit Asset)
 - Then bulleted content fields, matched to the type:
-  - Strategic/Tactical Decision: Decision, Alternative considered, Why — the reasoning connecting the alternative to the choice made. Without it, a Decision is just an assertion. What this looked like here (while Decision might be generic, this provides context on how it is implemented in this specific pathway). Condition — applies when (if stated), Before → After (if absent don't add this field).
-  - Failure and Fix: Failure, Fix, Insight, Condition — applies when.
-  - Playbook: Playbook (the actual sequence, stated as steps), Note (if there's a common failure mode of skipping steps), Condition — applies when, Before → After (if available).
-  - Toolkit Asset: Toolkit asset (what it actually is), Purpose (what the asset is actually for), Reusable as-is (what makes it liftable), Condition — applies when.
+  - Strategic/Tactical Decision: Decision, Alternative considered, Why — the reasoning connecting the alternative to the choice made. Without it, a Decision is just an assertion. What this looked like here (while Decision might be generic, this provides context on how it is implemented in this specific pathway). Condition — applies when (if stated), Condition — fails when, Before → After (if absent don't add this field).
+  - Failure and Fix: Failure, Fix, Insight, Condition — applies when, Condition — fails when.
+  - Playbook: Playbook (the actual sequence, stated as steps), Note (if there's a common failure mode of skipping steps), Condition — applies when, Condition — fails when, Before → After (if available).
+  - Toolkit Asset: Toolkit asset (what it actually is), Purpose (what the asset is actually for), Reusable as-is (what makes it liftable), Condition — applies when, Condition — fails when.
+- `Condition — fails when:` — when this unit's approach would not work or would backfire, as the source states it. Every unit has this field; if the source does not say, write exactly `Not documented in the source` rather than guessing.
 
 ### Section 4 — Toolkits and playbooks
 
@@ -127,7 +129,8 @@ Rules:
 
 ## Before finalizing, self-check
 
-- Every unit's Dimension, Stage, and Type were checked against the Framework's own definitions, not assumed from wording.
+- Every unit's Dimension, Sub-category, Stage, and Type were checked against the Framework's own definitions, not assumed from wording; the Sub-category belongs to the unit's own Dimension.
+- Every unit has both `Condition — applies when` and `Condition — fails when` (the latter `Not documented in the source` when the source is silent).
 - No unit has a default Source field; Origin deployment appears only where this is a horizontal pathway and the unit's origin differs from the primary deployment.
 - Every Playbook and Toolkit Asset genuinely meets the stricter bar (multi-step+gated / genuinely reusable artifact), not just "sounds procedural."
 - The coverage grid's counts match the actual number of units in Section 3, cell by cell, counted by Stage (origin) only — "Also relevant at" tags were not counted.

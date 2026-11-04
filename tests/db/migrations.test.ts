@@ -183,3 +183,73 @@ describe('pathways select policies (0040)', () => {
     expect(policy).toMatch(/user_roles\s+ur\s+where\s+ur\.user_id\s*=\s*auth\.uid\(\)\s+and\s+ur\.role\s*=\s*'admin'/);
   });
 });
+
+// Pathway storage (docs/features/pathway-storage/, PS-01). The raw file is
+// read too: the "destructive" warning lives in its leading comment.
+describe('0042_pathway_storage', () => {
+  const raw = fs.readFileSync(path.join(DIR, '0042_pathway_storage.sql'), 'utf8');
+  const sql = sourceOf('0042_pathway_storage.sql');
+
+  it('is the latest migration and says up front that it is destructive', () => {
+    expect(files[files.length - 1]).toBe('0042_pathway_storage.sql');
+    const header = raw.split('\n').filter((l) => l.startsWith('--')).join('\n');
+    expect(header).toMatch(/DESTRUCTIVE/);
+    expect(header).toMatch(/published_pathways/);
+  });
+
+  it('enables pgvector and stores 384-dim gte-small embeddings', () => {
+    expect(sql).toMatch(/create\s+extension\s+if\s+not\s+exists\s+vector/);
+    expect((sql.match(/vector\(384\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(sql).toMatch(/using\s+hnsw\s*\(\s*embedding\s+extensions\.vector_cosine_ops\s*\)/);
+    expect(sql).toMatch(/using\s+gin\s*\(\s*fts\s*\)/);
+  });
+
+  it('creates the version, unit and source tables with RLS', () => {
+    for (const t of ['pathway_versions', 'pathway_units', 'pathway_sources', 'pathway_source_chunks']) {
+      expect(sql).toMatch(new RegExp(`create\\s+table\\s+if\\s+not\\s+exists\\s+public\\.${t}\\b`));
+      expect(sql).toMatch(new RegExp(`alter\\s+table\\s+public\\.${t}\\s+enable\\s+row\\s+level\\s+security`));
+    }
+  });
+
+  it('gives originals and their passages no client policy at all', () => {
+    expect(sql).not.toMatch(/create\s+policy[^;]*\bon\s+public\.pathway_sources\b/);
+    expect(sql).not.toMatch(/create\s+policy[^;]*\bon\s+public\.pathway_source_chunks\b/);
+  });
+
+  it('lets clients read units and versions but never write them', () => {
+    for (const t of ['pathway_units', 'pathway_versions']) {
+      const policies = Array.from(sql.matchAll(new RegExp(`create\\s+policy[^;]*\\bon\\s+public\\.${t}\\b[^;]*;`, 'g'))).map((m) => m[0]);
+      expect(policies.length).toBe(1);
+      expect(policies[0]).toMatch(/for\s+select/);
+    }
+  });
+
+  it('turns published_pathways into a view of published pathways only', () => {
+    expect(sql).toMatch(/drop\s+table\s+if\s+exists\s+public\.published_pathways/);
+    const view = sql.match(/create\s+view\s+public\.published_pathways\s+as([\s\S]*?);/)?.[1] ?? '';
+    expect(view).toMatch(/where\s+p\.status\s*=\s*'published'/);
+    for (const col of ['slug', 'title', 'description', 'category', 'content', 'sector', 'location', 'tags', 'stage', 'contributor_org', 'created_at']) {
+      expect(view).toMatch(new RegExp(`\\b${col}\\b`));
+    }
+    expect(sql).toMatch(/grant\s+select\s+on\s+public\.published_pathways\s+to\s+anon,\s*authenticated/);
+  });
+
+  it('keeps the search functions server-only', () => {
+    for (const fn of ['match_pathway_units', 'match_source_chunks']) {
+      expect(sql).toMatch(new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${fn}\\(`));
+      expect(sql).toMatch(new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${fn}\\([^)]*\\)\\s+from\\s+public,\\s*anon,\\s*authenticated`));
+    }
+  });
+
+  it('searches published pathways only, and public passages only', () => {
+    const units = sql.match(/function\s+public\.match_pathway_units\([\s\S]*?\$\$([\s\S]*?)\$\$/)?.[1] ?? '';
+    const chunks = sql.match(/function\s+public\.match_source_chunks\([\s\S]*?\$\$([\s\S]*?)\$\$/)?.[1] ?? '';
+    expect(units).toMatch(/p\.status\s*=\s*'published'/);
+    expect(chunks).toMatch(/p\.status\s*=\s*'published'/);
+    expect(chunks).toMatch(/and\s+s\.is_public/);
+  });
+
+  it('leaves no existing pathway published', () => {
+    expect(sql).toMatch(/set\s+status\s*=\s*case\s+when\s+review_requested\s+then\s+'in_review'\s+else\s+'draft'\s+end/);
+  });
+});

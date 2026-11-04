@@ -6,11 +6,11 @@ import { rolesTable } from '../../helpers/chat-session';
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn() }));
-vi.mock('@/lib/github', () => ({ ghReadFile: vi.fn(), ghWriteFile: vi.fn() }));
+vi.mock('@/lib/pathway-store', () => ({ saveVersion: vi.fn() }));
 
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { ghReadFile, ghWriteFile } from '@/lib/github';
+import { saveVersion } from '@/lib/pathway-store';
 import { GENERIC_ERROR_MESSAGE } from '@/lib/error-messages';
 import { applyToolkitAssetFiles } from '@/lib/toolkit-assets';
 import { POST } from '@/app/api/pathways/assemble/route';
@@ -66,13 +66,13 @@ const post = (body: unknown) => POST(new NextRequest(jsonRequest(URL, body)));
 const valid = { pathwayId: 'p1', designId: 'd1' };
 
 beforeEach(() => {
-  vi.mocked(ghReadFile).mockResolvedValue({ content: 'old', sha: 'sha-old' });
-  vi.mocked(ghWriteFile).mockResolvedValue({ commitSha: 'c1' });
+  vi.mocked(saveVersion).mockReset();
+  vi.mocked(saveVersion).mockResolvedValue({ id: 'v4', version_number: 4 });
   setup();
 });
 
 function expectNoPublish() {
-  expect(ghWriteFile).not.toHaveBeenCalled();
+  expect(saveVersion).not.toHaveBeenCalled();
   expect(admin.ops('pathways', 'update')).toHaveLength(0);
 }
 
@@ -150,22 +150,21 @@ describe('POST /api/pathways/assemble — validation', () => {
   });
 
   it.each(['../../lib/github', '../x', 'New Path', 'a/b', 'slug.md', '', '-x'])(
-    '400s a stored pathway slug of %j without touching GitHub',
+    '400s a stored pathway slug of %j without saving a version',
     async (slug) => {
       setup({ pathway: { data: { id: 'p1', slug } } });
       const res = await post(valid);
       expect(res.status).toBe(400);
-      expect(ghReadFile).not.toHaveBeenCalled();
       expectNoPublish();
     }
   );
 
-  it.each(['mahavistaar', 'blue-dots', 'index'])('409s the reserved curated slug %s', async (slug) => {
+  // There are no curated files left to overwrite (pathway-storage): a slug a
+  // curated pathway once used is an ordinary slug now.
+  it.each(['mahavistaar', 'blue-dots'])('accepts the former curated slug %s', async (slug) => {
     setup({ pathway: { data: { id: 'p1', slug } } });
     const res = await post(valid);
-    expect(res.status).toBe(409);
-    expect(ghReadFile).not.toHaveBeenCalled();
-    expectNoPublish();
+    expect(res.status).toBe(200);
   });
 
   it('400s when the workspace has no draft yet', async () => {
@@ -183,19 +182,16 @@ describe('POST /api/pathways/assemble — validation', () => {
   });
 });
 
-describe('POST /api/pathways/assemble — publish', () => {
-  it("commits the caller's latest draft to content/wiki/pathways/<slug>.md over the existing file", async () => {
+describe('POST /api/pathways/assemble — send for review', () => {
+  it("saves the caller's latest draft as the pathway's next version — no GitHub", async () => {
     const res = await post(valid);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ content: DRAFT, slug: 'new-path', assembled_design_doc_id: 'doc-3' });
 
     const expected = applyToolkitAssetFiles(DRAFT, []);
-    expect(ghReadFile).toHaveBeenCalledWith('content/wiki/pathways/new-path.md');
-    expect(ghWriteFile).toHaveBeenCalledWith(
-      'content/wiki/pathways/new-path.md',
-      expected,
-      'publish pathway: new-path',
-      'sha-old'
+    expect(saveVersion).toHaveBeenCalledWith(
+      { pathwayId: 'p1', content: expected, source: 'contributor', designDocumentId: 'doc-3', createdBy: 'u1' },
+      admin.client
     );
 
     const [draftQuery] = admin.ops('design_documents', 'select');
@@ -212,11 +208,10 @@ describe('POST /api/pathways/assemble — publish', () => {
     expect(update.filters).toEqual([['eq', 'id', 'p1']]);
   });
 
-  it('creates the file (no sha) when it does not exist yet', async () => {
-    vi.mocked(ghReadFile).mockResolvedValue(null);
-    const res = await post(valid);
-    expect(res.status).toBe(200);
-    expect(vi.mocked(ghWriteFile).mock.calls[0][3]).toBeUndefined();
+  it('never touches published_pathways — sending for review is not publishing', async () => {
+    await post(valid);
+    expect(admin.ops('published_pathways')).toHaveLength(0);
+    expect(admin.ops('pathway_units')).toHaveLength(0);
   });
 
   it('only lists consented toolkit assets for this pathway', async () => {
@@ -226,31 +221,20 @@ describe('POST /api/pathways/assemble — publish', () => {
     expect(op.filters).toContainEqual(['eq', 'share_consent', true]);
   });
 
-  it('answers a GitHub failure with the generic 500 and does not flag the pathway for review', async () => {
-    vi.mocked(ghWriteFile).mockRejectedValue(
-      new Error('GitHub writeFile "content/wiki/pathways/new-path.md": 401 Bad credentials Bearer ghp_secret123')
-    );
+  it('answers a save failure with the generic 500 and does not flag the pathway for review', async () => {
+    vi.mocked(saveVersion).mockRejectedValue(new Error('insert failed: service_role key eyJsecret123'));
     const res = await post(valid);
     expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body).toEqual({ error: GENERIC_ERROR_MESSAGE });
+    expect(await res.json()).toEqual({ error: GENERIC_ERROR_MESSAGE });
     expect(admin.ops('pathways', 'update')).toHaveLength(0);
     await vi.waitFor(() => expect(admin.ops('sys_errors', 'insert')).toHaveLength(1));
-    expect((admin.ops('sys_errors', 'insert')[0].payload as { message: string }).message).not.toContain('ghp_secret123');
   });
 
-  it('answers a GitHub read failure with the generic 500', async () => {
-    vi.mocked(ghReadFile).mockRejectedValue(new Error('GitHub readFile: 500 upstream'));
-    const res = await post(valid);
-    expect(res.status).toBe(500);
-    expect(ghWriteFile).not.toHaveBeenCalled();
-  });
-
-  it('answers a toolkit-asset load failure with the generic 500 before any commit', async () => {
+  it('answers a toolkit-asset load failure with the generic 500 before saving anything', async () => {
     setup({ assets: { error: { message: 'relation "contribution_units" does not exist' } } });
     const res = await post(valid);
     expect(res.status).toBe(500);
     expect(JSON.stringify(await res.json())).not.toContain('contribution_units');
-    expect(ghWriteFile).not.toHaveBeenCalled();
+    expect(saveVersion).not.toHaveBeenCalled();
   });
 });

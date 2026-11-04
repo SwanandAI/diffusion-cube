@@ -84,6 +84,20 @@ function gridContext(grid: GridState): string {
   return lines.join('\n');
 }
 
+// The pathway knowledge for THIS message (lib/retrieval.ts → buildGrounding):
+// not the whole corpus, but the write-ups, lessons and — for seeded pathways —
+// source-document passages its question needs (docs/features/pathway-storage/).
+// It changes every message, so every builder places it AFTER
+// PROMPT_CACHE_BREAK, keeping the framework part cacheable.
+function pathwayGroundingBlock(title: string, grounding: string): string {
+  return `## ${title}
+
+These pathways and lessons were selected from the published corpus for the user's latest message — they are not the whole corpus. Treat them as everything you know about other deployments for this reply. Each lesson is credited to its pathway; keep that credit when you use it.
+
+${grounding}
+`;
+}
+
 // Shared elements between the two role prompts: the grid_update JSON
 // contract (identical shape either way — only the conversational behavior
 // around it differs) and the grounding/no-fabrication/no-jargon rules that
@@ -92,7 +106,11 @@ function groundingRules(): string {
   return `- Every recommendation, risk, or example must trace to the pathway corpus or the framework above. When you name a pathway, always attribute it to its contributor in the same sentence — the contributor is shown as "Contributed by" in each pathway's entry in the corpus. Format: "[Contributor]'s account of [Pathway] shows..." or "According to [Contributor]'s [Pathway] pathway..." (e.g. "EkStep Foundation's account of Blue Dots shows that shared infrastructure was designed for reuse from day one"). The contributor owns the accuracy of that account; never present it as the Cube's own assertion or as general fact. If nothing in the corpus speaks to what they raised, say so plainly rather than inventing a plausible-sounding specific.
 - The first time you name a pathway in a conversation, give a one-clause plain-language background on what it actually is (what was built, for whom, roughly at what scale) before or alongside the specific insight — never drop a pathway name on its own and assume the user knows what it refers to. "MahaVISTAAR — a voice line Maharashtra's government runs for farmers — kept data ownership with the departments" works; "MahaVISTAAR kept data ownership with the departments" on its own doesn't, unless you've already introduced it earlier in this conversation.
 - When you surface a pathway insight, carry its condition tag where the corpus gives one: what it applies to, and when it fails. "X worked when Y was true" travels; "do X" doesn't.
-- Draw from the whole corpus, not just the pathway you know best. Actually enumerate, silently, every pathway document shown above by name before you pick one — never rely on a remembered or assumed list, since the corpus grows over time as new pathways get published. Then actively consider which of those actually-present pathways is genuinely the best match for what the user raised, rather than defaulting to the most familiar one out of habit. If more than one pathway is genuinely relevant, prefer one you haven't already cited this conversation over repeating the same reference.
+- Draw from every pathway shown in the pathway section above, not just the one you know best. Actually enumerate, silently, every pathway and lesson shown there before you pick one — never rely on a remembered or assumed list: what is shown was selected for this message from a corpus that grows over time. Then actively consider which of those is genuinely the best match for what the user raised, rather than defaulting to the most familiar one out of habit. If more than one pathway is genuinely relevant, prefer one you haven't already cited this conversation over repeating the same reference.
+- When you draw on several pathways, credit every point to the pathway it came from, and name any part of the question none of them covers as a gap.
+- Call something a common pattern only when the pathway section says 2 or more pathways show it (those counts are exact — never recount or estimate them). For a lesson only one pathway shows, say that only one pathway shows it.
+- When a lesson's "fails when" condition matches the user's situation, say so. When it's "Not documented in the source", say the pathway doesn't say when it fails rather than implying it always transfers.
+- A passage marked as from a pathway's source document is a fallback: use it only when that pathway's write-up doesn't answer the question, and say the answer comes from its source document, naming the file ("This isn't in the MahaVISTAAR write-up, but its source document Vendor-Evaluation.pdf says…").
 - Important: the framework document above uses MahaVISTAAR as its illustrative "Corpus example" in most rows of its question bank. That's an artifact of how the framework document itself was written — it does NOT mean MahaVISTAAR is the best match for this particular user, and you should not let seeing it repeatedly in that table pull you back to it. Treat those corpus-example cells as showing the FORMAT of a good answer, not a recommendation of which pathway to cite. Before naming a pathway, actively check whether one of the corpus's other pathways (see the enumeration above) is a genuinely closer match — don't default to MahaVISTAAR just because it's the one the framework happens to illustrate with most often.
 - Match depth to the corpus: a real decision, a failure-and-fix, a playbook step. Never implementation detail (a specific UX flow, pipeline design, vendor choice) the corpus doesn't actually ground — that's a call for whoever's building it.
 - Use the stage-weighting tables silently: weight your attention toward what the framework marks Primary for the deployment's current stage when judging what's strong or thin.
@@ -334,7 +352,7 @@ Conversation mode: ${meta.conversationMode || 'DISCOVERING'}${personaLine}${cube
 // persona alongside the shared reasoning-state fields — see
 // gridUpdateContract's cubeAssessment/persona options.
 export function explorerSystemPrompt(
-  wikiContent: string,
+  pathwayGrounding: string,
   frameworkContent: string,
   grid: GridState,
   meta: CompanionMeta,
@@ -360,13 +378,10 @@ People arrive here for different reasons — a broad "what could AI do for me," 
 You are an AI adoption advisor — not a generic assistant, not an interviewer, and not a framework evaluator.
 Success is measured by whether the user leaves with a concrete, useful next thought — not by how many steps ran or how many questions were asked.
 
-## The pathway corpus
-
-${wikiContent}
-
 ${frameworkBlock(frameworkContent)}
 ${resourcesContent ? `\n## External resources (tools, repositories — not documented pathways; never with a contributor attribution or condition tag)\n\nSurface one of these proactively, not just when asked — the moment it's genuinely relevant to what the user is actually working on, hand it to them to go explore on their own rather than waiting to be asked for it. Give it its own short line, clearly set apart from the surrounding prose, written as a real markdown link — \`[label](url)\`, using the resource's own name as the label and its actual URL from below — with one clause of framing that names why it's relevant to their specific situation right now (e.g. "If you're considering adopting voice AI, here's a conversational flow you could test: [Voicera](https://github.com/COSS-India/voicera_mono_repository)"). Never write the link as a bare URL or bury it mid-paragraph. Skip it entirely when nothing here actually bears on the conversation; forcing one in when it's a stretch is worse than not mentioning it.\n\n${resourcesContent}\n` : ''}
-${toolkitAssetsBlock}${PROMPT_CACHE_BREAK}${currentProgressBlock(grid, meta, totalSteps, true, true)}
+${toolkitAssetsBlock}${PROMPT_CACHE_BREAK}${pathwayGroundingBlock('The pathway corpus — relevant to this message', pathwayGrounding)}
+${currentProgressBlock(grid, meta, totalSteps, true, true)}
 
 # Reading the user
 Every turn, silently sharpen your read of who this person is — role or position (founder/executive, government program manager, developer/technical, funder, researcher, or similar) and what they most likely care about. Never ask for this directly; infer it from how they write, what they ask, their uploaded documents, and what they react to. Let it sharpen over several turns rather than committing hard on the first message. Use it to calibrate which implication of a fact you lead with — a founder gets the strategic/resourcing angle, a developer gets the architecture/data angle, a government program manager gets the institutional/governance angle — never to change the underlying facts, which stay identical regardless of who's asking.
@@ -437,7 +452,7 @@ ${gridUpdateContract(totalSteps, { cubeAssessment: true, persona: true, explorer
 // step text with Explorer at all — Explorer opens on a genuine reaction to
 // the material, which conflicts with this flow's no-judgment rule below.
 export function contributorSystemPrompt(
-  wikiContent: string,
+  pathwayGrounding: string,
   frameworkContent: string,
   grid: GridState,
   meta: CompanionMeta,
@@ -455,13 +470,10 @@ export function contributorSystemPrompt(
 
   return `You are the Adoption Companion for 100 Pathways, in CONTRIBUTOR mode. You help someone turn their own deployment documents into a pathway document for the corpus below — read, restructure into the four-dimension framework, and published to the wiki once they're satisfied. This flow is document-first: your opening move is always to get documents from them. Once there's enough material and the stage is settled, the pathway is drafted straight away, and the app then asks the contributor about reusable resources on a card. You never ask questions about the journey: whatever the material doesn't establish stays a gap in the draft.
 
-## The pathway corpus (for style/tone reference — this contributor is adding to it, not comparing against it)
-
-${wikiContent}
-
 ${frameworkBlock(frameworkContent)}
 ${alreadyPublishedBlock}
-${PROMPT_CACHE_BREAK}${currentProgressBlock(grid, { ...meta, flowStep: Math.min(meta.flowStep || 1, 5) }, 5)}
+${PROMPT_CACHE_BREAK}${pathwayGroundingBlock('Related pathways from the corpus (for style/tone reference — this contributor is adding to it, not comparing against it)', pathwayGrounding)}
+${currentProgressBlock(grid, { ...meta, flowStep: Math.min(meta.flowStep || 1, 5) }, 5)}
 
 ## Never make judgment statements about their documents or material
 
@@ -681,7 +693,7 @@ Your entire response must be the document itself (Sections 0-6 + Source Trace ap
 // a publishable contribution. The contributor-only Source Trace appendix is
 // therefore excluded here.
 export function analysisDocSystemPrompt(
-  wikiContent: string,
+  pathwayGrounding: string,
   frameworkContent: string,
   grid: GridState,
   meta: CompanionMeta,
@@ -693,13 +705,10 @@ export function analysisDocSystemPrompt(
 
 You are given the full conversation, the user's current 4×4 grid, and the pathway corpus for grounding.
 
-## Pathway corpus (for grounding "Related Pathway Experience" only)
-
-${wikiContent}
-
 ${frameworkBlock(frameworkContent)}
 
-${PROMPT_CACHE_BREAK}${standingContext(grid, meta)}
+${PROMPT_CACHE_BREAK}${pathwayGroundingBlock('Pathway corpus — relevant to this adoption (for grounding "Related Pathway Experience" only)', pathwayGrounding)}
+${standingContext(grid, meta)}
 
 ## Current date and time
 
@@ -766,7 +775,7 @@ Your entire response must be the document itself (or the fallback line above) �
 // Document in as a trailing assistant message when one exists, which is what
 // part two summarizes.
 export function executiveSummarySystemPrompt(
-  wikiContent: string,
+  pathwayGrounding: string,
   frameworkContent: string,
   grid: GridState,
   meta: CompanionMeta,
@@ -778,13 +787,10 @@ export function executiveSummarySystemPrompt(
 
 You are given the full conversation, the user's current 4×4 grid, and the pathway corpus for grounding. If the conversation you're given ends with the text of an existing Analysis Document, that document is the source for part two below.
 
-## Pathway corpus (for grounding only)
-
-${wikiContent}
-
 ${frameworkBlock(frameworkContent)}
 
-${PROMPT_CACHE_BREAK}${standingContext(grid, meta)}
+${PROMPT_CACHE_BREAK}${pathwayGroundingBlock('Pathway corpus — relevant to this adoption (for grounding only)', pathwayGrounding)}
+${standingContext(grid, meta)}
 
 ## Current date and time
 
@@ -822,8 +828,9 @@ Your entire response must be the document itself (or the fallback line above) �
 }
 
 // The Library (/explore) — separate from Analyse in voice and grounding: one
-// document at a time from content/wiki/pathways/ or published_pathways (see
-// lib/library-documents.ts; Source Trace stripped), its own voice, no shared
+// published document at a time (lib/pathway-store.ts; Source Trace
+// stripped), plus — with no pathway open — passages retrieved across the
+// corpus for each question (lib/retrieval.ts), its own voice, no shared
 // grounding/speaking rules with the rest of the app. Ported verbatim (prompt text included) from the standalone Diffusion
 // Library app's FastAPI backend (PATHWAY_SYSTEM_TEMPLATE /
 // LIBRARY_SYSTEM_TEMPLATE) — kept as-is rather than adapted to this app's
@@ -833,7 +840,15 @@ Your entire response must be the document itself (or the fallback line above) �
 // the conversation itself.
 
 // One pathway selected — grounded ONLY in that pathway's full document.
-export function libraryPathwaySystemPrompt(document: string, toolkitAssets: ToolkitAssetPromptEntry[] = []): string {
+// `sourcePassages`: for a seeded pathway with public original documents,
+// passages from them retrieved for the latest question (lib/retrieval.ts) —
+// a fallback for what the write-up doesn't cover. Per-message, so after the
+// cache break.
+export function libraryPathwaySystemPrompt(
+  document: string,
+  toolkitAssets: ToolkitAssetPromptEntry[] = [],
+  sourcePassages = ''
+): string {
   const toolkitAssetsBlock = toolkitAssets.length
     ? `\nTOOLKIT ASSET FILES:\n${toolkitAssetTimingRules(
         'this pathway',
@@ -860,12 +875,19 @@ Always end your reply with a specific question that invites the user to go deepe
 
 PATHWAY DOCUMENT:
 ${document}
-${toolkitAssetsBlock}`;
+${toolkitAssetsBlock}${
+    sourcePassages
+      ? `${PROMPT_CACHE_BREAK}\nSOURCE DOCUMENT PASSAGES (from this pathway's original documents, selected for the latest question):\nUse these only when the pathway document above doesn't answer the question. When you do, say plainly that it isn't in the pathway write-up but its source document says so, and name the file — e.g. "This isn't in the write-up, but its source document Vendor-Evaluation.pdf says…". If neither answers it, say the pathway doesn't document it.\n\n${sourcePassages}\n`
+      : ''
+  }`;
 }
 
 // No pathway selected — grounded in the library-wide overview (every
 // pathway's frontmatter title/description).
-export function libraryOverviewSystemPrompt(overview: string, count: number): string {
+// `grounding`: lessons retrieved across every published pathway for the
+// latest question (lib/retrieval.ts — answers across pathways and common
+// patterns). Per-message, so after the cache break.
+export function libraryOverviewSystemPrompt(overview: string, count: number, grounding = ''): string {
   return `You are the assistant embedded in the 100 Pathways Diffusion Library, a collection of AI diffusion pathways. This conversation is not tied to one specific pathway yet. You are grounded ONLY in the library contents below.
 
 Help the user find what they're looking for. If their question is really about one specific pathway, name it and offer to go deeper on it. If they're asking something general about the library or the diffusion framework, answer from what's below rather than inventing details.
@@ -884,7 +906,11 @@ The library holds exactly ${count} pathway${count === 1 ? '' : 's'} — one per 
 
 LIBRARY CONTENTS (pathway id, title, description):
 ${overview}
-`;
+${
+    grounding
+      ? `${PROMPT_CACHE_BREAK}\nWHAT THE PATHWAYS SAY ABOUT THE LATEST QUESTION (lessons selected from across the library for it):\nAnswer from these. Name the pathway each point comes from. Call something a common pattern only when the section below says 2 or more pathways show it — those counts are exact; otherwise say only one pathway shows it. Say plainly what none of them covers.\n\n${grounding}\n`
+      : ''
+  }`;
 }
 
 // Sent as the first (invisible) user turn when a pathway tile is clicked —

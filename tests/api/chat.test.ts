@@ -13,12 +13,27 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn() }));
+// Retrieval and the pathway store have their own tests
+// (tests/unit/server/retrieval.test.ts, pathway-store.test.ts); here only
+// what the route hands them and does with their answers matters.
+vi.mock('@/lib/retrieval', async (orig) => ({
+  ...(await orig<typeof import('@/lib/retrieval')>()),
+  buildGrounding: vi.fn(),
+  pathwayPassages: vi.fn(),
+}));
+vi.mock('@/lib/pathway-store', async (orig) => ({
+  ...(await orig<typeof import('@/lib/pathway-store')>()),
+  getPublishedDocument: vi.fn(),
+  buildOverview: vi.fn(),
+}));
 
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { EMPTY_GRID } from '@/lib/dimensions';
 import { GENERIC_ERROR_MESSAGE } from '@/lib/error-messages';
 import { LIBRARY_KICKOFF_PROMPT } from '@/lib/system-prompts';
+import { buildGrounding, pathwayPassages } from '@/lib/retrieval';
+import { buildOverview, getPublishedDocument } from '@/lib/pathway-store';
 import { POST } from '@/app/api/chat/route';
 
 const URL = 'http://localhost/api/chat';
@@ -74,9 +89,25 @@ function post(body: unknown, ip = IP) {
   return POST(jsonRequest(URL, body, { ip }));
 }
 
+const MAHA_DOC = {
+  slug: 'mahavistaar',
+  title: 'MahaVISTAAR',
+  content: '---\ntitle: MahaVISTAAR\n---\nMaha body text.\n\n## Source Trace\n\nJB interview for AI Diffusion',
+  contributor_org: 'Org M',
+  created_at: '2026-01-02T10:00:00Z',
+};
+
 beforeEach(() => {
   rateLimitAllowed = true;
   publishedRow = null;
+  vi.mocked(buildGrounding).mockReset();
+  vi.mocked(buildGrounding).mockResolvedValue({ kind: 'situation', text: 'GROUNDING-SENTINEL', slugs: [] });
+  vi.mocked(pathwayPassages).mockReset();
+  vi.mocked(pathwayPassages).mockResolvedValue('');
+  vi.mocked(getPublishedDocument).mockReset();
+  vi.mocked(getPublishedDocument).mockImplementation(async (slug: string) => (slug === 'mahavistaar' ? MAHA_DOC : null));
+  vi.mocked(buildOverview).mockReset();
+  vi.mocked(buildOverview).mockResolvedValue({ overview: '[mahavistaar]\ntitle: MahaVISTAAR', count: 1 });
   admin = createSupabaseMock({
     rpc: { check_rate_limit: () => ({ data: rateLimitAllowed }) },
     tables: {
@@ -126,9 +157,12 @@ describe('POST /api/chat — rate limiting', () => {
   it('429s an anonymous library caller over the IP allowance', async () => {
     signIn(null);
     rateLimitAllowed = false;
-    const res = await post({ mode: 'library', messages: [] });
+    const res = await post({ mode: 'library', messages: [userMsg('How did teams share data?')] });
     expect(res.status).toBe(429);
     expect(anthropic.stream).not.toHaveBeenCalled();
+    // Refused before any retrieval: no Haiku or embedding cost.
+    expect(buildGrounding).not.toHaveBeenCalled();
+    expect(pathwayPassages).not.toHaveBeenCalled();
   });
 
   it('fails open when the limiter itself errors', async () => {
@@ -199,8 +233,8 @@ describe('POST /api/chat — library mode (public /explore)', () => {
     // and the last message marked for caching.
     expect(Array.isArray(args.system)).toBe(true);
     expect((args.system as { cache_control?: unknown }[])[0].cache_control).toEqual({ type: 'ephemeral' });
-    expect(systemText(args.system)).toContain('[community-one]');
-    expect(systemText(args.system)).toContain('title: Community One');
+    expect(systemText(args.system)).toContain('[mahavistaar]\ntitle: MahaVISTAAR');
+    expect(systemText(args.system)).toContain('GROUNDING-SENTINEL');
     expect(args.messages).toEqual([
       { role: 'user', content: [{ type: 'text', text: 'What is in the library?', cache_control: { type: 'ephemeral' } }] },
     ]);
@@ -265,44 +299,56 @@ describe('POST /api/chat — library mode (public /explore)', () => {
     expect(anthropic.stream).not.toHaveBeenCalled();
   });
 
-  it('serves a curated pathway from disk, with its Source Trace stripped', async () => {
+  it('serves a published pathway from the store, with its Source Trace stripped', async () => {
     const res = await post({ mode: 'library', messages: [], pathwayId: 'mahavistaar' });
     expect(res.status).toBe(200);
+    expect(getPublishedDocument).toHaveBeenCalledWith('mahavistaar');
     const system = systemText(streamArgs().system);
-    expect(system).toContain('title: MahaVISTAAR');
+    expect(system).toContain('Maha body text.');
     expect(system).not.toContain('## Source Trace');
     expect(system).not.toContain('JB interview for AI Diffusion');
-    // Curated hit — no fallback lookup in published_pathways.
-    expect(session.ops('published_pathways')).toHaveLength(0);
+    // The kickoff turn has no question: no source-passage lookup.
+    expect(pathwayPassages).not.toHaveBeenCalled();
     // Toolkit assets are looked up for this slug only.
     const [assets] = admin.ops('contribution_units', 'select');
     expect(assets.filters).toContainEqual(['eq', 'pathways.slug', 'mahavistaar']);
   });
-
-  it('does not serve an on-disk file the curated index does not list (an unpublished draft)', async () => {
-    // citizen-help.md exists under content/wiki/pathways/ but index.md does not list it.
+  it('404s a slug that is not a published pathway (a draft, a retired or unknown one)', async () => {
     const res = await post({ mode: 'library', messages: [], pathwayId: 'citizen-help' });
     expect(res.status).toBe(404);
     expect(anthropic.stream).not.toHaveBeenCalled();
-    const [lookup] = session.ops('published_pathways', 'select');
-    expect(lookup.filters).toEqual([['eq', 'slug', 'citizen-help']]);
   });
-
-  it('serves a non-curated slug only from published_pathways', async () => {
-    publishedRow = {
-      content: '---\ntitle: Published Help\n---\nPublished body text.\n\n## Source Trace\nsecret notes',
-      created_at: '2026-01-02T10:00:00Z',
-    };
-    const res = await post({ mode: 'library', messages: [], pathwayId: 'citizen-help' });
+  it('adds the first-published date line for the dates rule', async () => {
+    const res = await post({ mode: 'library', messages: [], pathwayId: 'mahavistaar' });
     expect(res.status).toBe(200);
-    const system = systemText(streamArgs().system);
-    expect(system).toContain('Published body text.');
-    expect(system).toContain('First published: 2026-01-02');
-    expect(system).not.toContain('secret notes');
-    // Not the unpublished on-disk draft of the same slug.
-    expect(system).not.toContain('Dooru Mitra');
+    expect(systemText(streamArgs().system)).toContain('First published: 2026-01-02');
   });
 
+  it("adds public source-document passages for the latest question, after the cache break", async () => {
+    vi.mocked(pathwayPassages).mockResolvedValue('### Source document: vendors.pdf\nWe chose Vendor X.');
+    const res = await post({ mode: 'library', messages: [userMsg('Which telephony vendor?')], pathwayId: 'mahavistaar' });
+    expect(res.status).toBe(200);
+    expect(pathwayPassages).toHaveBeenCalledWith('mahavistaar', 'Which telephony vendor?');
+    const system = streamArgs().system as { text: string; cache_control?: unknown }[];
+    expect(system[0].text).toContain('Maha body text.');
+    expect(system[0].text).not.toContain('Vendor X');
+    expect(system[1].text).toContain('### Source document: vendors.pdf');
+    expect(buildGrounding).not.toHaveBeenCalled();
+  });
+
+  it('grounds the library chat (no pathway open) in lessons retrieved across pathways', async () => {
+    vi.mocked(buildGrounding).mockResolvedValue({ kind: 'broad', text: 'ACROSS-SENTINEL', slugs: ['a', 'b'] });
+    const res = await post({ mode: 'library', messages: [userMsg('How did teams share data?')] });
+    expect(res.status).toBe(200);
+    expect(buildGrounding).toHaveBeenCalledWith({
+      surface: 'explore-overview',
+      messages: [userMsg('How did teams share data?')],
+      flow: 'explore',
+    });
+    const system = systemText(streamArgs().system);
+    expect(system).toContain('[mahavistaar]');
+    expect(system).toContain('ACROSS-SENTINEL');
+  });
   it("404s 'index' — the index file is never a pathway", async () => {
     const res = await post({ mode: 'library', messages: [], pathwayId: 'index' });
     expect(res.status).toBe(404);
@@ -570,25 +616,38 @@ describe('POST /api/chat — signed-in modes: happy paths', () => {
     });
   });
 
-  it('grounds the Explorer companion in the curated corpus and published pathways', async () => {
-    session = createSupabaseMock({
-      user: USER,
-      tables: {
-        user_roles: rolesTable(['adopter']),
-        published_pathways: { data: [{ slug: 'community-x', content: 'Community body', contributor_org: 'Org X', created_at: '2026-03-01' }] },
-      },
-    });
+  it('grounds the Explorer companion in what retrieval selects for the message — never the whole corpus', async () => {
+    session = createSupabaseMock({ user: USER, tables: { user_roles: rolesTable(['adopter']) } });
     vi.mocked(createClient).mockResolvedValue(session.client);
-    const res = await post({ mode: 'companion', messages: [userMsg()] });
+    const res = await post({ mode: 'companion', messages: [userMsg()], meta: { sector: 'Agriculture' } });
     await res.text();
-    const system = systemText(streamArgs().system);
-    expect(system).toContain('# Pathway: mahavistaar');
-    expect(system).toContain('# Pathway: community-x');
-    expect(system).toContain('Contributed by: Org X');
-    // Only index-listed files: an unlisted draft on disk is not corpus.
-    expect(system).not.toContain('# Pathway: citizen-help');
+    expect(buildGrounding).toHaveBeenCalledWith(
+      expect.objectContaining({ surface: 'analyse', messages: [userMsg()], sector: 'Agriculture' })
+    );
+    const system = streamArgs().system as { text: string }[];
+    // Per message, so after the cache break; the framework stays cached.
+    expect(system[0].text).not.toContain('GROUNDING-SENTINEL');
+    expect(system[1].text).toContain('GROUNDING-SENTINEL');
+    // Nothing reads the old corpus sources.
+    expect(session.ops('published_pathways')).toHaveLength(0);
   });
 
+  it('grounds the contributor companion and the documents in the adoption\'s situation', async () => {
+    session = createSupabaseMock({ user: USER, tables: { user_roles: rolesTable(['adopter', 'pathway_contributor']) } });
+    vi.mocked(createClient).mockResolvedValue(session.client);
+    await (await post({ mode: 'companion', flow: 'contributor', messages: [userMsg()] })).text();
+    expect(vi.mocked(buildGrounding).mock.calls[0][0]).toMatchObject({ surface: 'contribute', flow: 'contributor' });
+    await (await post({ mode: 'analysis-doc', messages: [userMsg()], meta: { sector: 'Health', summary: 'A voice bot' } })).text();
+    expect(vi.mocked(buildGrounding).mock.calls[1][0]).toMatchObject({ surface: 'document', sector: 'Health', situationText: 'Health. A voice bot' });
+  });
+
+  it('never retrieves for extract-insights or pathway-draft', async () => {
+    session = createSupabaseMock({ user: USER, tables: { user_roles: rolesTable(['adopter', 'pathway_contributor']) } });
+    vi.mocked(createClient).mockResolvedValue(session.client);
+    await (await post({ mode: 'extract-insights', messages: [userMsg()] })).text();
+    await (await post({ mode: 'pathway-draft', messages: [userMsg()] })).text();
+    expect(buildGrounding).not.toHaveBeenCalled();
+  });
   it('includes existingPublishedDoc in a pathway-draft prompt', async () => {
     signIn(USER, ['pathway_contributor']);
     const res = await post({ mode: 'pathway-draft', messages: [userMsg()], existingPublishedDoc: 'EXISTING-DOC-MARKER' });
@@ -720,18 +779,23 @@ describe('POST /api/chat — Claude failures', () => {
 // A failed database read is a server error (500, recorded), never mistaken
 // for "unknown pathway" or "no roles".
 describe('POST /api/chat — database failures', () => {
-  it('500s (not 404) when the published_pathways lookup fails', async () => {
-    session = createSupabaseMock({
-      user: null,
-      tables: { published_pathways: { error: { message: 'connection refused' } } },
-    });
-    vi.mocked(createClient).mockResolvedValue(session.client);
+  it('500s (not 404) when the published pathway lookup fails', async () => {
+    vi.mocked(getPublishedDocument).mockRejectedValue(new Error('connection refused'));
     const res = await post({ mode: 'library', pathwayId: 'some-community-pathway', messages: [] });
     expect(res.status).toBe(500);
     expect((await res.json()).error).not.toContain('connection');
     expect(anthropic.stream).not.toHaveBeenCalled();
   });
 
+  it('500s when retrieval fails, without streaming', async () => {
+    session = createSupabaseMock({ user: USER, tables: { user_roles: rolesTable(['adopter']) } });
+    vi.mocked(createClient).mockResolvedValue(session.client);
+    vi.mocked(buildGrounding).mockRejectedValue(new Error('rpc match_pathway_units failed'));
+    const res = await post({ mode: 'companion', messages: [userMsg()] });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe(GENERIC_ERROR_MESSAGE);
+    expect(anthropic.stream).not.toHaveBeenCalled();
+  });
   it('500s (not a misleading "awaiting approval" 403) when the roles lookup fails', async () => {
     session = createSupabaseMock({
       user: USER,

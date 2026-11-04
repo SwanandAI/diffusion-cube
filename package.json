@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "seed:pathways": "vite-node --config scripts/vite-node.config.mts scripts/seed-pathways.ts --"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",

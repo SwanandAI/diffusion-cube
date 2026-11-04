@@ -1,7 +1,6 @@
 // Every generated pathway document (see content/pathway-generation-prompt.md's
 // Section 2 spec) carries a "**Gaps**" bullet list under its
-// "# 2. Coverage Grid and Gaps" heading, ending at the next "# " heading (e.g.
-// see content/wiki/pathways/blue-dots.md). The Contributor flow's automatic
+// "# 2. Coverage Grid and Gaps" heading, ending at the next "# " heading. The Contributor flow's automatic
 // draft message quotes these bullets verbatim rather than having the
 // companion model separately (and possibly inconsistently) reason about gaps
 // itself — see lib/adoption-conversation.ts's handling of pathwayAction

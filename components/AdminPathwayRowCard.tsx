@@ -46,11 +46,14 @@ function AdminAssetItem({ asset }: { asset: AdminToolkitAsset }) {
 interface Props {
   row: AdminPathwayRow;
   isPending: boolean;
+  // Set after a publish that left some lessons unindexed (see
+  // indexWarningText in AdminPathwaysPanel). Stays until the next publish.
+  indexWarning?: string | null;
   onPublish: () => void;
   onRemove: () => void;
 }
 
-export default function AdminPathwayRowCard({ row, isPending, onPublish, onRemove }: Props) {
+export default function AdminPathwayRowCard({ row, isPending, indexWarning, onPublish, onRemove }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [docContent, setDocContent] = useState<string | null>(null);
   const [docLoading, setDocLoading] = useState(false);
@@ -134,6 +137,12 @@ export default function AdminPathwayRowCard({ row, isPending, onPublish, onRemov
           </button>
         </div>
       </div>
+
+      {indexWarning && (
+        <p role="status" className="border-t border-yellow/40 bg-yellow/10 px-4 py-2 text-xs text-navy">
+          {indexWarning}
+        </p>
+      )}
 
       {/* Expanded document view */}
       {expanded && (

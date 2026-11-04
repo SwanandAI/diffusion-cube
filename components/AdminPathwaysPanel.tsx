@@ -33,6 +33,26 @@ export interface AdminToolkitAsset {
   published: boolean;
 }
 
+// What the admin is told after a publish when some lessons (micro-innovation
+// units) couldn't be indexed for search (docs/features/pathway-storage/).
+// The pathway is live either way; this says what search won't find.
+export function indexWarningText(
+  skipped: { unit: number; reason: string }[] | undefined,
+  embedded: boolean | undefined
+): string | null {
+  const parts: string[] = [];
+  if (skipped?.length) {
+    const list = skipped.map((s) => `Unit ${s.unit} (${s.reason})`).join(', ');
+    parts.push(
+      `${skipped.length} lesson${skipped.length === 1 ? " wasn't" : "s weren't"} indexed for search: ${list}. Ask the contributor to fix ${skipped.length === 1 ? 'its' : 'their'} labels and send it for review again.`
+    );
+  }
+  if (embedded === false) {
+    parts.push('Search by meaning is unavailable for this pathway until it is published again (keyword search still works).');
+  }
+  return parts.length ? `Published. ${parts.join(' ')}` : null;
+}
+
 export type AdminPathwayStatus = 'awaiting' | 'published' | 'draft';
 
 // A pending review outranks an earlier publish: a contributor can send an
@@ -54,6 +74,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [indexWarnings, setIndexWarnings] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<StatusFilter>('all');
   const { confirm, dialog: confirmDialog } = useConfirm();
 
@@ -74,6 +95,13 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error ?? 'Could not publish pathway.'); return; }
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isPublished: true, reviewRequested: false } : r)));
+      const warning = indexWarningText(data.skippedUnits, data.embedded);
+      setIndexWarnings((prev) => {
+        const next = { ...prev };
+        if (warning) next[id] = warning;
+        else delete next[id];
+        return next;
+      });
       if (data.assetsPublished === false) {
         showToast('Pathway published, but its toolkit assets could not be published. Publish again to retry.', 'error');
       } else {
@@ -156,6 +184,7 @@ export default function AdminPathwaysPanel({ initialRows }: { initialRows: Admin
           key={row.id}
           row={row}
           isPending={pending === row.id}
+          indexWarning={indexWarnings[row.id] ?? null}
           onPublish={() => publish(row.id)}
           onRemove={() => remove(row.id, row.title)}
         />

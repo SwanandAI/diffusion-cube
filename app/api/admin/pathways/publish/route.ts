@@ -5,15 +5,17 @@ import { isAdmin } from '@/lib/roles';
 import { assetIdsInDocument } from '@/lib/toolkit-assets';
 import { loadPathwayToolkitAssets } from '@/lib/toolkit-assets-server';
 import { CUBE_APP_URL, sendContributionEmail } from '@/lib/email';
-import { parseFrontmatter } from '@/lib/strip-frontmatter';
+import { latestVersion, publishVersion } from '@/lib/pathway-store';
 
 import { withErrorHandling } from '@/lib/errors';
-// Publishes an assembled pathway (pathways.content_cache) to published_pathways
-// so it appears in the Explore library and grounds Analyse conversations.
-// Card metadata (title, hook, stage, sector, location, tags) is parsed from
-// the document's frontmatter — contributors add these when they write the doc.
-// accent is derived deterministically from the slug so it never changes on
-// re-publish and requires no contributor input.
+// Publishes the pathway's latest version — the document its contributor last
+// sent for review — so it appears in the Explore library and grounds Analyse
+// conversations, on the next request (docs/features/pathway-storage/).
+// lib/pathway-store.ts points the pathway at that version, copies the card
+// fields from its frontmatter, and indexes its micro-innovation units for
+// search. Units whose labels aren't valid are skipped and returned as
+// `skippedUnits`, so the admin panel can say which; the rest of the pathway
+// is published regardless.
 async function handlePOST(req: NextRequest) {
   const supabase = await createClient();
   const {
@@ -32,7 +34,7 @@ async function handlePOST(req: NextRequest) {
 
   const { data: pathway, error } = await admin
     .from('pathways')
-    .select('id, slug, title, sector, content_cache, assembled_design_doc_id')
+    .select('id, slug, title, assembled_design_doc_id')
     .eq('id', pathway_id)
     .single();
 
@@ -40,42 +42,16 @@ async function handlePOST(req: NextRequest) {
     return NextResponse.json({ error: 'Pathway not found.' }, { status: 404 });
   }
 
-  if (!pathway.content_cache) {
+  const version = await latestVersion(pathway_id, admin);
+  if (!version) {
     return NextResponse.json(
       { error: 'No assembled document found. The contributor must publish from their workspace first.' },
       { status: 400 }
     );
   }
 
-  const fm = parseFrontmatter(pathway.content_cache) ?? {};
-  const title = fm.title || pathway.title;
-  const hook = fm.description || '';
-  const stage = fm.stage || '';
-  const sector = fm.sector || pathway.sector || '';
-  const location = fm.location || '';
-  const tags = fm.tags ?? [];
-  const category = tags.length > 0 ? tags.slice(0, 2).join(' · ') : 'Community';
-
-  const { error: upsertErr } = await admin.from('published_pathways').upsert(
-    {
-      slug: pathway.slug,
-      title,
-      description: hook,
-      category,
-      content: pathway.content_cache,
-      sector,
-      location,
-      tags,
-      stage,
-      published_by: user.id,
-    },
-    { onConflict: 'slug' }
-  );
-
-  if (upsertErr) {
-    console.error('[admin/pathways/publish]', upsertErr);
-    return NextResponse.json({ error: 'Failed to publish pathway.' }, { status: 500 });
-  }
+  const published = await publishVersion({ pathwayId: pathway_id, versionId: version.id, publishedBy: user.id }, admin);
+  const title = published.title;
 
   await admin.from('pathways').update({
     review_requested: false,
@@ -88,7 +64,7 @@ async function handlePOST(req: NextRequest) {
   // pathway's. An asset shared after the last Send for Review isn't in the
   // document, so it waits for the next round. Idempotent on re-publish.
   let assetsPublished = true;
-  const assetIds = assetIdsInDocument(pathway.content_cache);
+  const assetIds = assetIdsInDocument(version.content);
   if (assetIds.length > 0) {
     const { error: assetsErr } = await admin
       .from('contribution_units')
@@ -110,7 +86,13 @@ async function handlePOST(req: NextRequest) {
     assetIds,
   });
 
-  return NextResponse.json({ ok: true, slug: pathway.slug, assetsPublished });
+  return NextResponse.json({
+    ok: true,
+    slug: pathway.slug,
+    assetsPublished,
+    skippedUnits: published.skippedUnits,
+    embedded: published.embedded,
+  });
 }
 
 // Tells the contributor whose draft was just approved that it's live, which

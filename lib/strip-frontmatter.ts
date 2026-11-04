@@ -24,7 +24,9 @@ export function parseFrontmatter(markdown: string): PathwayFrontmatter | null {
     const colonIdx = line.indexOf(':');
     if (colonIdx === -1) continue;
     const key = line.slice(0, colonIdx).trim();
-    const val = line.slice(colonIdx + 1).trim();
+    // A YAML-quoted value ("AxL: …" — quoted because it holds a colon) is
+    // read without its quotes.
+    const val = line.slice(colonIdx + 1).trim().replace(/^(["'])(.*)\1$/, '$2');
     if (key === 'tags') {
       result.tags = val.startsWith('[') && val.endsWith(']')
         ? val.slice(1, -1).split(',').map((s) => s.trim()).filter(Boolean)

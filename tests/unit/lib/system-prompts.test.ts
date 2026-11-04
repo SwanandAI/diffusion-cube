@@ -99,11 +99,25 @@ describe('explorerSystemPrompt', () => {
   const prompt = explorerSystemPrompt(CORPUS, FRAMEWORK, GRID, META, RESOURCES, [ASSET]);
   const [stable, perTurn] = parts(prompt);
 
-  it('puts the corpus, framework, legend, resources and assets in the cached part', () => {
-    for (const s of [CORPUS, FRAMEWORK, frameworkStructureLegend(), RESOURCES, 'ASSET-NAME-SENTINEL', ASSET_ID]) {
+  it('puts the framework, legend, resources and assets in the cached part', () => {
+    for (const s of [FRAMEWORK, frameworkStructureLegend(), RESOURCES, 'ASSET-NAME-SENTINEL', ASSET_ID]) {
       expect(stable).toContain(s);
       expect(perTurn).not.toContain(s);
     }
+  });
+
+  // pathway-storage: the grounding is retrieved per message, so it goes
+  // after the cache break — the framework part stays cacheable.
+  it('puts the retrieved pathway grounding in the per-turn part', () => {
+    expect(perTurn).toContain(CORPUS);
+    expect(stable).not.toContain(CORPUS);
+    expect(perTurn).toContain('selected from the published corpus for the user\'s latest message');
+  });
+
+  it('carries the pattern, fails-when and source-document rules', () => {
+    expect(prompt).toContain('Call something a common pattern only when the pathway section says 2 or more pathways show it');
+    expect(prompt).toContain('"fails when" condition matches the user\'s situation');
+    expect(prompt).toContain('say the answer comes from its source document, naming the file');
   });
 
   it('puts the grid, progress and reasoning state in the per-turn part', () => {
@@ -195,8 +209,9 @@ describe('contributorSystemPrompt', () => {
   const prompt = contributorSystemPrompt(CORPUS, FRAMEWORK, GRID, META);
   const [stable, perTurn] = parts(prompt);
 
-  it('caches the corpus and framework; the grid goes per-turn', () => {
-    expect(stable).toContain(CORPUS);
+  it('caches the framework; the retrieved grounding and the grid go per-turn', () => {
+    expect(perTurn).toContain(CORPUS);
+    expect(stable).not.toContain(CORPUS);
     expect(stable).toContain(FRAMEWORK);
     expect(stable).toContain(frameworkStructureLegend());
     expect(perTurn).toContain('Persona × Explore: density 2/3 — Cotton farmers in Punjab');
@@ -286,10 +301,10 @@ describe('document-generation prompts', () => {
     expect(prompt).toContain('stage: (not stated by the user)');
   });
 
-  it('analysisDocSystemPrompt: corpus + framework cached, grid/meta per turn, no Source Trace, no grid_update', () => {
+  it('analysisDocSystemPrompt: framework cached, grounding + grid/meta per turn, no Source Trace, no grid_update', () => {
     const prompt = analysisDocSystemPrompt(CORPUS, FRAMEWORK, GRID, META, AT);
     const [stable, perTurn] = parts(prompt);
-    expect(stable).toContain(CORPUS);
+    expect(perTurn).toContain(CORPUS);
     expect(stable).toContain(FRAMEWORK);
     expect(perTurn).toContain('## Farm Voice');
     expect(perTurn).toContain('*Agriculture · Punjab*');
@@ -305,7 +320,8 @@ describe('document-generation prompts', () => {
   it('executiveSummarySystemPrompt: titled as a summary, grounded, no grid_update', () => {
     const prompt = executiveSummarySystemPrompt(CORPUS, FRAMEWORK, GRID, META, AT);
     const [stable, perTurn] = parts(prompt);
-    expect(stable).toContain(CORPUS);
+    expect(stable).toContain(FRAMEWORK);
+    expect(perTurn).toContain(CORPUS);
     expect(perTurn).toContain('## Farm Voice — Executive Summary');
     expect(perTurn).toContain('### The Implementation');
     expect(perTurn).toContain('### Summary of the Suggestions');
@@ -331,6 +347,14 @@ describe('library prompts', () => {
     expect(prompt).not.toContain(PROMPT_CACHE_BREAK);
   });
 
+  it('libraryPathwaySystemPrompt: source passages go per-turn, with the labelling rule', () => {
+    const prompt = libraryPathwaySystemPrompt('DOC', [], '### Source document: v.pdf\nWe chose X.');
+    const [stable, perTurn] = parts(prompt);
+    expect(stable).toContain('PATHWAY DOCUMENT:\nDOC');
+    expect(perTurn).toContain('### Source document: v.pdf\nWe chose X.');
+    expect(perTurn).toContain("isn't in the pathway write-up but its source document says so, and name the file");
+  });
+
   it('libraryPathwaySystemPrompt: with assets, lists them and explains the <toolkit_assets> tag', () => {
     const prompt = libraryPathwaySystemPrompt('DOC', [ASSET]);
     expect(prompt).toContain(ASSET_ID);
@@ -346,6 +370,15 @@ describe('library prompts', () => {
     const prompt = libraryOverviewSystemPrompt('OVERVIEW-SENTINEL', 11);
     expect(prompt).toContain('LIBRARY CONTENTS (pathway id, title, description):\nOVERVIEW-SENTINEL');
     expect(prompt).not.toContain('<grid_update>');
+  });
+
+  it('libraryOverviewSystemPrompt: lessons retrieved for the question go per-turn, with the pattern rule', () => {
+    const prompt = libraryOverviewSystemPrompt('OVERVIEW', 3, 'GROUNDING-SENTINEL');
+    const [stable, perTurn] = parts(prompt);
+    expect(stable).toContain('OVERVIEW');
+    expect(perTurn).toContain('GROUNDING-SENTINEL');
+    expect(perTurn).toContain('Call something a common pattern only when the section below says 2 or more pathways show it');
+    expect(libraryOverviewSystemPrompt('OVERVIEW', 3)).not.toContain(PROMPT_CACHE_BREAK);
   });
 
   it('libraryOverviewSystemPrompt: states the pathway count so the model never counts', () => {

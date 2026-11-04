@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { loadWikiContext, loadFrameworkContent, loadPathwayGenerationPrompt, loadResourcesContent, datedLine } from '@/lib/wiki-loader';
-import { readLibraryPathwayDocument, buildLibraryOverview, libraryDocumentFromPublished } from '@/lib/library-documents';
+import { loadFrameworkContent, loadPathwayGenerationPrompt, loadResourcesContent, datedLine } from '@/lib/wiki-loader';
+import { adopterDocument, buildOverview, getPublishedDocument } from '@/lib/pathway-store';
+import { buildGrounding, pathwayPassages, lastUserText, type Surface } from '@/lib/retrieval';
 import {
   explorerSystemPrompt,
   contributorSystemPrompt,
@@ -12,6 +13,7 @@ import {
   libraryOverviewSystemPrompt,
   assetReuseSystemPrompt,
   LIBRARY_KICKOFF_PROMPT,
+  type CompanionMeta,
 } from '@/lib/system-prompts';
 import { createClient } from '@/lib/supabase/server';
 import { currentRoles, type Role } from '@/lib/roles';
@@ -238,39 +240,36 @@ async function handlePOST(req: Request) {
   let apiMessages = messages;
   const generatedAt = new Date().toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
 
-  // The Library (/explore). Static pathways come from the curated grounding
-  // corpus (the files content/wiki/pathways/index.md lists, the same ones
-  // Analyse uses); published pathways from published_pathways (Supabase). Both
-  // are checked — static first, DB as fallback — so cards from either source
-  // open into a grounded chat. The
-  // Source Trace appendix is stripped from both (lib/library-documents.ts).
+  // The Library (/explore). Every pathway comes from the app's own store
+  // (lib/pathway-store.ts — published versions only; Source Trace stripped).
+  // With a pathway open, the chat is grounded in its document, plus passages
+  // from its public source documents for the latest question (seeded
+  // pathways only). With none open, in the library overview plus lessons
+  // retrieved across every pathway for the latest question (UC2/UC3,
+  // lib/retrieval.ts). Rate limiting and input checks above run first, so a
+  // refused request never costs a retrieval call.
   if (mode === 'library') {
+    const hasQuestion = Array.isArray(apiMessages) && apiMessages.length > 0;
     if (typeof pathwayId === 'string' && pathwayId) {
-      // pathwayId comes straight from an unauthenticated request and becomes
-      // a file path below — only a real slug shape gets that far, never
-      // "../../wiki/pathways/x" (which would read any .md on the server).
+      // pathwayId comes straight from an unauthenticated request — only a
+      // real slug shape gets as far as a lookup.
       if (!isValidSlug(pathwayId)) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
-      let document = await readLibraryPathwayDocument(pathwayId);
-      if (!document) {
-        const { data, error } = await supabase
-          .from('published_pathways')
-          .select('content, created_at')
-          .eq('slug', pathwayId)
-          .maybeSingle();
-        if (error) throw error;
-        // Same date line the explorer corpus carries, so the library
-        // prompt's dates rule has something to read when the community
-        // pathway's own frontmatter has no timestamp.
-        document = data ? `${datedLine(data.content, data.created_at)}${libraryDocumentFromPublished(data.content)}` : null;
-      }
-      if (!document) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
-      // Published toolkit assets for this pathway (only DB pathways have
-      // any) — public by the contributors' consent.
+      const doc = await getPublishedDocument(pathwayId);
+      if (!doc) return Response.json({ error: 'Unknown pathway.' }, { status: 404 });
+      // Same date line the Analyse grounding carries, so the library
+      // prompt's dates rule has something to read.
+      const document = `${datedLine(doc.content, doc.created_at)}${adopterDocument(doc)}`;
+      // Published toolkit assets for this pathway — public by the
+      // contributors' consent.
       const toolkitAssets = await loadPublishedToolkitAssets({ pathwaySlug: pathwayId });
-      systemPrompt = libraryPathwaySystemPrompt(document, toolkitAssets);
+      const passages = hasQuestion ? await pathwayPassages(pathwayId, lastUserText(apiMessages)) : '';
+      systemPrompt = libraryPathwaySystemPrompt(document, toolkitAssets, passages);
     } else {
-      const { overview, count } = await buildLibraryOverview();
-      systemPrompt = libraryOverviewSystemPrompt(overview, count);
+      const { overview, count } = await buildOverview();
+      const grounding = hasQuestion
+        ? (await buildGrounding({ surface: 'explore-overview', messages: apiMessages, flow: 'explore' })).text
+        : '';
+      systemPrompt = libraryOverviewSystemPrompt(overview, count, grounding);
     }
     // Mirrors the original backend: an empty history means "just opened a
     // pathway," so the model gets a fixed kickoff turn instead — never shown
@@ -309,15 +308,33 @@ async function handlePOST(req: Request) {
 
   // Load only what this mode's prompt uses: extract-insights and pathway-draft
   // never read the corpus, and only the Explorer companion reads resources.
-  // (Static files are memoised in production — lib/static-content.ts; the
-  // published pathways inside loadWikiContext are always read fresh.)
+  // The corpus is no longer sent whole: each message (or document) is
+  // grounded on the pathways and lessons its question needs, retrieved from
+  // the app's store (lib/retrieval.ts, docs/features/pathway-storage/).
   const needsCorpus = mode !== 'extract-insights' && mode !== 'pathway-draft';
   const needsResources = mode === 'companion' && flow !== 'contributor';
-  const [wikiContent, frameworkContent, resourcesContent] = await Promise.all([
-    needsCorpus ? loadWikiContext() : '',
+  const groundingSurface: Surface =
+    mode === 'companion' ? (flow === 'contributor' ? 'contribute' : 'analyse') : 'document';
+  const companionMeta = (meta ?? {}) as CompanionMeta;
+  // What a document (or the contributor's chat) is about, when there's no
+  // single question to search for: the adoption's own summary.
+  const situationText = [companionMeta.sector, companionMeta.name, companionMeta.summary, companionMeta.hypothesis]
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+    .join('. ');
+  const [grounding, frameworkContent, resourcesContent] = await Promise.all([
+    needsCorpus
+      ? buildGrounding({
+          surface: groundingSurface,
+          messages,
+          sector: companionMeta.sector ?? null,
+          situationText: situationText || undefined,
+          flow: typeof flow === 'string' ? flow : null,
+        })
+      : null,
     loadFrameworkContent(),
     needsResources ? loadResourcesContent() : '',
   ]);
+  const wikiContent = grounding?.text ?? '';
 
   if (mode === 'analysis-doc') {
     systemPrompt = analysisDocSystemPrompt(wikiContent, frameworkContent, grid ?? EMPTY_GRID, meta ?? {}, generatedAt);

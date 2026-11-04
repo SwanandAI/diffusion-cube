@@ -98,3 +98,10 @@ describe('parseFrontmatter', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
+
+describe('parseFrontmatter — quoted values (pathway-storage seed)', () => {
+  it('drops matching surrounding quotes, single or double', () => {
+    const fm = parseFrontmatter('---\ntitle: "AxL: AI for Foundational Literacy"\nsector: \'Education\'\nlocation: "Pune\n---\nBody');
+    expect(fm).toMatchObject({ title: 'AxL: AI for Foundational Literacy', sector: 'Education', location: '"Pune' });
+  });
+});

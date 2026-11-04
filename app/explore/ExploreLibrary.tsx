@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { GENERIC_ERROR_MESSAGE } from '@/lib/error-messages';
-import { libraryPathways, libraryStages, type Accent, type LibraryPathway, type Stage } from '@/lib/library-pathways';
+import { libraryStages, type Accent, type LibraryPathway, type Stage } from '@/lib/library-types';
 import { parseToolkitAssetsTag, stripToolkitAssetsTag } from '@/lib/toolkit-assets';
 import ToolkitAssetCards from '@/components/ToolkitAssetCards';
 import VoiceInputButton from '@/components/VoiceInputButton';
@@ -59,7 +59,7 @@ export default function ExploreLibrary({
 }: {
   signedIn?: boolean;
   // Pathways fetched server-side from published_pathways — merged with the
-  // static libraryPathways list, with DB entries taking precedence by slug.
+  // only list: every published pathway, from the app's store.
   dbPathways?: LibraryPathway[];
   // Set when this page was opened via ?open=<id> (a sidebar "Recent
   // Explorations" link) — resolved server-side in app/explore/page.tsx.
@@ -67,8 +67,7 @@ export default function ExploreLibrary({
 }) {
   // DB pathways take precedence over static ones with the same slug so a
   // re-published pathway is always the latest version.
-  const dbSlugs = new Set(dbPathways.map((p) => p.id));
-  const allPathways = [...dbPathways, ...libraryPathways.filter((p) => !dbSlugs.has(p.id))];
+  const allPathways = dbPathways;
 
   const allSectors = Array.from(new Set(allPathways.map((p) => p.sector).filter((s): s is string => !!s)));
   const allTags = Array.from(new Set(allPathways.flatMap((p) => p.tags))).sort();

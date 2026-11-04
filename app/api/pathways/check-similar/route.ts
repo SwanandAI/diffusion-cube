@@ -6,12 +6,7 @@ import { hasRole } from '@/lib/roles'
 
 import { logError, withErrorHandling } from '@/lib/errors'
 import { recordAiUsage } from '@/lib/ai-usage'
-import { listStaticPathways } from '@/lib/wiki-content'
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-// Candidate ids for curated pathways (no pathways row, so no uuid) — a slug
-// can't contain ':', so these never collide with a real id.
-const CURATED_PREFIX = 'curated:'
 
 // Forced tool-use rather than free text — the only thing this call needs to
 // produce is one id (or null), same idiom as EXTRACT_TOOL in
@@ -80,17 +75,14 @@ async function handlePOST(req: NextRequest) {
     : { data: [], error: null }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // The curated corpus is published too (it's in the library), but has no
-  // pathways row to join — a match there is reported as curatedMatch so the
-  // contributor is pointed at it instead. A slug already live from the
-  // database is listed once, as the joinable one.
-  const liveSet = new Set(liveSlugs)
-  const curated = (await listStaticPathways()).filter((p) => !liveSet.has(p.slug))
-
-  const candidates = [
-    ...(pathways ?? []).map((p) => ({ id: p.id as string, title: p.title, sector: p.sector, description: p.description })),
-    ...curated.map((p) => ({ id: `${CURATED_PREFIX}${p.slug}`, title: p.title, sector: p.sector, description: p.description })),
-  ]
+  // Every published pathway is a pathways row now (seeded ones included —
+  // docs/features/pathway-storage/), so every match is joinable.
+  const candidates = (pathways ?? []).map((p) => ({
+    id: p.id as string,
+    title: p.title,
+    sector: p.sector,
+    description: p.description,
+  }))
   if (candidates.length === 0) return NextResponse.json({ matchId: null })
 
   const list = candidates
@@ -125,13 +117,6 @@ A "match" means the candidate is genuinely the same underlying deployment or ado
     // Only an id we actually offered counts — anything else is no match.
     const match = candidates.find((c) => c.id === reported)
     if (!match) return NextResponse.json({ matchId: null })
-    if (match.id.startsWith(CURATED_PREFIX)) {
-      const slug = match.id.slice(CURATED_PREFIX.length)
-      return NextResponse.json({
-        matchId: null,
-        curatedMatch: { slug, title: match.title, sector: match.sector ?? null },
-      })
-    }
     return NextResponse.json({ matchId: match.id })
   } catch (err) {
     // Still answers "no match" so pathway creation isn't blocked, but the

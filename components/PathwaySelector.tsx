@@ -21,14 +21,6 @@ interface PathwaySummary {
   isPublished: boolean;
 }
 
-// A match against the curated corpus (content/wiki/pathways/index.md): it's
-// in the library but has no pathways row, so it can be viewed, not joined.
-interface CuratedMatch {
-  slug: string;
-  title: string;
-  sector: string | null;
-}
-
 interface Props {
   onSelect: (pathwayId: string) => void;
   onBack: () => void;
@@ -47,7 +39,6 @@ export default function PathwaySelector({ onSelect, onBack }: Props) {
   const [joining, setJoining] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [similarMatch, setSimilarMatch] = useState<PathwaySummary | null>(null);
-  const [curatedMatch, setCuratedMatch] = useState<CuratedMatch | null>(null);
   const [checkingSimilar, setCheckingSimilar] = useState(false);
 
   useEffect(() => {
@@ -110,10 +101,6 @@ export default function PathwaySelector({ onSelect, onBack }: Props) {
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.curatedMatch?.slug) {
-            setCuratedMatch(data.curatedMatch);
-            return;
-          }
           if (data.matchId) {
             const match = pathways.find((p) => p.id === data.matchId) ?? null;
             if (match) {
@@ -212,7 +199,6 @@ export default function PathwaySelector({ onSelect, onBack }: Props) {
                 onChange={(e) => {
                   setNewTitle(e.target.value);
                   setSimilarMatch(null);
-                  setCuratedMatch(null);
                 }}
                 placeholder="e.g. Voice AI for Agricultural Extension"
                 className="w-full rounded-lg border border-navy/15 bg-paper px-3 py-2 text-sm text-navy placeholder-ink-soft/50 outline-none focus:border-coral focus:ring-1 focus:ring-coral/30"
@@ -226,7 +212,6 @@ export default function PathwaySelector({ onSelect, onBack }: Props) {
                 onChange={(e) => {
                   setNewDescription(e.target.value);
                   setSimilarMatch(null);
-                  setCuratedMatch(null);
                 }}
                 placeholder="What was built, for whom, and roughly what problem it solves — a couple of sentences is enough"
                 className="w-full resize-none rounded-lg border border-navy/15 bg-paper px-3 py-2 text-sm text-navy placeholder-ink-soft/50 outline-none focus:border-coral focus:ring-1 focus:ring-coral/30"
@@ -240,7 +225,6 @@ export default function PathwaySelector({ onSelect, onBack }: Props) {
                 onChange={(e) => {
                   setNewSector(e.target.value);
                   setSimilarMatch(null);
-                  setCuratedMatch(null);
                 }}
                 placeholder="e.g. Agriculture, Health, Education"
                 className="w-full rounded-lg border border-navy/15 bg-paper px-3 py-2 text-sm text-navy placeholder-ink-soft/50 outline-none focus:border-coral focus:ring-1 focus:ring-coral/30"
@@ -277,34 +261,6 @@ export default function PathwaySelector({ onSelect, onBack }: Props) {
               </div>
             )}
 
-            {curatedMatch && (
-              <div className="rounded-lg border border-coral/30 bg-coral-soft p-3">
-                <p className="text-sm text-navy">
-                  This looks like <span className="font-medium">{curatedMatch.title}</span>
-                  {curatedMatch.sector ? ` (${curatedMatch.sector})` : ''}, which is already in the library. Have a
-                  look before starting a new one.
-                </p>
-                <div className="mt-2 flex gap-2">
-                  <a
-                    href={`/wiki/${curatedMatch.slug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-lg bg-navy px-3 py-1.5 text-xs font-medium text-white transition hover:bg-coral"
-                  >
-                    View that pathway
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => void createPathway()}
-                    disabled={creating}
-                    className="rounded-lg border border-navy/20 px-3 py-1.5 text-xs font-medium text-navy transition hover:border-coral hover:text-coral disabled:opacity-50"
-                  >
-                    {creating ? 'Creating…' : 'No, this is genuinely different'}
-                  </button>
-                </div>
-              </div>
-            )}
-
             <button
               type="button"
               onClick={() => void handleCreateClick()}
@@ -315,8 +271,7 @@ export default function PathwaySelector({ onSelect, onBack }: Props) {
                 creating ||
                 joining ||
                 checkingSimilar ||
-                !!similarMatch ||
-                !!curatedMatch
+                !!similarMatch
               }
               className="rounded-lg bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-coral disabled:opacity-40"
             >

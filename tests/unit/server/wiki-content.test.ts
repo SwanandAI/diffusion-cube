@@ -1,20 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSupabaseMock, type QueryOp, type SupabaseMock } from '../../helpers/supabase-mock';
-import { indexListedSlugs, readPathwayFile, uncuratedDraftSlugs } from '../../helpers/server-corpus';
 
-vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
+vi.mock('@/lib/pathway-store', () => ({ listPublished: vi.fn(), getPublishedDocument: vi.fn() }));
 
-import { createClient } from '@/lib/supabase/server';
+import { getPublishedDocument, listPublished, type PublishedCard } from '@/lib/pathway-store';
 import { getWikiPathway, getWikiStats, listWikiPathways, stripProvenanceAppendix } from '@/lib/wiki-content';
 
-let session: SupabaseMock;
+// /wiki reads only published pathways from the app's store
+// (docs/features/pathway-storage/) — nothing from disk.
 
-function published(handler: (op: QueryOp) => { data?: unknown; error?: { message: string } | null }) {
-  session = createSupabaseMock({ tables: { published_pathways: handler } });
-  vi.mocked(createClient).mockResolvedValue(session.client);
-}
+const card = (over: Partial<PublishedCard>): PublishedCard => ({
+  slug: 's', title: 'T', description: 'd', category: 'Community', sector: '', stage: '', location: '', tags: [],
+  contributor_org: null, created_at: '2026-01-01T00:00:00Z', ...over,
+});
 
-beforeEach(() => published(() => ({ data: null })));
+beforeEach(() => {
+  vi.mocked(listPublished).mockReset();
+  vi.mocked(getPublishedDocument).mockReset();
+});
 
 describe('stripProvenanceAppendix', () => {
   it('cuts at the first Source Trace heading', () => {
@@ -42,133 +44,62 @@ describe('stripProvenanceAppendix', () => {
 });
 
 describe('listWikiPathways', () => {
-  it('lists every curated pathway with category and frontmatter metadata', async () => {
-    const list = await listWikiPathways();
-    expect(list.map((p) => p.slug)).toEqual(indexListedSlugs());
-    const maha = list.find((p) => p.slug === 'mahavistaar')!;
-    expect(maha).toMatchObject({
-      title: 'MahaVISTAAR',
-      category: 'Voice AI',
-      sector: 'Agriculture',
-      stage: 'Scale',
-      timestamp: '2026-08-31',
-    });
-    expect(maha.description).toMatch(/^Maharashtra/);
-    expect(list.find((p) => p.slug === 'data-dhara')?.category).toBe('Data Infrastructure');
-  });
-
-  it('never files anything under the top "Pathways" heading', async () => {
-    const list = await listWikiPathways();
-    expect(list.every((p) => p.category && p.category !== 'Pathways')).toBe(true);
-  });
-
-  it('leaves sector undefined where the file has none', async () => {
-    const list = await listWikiPathways();
-    expect(list.find((p) => p.slug === 'data-dhara')?.sector).toBeUndefined();
-  });
-
-  it('does not list unpublished drafts', async () => {
-    const slugs = (await listWikiPathways()).map((p) => p.slug);
-    for (const draft of uncuratedDraftSlugs()) expect(slugs).not.toContain(draft);
-  });
-
-  it('appends published community pathways, newest first, sector null → undefined', async () => {
-    published(() => ({
-      data: [
-        { slug: 'pub-a', title: 'A', description: 'da', category: 'Community', sector: 'Health' },
-        { slug: 'pub-b', title: 'B', description: 'db', category: 'Community', sector: null },
-      ],
-    }));
-    const list = await listWikiPathways();
-    expect(list.slice(-2)).toEqual([
-      { slug: 'pub-a', title: 'A', description: 'da', category: 'Community', sector: 'Health' },
-      { slug: 'pub-b', title: 'B', description: 'db', category: 'Community', sector: undefined },
+  it('lists every published pathway with its card fields', async () => {
+    vi.mocked(listPublished).mockResolvedValue([
+      card({ slug: 'maha', title: 'MahaVISTAAR', description: 'Voice line', category: 'Voice AI · Agri', sector: 'Agriculture', stage: 'Scale', contributor_org: 'Org M' }),
+      card({ slug: 'x', title: 'X' }),
     ]);
-    const [op] = session.ops('published_pathways', 'select');
-    expect(op.filters).toContainEqual(['order', 'created_at', { ascending: false }]);
+    const list = await listWikiPathways();
+    expect(list.map((p) => p.slug)).toEqual(['maha', 'x']);
+    expect(list[0]).toEqual({
+      slug: 'maha', title: 'MahaVISTAAR', description: 'Voice line', category: 'Voice AI · Agri', sector: 'Agriculture',
+      stage: 'Scale', timestamp: '2026-01-01T00:00:00Z', contributor: 'Org M',
+    });
+    // Blank sector / stage / contributor → undefined.
+    expect(list[1]).toMatchObject({ sector: undefined, stage: undefined, contributor: undefined });
   });
 
-  it('still lists the curated corpus when the published query fails', async () => {
-    published(() => ({ error: { message: 'down' } }));
-    expect((await listWikiPathways()).length).toBe(indexListedSlugs().length);
+  it('is empty when nothing is published', async () => {
+    vi.mocked(listPublished).mockResolvedValue([]);
+    expect(await listWikiPathways()).toEqual([]);
   });
 });
 
 describe('getWikiStats', () => {
   it('counts every pathway and lists unique real sectors (no Cross-Sector, no blanks)', async () => {
-    published(() => ({
-      data: [
-        { slug: 'p1', title: 'x', description: '', category: '', sector: 'Agriculture' },
-        { slug: 'p2', title: 'x', description: '', category: '', sector: 'Health' },
-        { slug: 'p3', title: 'x', description: '', category: '', sector: 'Cross-Sector' },
-        { slug: 'p4', title: 'x', description: '', category: '', sector: null },
-      ],
-    }));
-    const stats = await getWikiStats();
-    expect(stats.total).toBe(indexListedSlugs().length + 4);
-    expect(stats.sectors).not.toContain('Cross-Sector');
-    expect(stats.sectors).toContain('Agriculture');
-    expect(stats.sectors).toContain('Livelihoods');
-    expect(stats.sectors).toContain('Health');
-    expect(new Set(stats.sectors).size).toBe(stats.sectors.length);
-    expect(stats.sectors.every(Boolean)).toBe(true);
+    vi.mocked(listPublished).mockResolvedValue([
+      card({ slug: 'a', sector: 'Health' }),
+      card({ slug: 'b', sector: 'Health' }),
+      card({ slug: 'c', sector: 'Cross-Sector' }),
+      card({ slug: 'd', sector: '' }),
+      card({ slug: 'e', sector: 'Agriculture' }),
+    ]);
+    expect(await getWikiStats()).toEqual({ total: 5, sectors: ['Health', 'Agriculture'] });
   });
 });
 
 describe('getWikiPathway', () => {
-  it('serves a curated pathway from disk: title from frontmatter, frontmatter and Source Trace removed', async () => {
-    const page = await getWikiPathway('blue-dots');
-    expect(page?.title).toBe('Blue Dots — Local Job, Talent, and Service Discovery');
-    expect(page?.content.startsWith('---')).toBe(false);
-    expect(page?.content).not.toMatch(/^#+\s*Source Trace/m);
-    expect(readPathwayFile('blue-dots')).toMatch(/^#+\s*Source Trace/m); // the file itself has one
-    expect(session.ops('published_pathways')).toHaveLength(0);
+  it('serves a published pathway, stripped of frontmatter and Source Trace', async () => {
+    vi.mocked(getPublishedDocument).mockResolvedValue({
+      slug: 'maha', title: 'MahaVISTAAR', contributor_org: null, created_at: '2026-01-01',
+      content: '---\ntitle: MahaVISTAAR\n---\n# MahaVISTAAR\n\nBody.\n\n## Source Trace\n\nsecret.pdf',
+    });
+    expect(await getWikiPathway('maha')).toEqual({ title: 'MahaVISTAAR', content: '# MahaVISTAAR\n\nBody.' });
+    expect(getPublishedDocument).toHaveBeenCalledWith('maha');
   });
 
-  it.each([
-    ['traversal', '../../etc/passwd'],
-    ['traversal to framework', '../framework'],
-    ['encoded-ish', '..%2Fsecret'],
-    ['uppercase', 'MahaVISTAAR'],
-    ['with extension', 'mahavistaar.md'],
-    ['empty', ''],
-    ['slash', 'pathways/blue-dots'],
-  ])('returns null for an invalid slug (%s) without any lookup', async (_label, slug) => {
-    expect(await getWikiPathway(slug)).toBeNull();
-    expect(createClient).not.toHaveBeenCalled();
+  it('returns null for a slug that is not published (draft, retired or unknown)', async () => {
+    vi.mocked(getPublishedDocument).mockResolvedValue(null);
+    expect(await getWikiPathway('nope')).toBeNull();
   });
 
-  it('never serves an unlisted draft from disk — falls back to published_pathways', async () => {
-    const drafts = uncuratedDraftSlugs();
-    expect(drafts.length).toBeGreaterThan(0);
-    for (const draft of drafts) {
-      published(() => ({ data: null }));
-      expect(await getWikiPathway(draft)).toBeNull();
-      const [op] = session.ops('published_pathways', 'select');
-      expect(op.filters).toEqual([['eq', 'slug', draft]]);
-      expect(op.single).toBe('maybeSingle');
-    }
+  it('never looks up a malformed slug', async () => {
+    expect(await getWikiPathway('../../x')).toBeNull();
+    expect(getPublishedDocument).not.toHaveBeenCalled();
   });
 
-  it('serves a published community pathway, stripped of frontmatter and Source Trace', async () => {
-    published(() => ({
-      data: { title: 'Community Pathway', content: '---\ntitle: x\n---\n# Body\n\nText\n\n## Source Trace\nprivate' },
-    }));
-    expect(await getWikiPathway('community-pathway')).toEqual({ title: 'Community Pathway', content: '# Body\n\nText' });
-  });
-
-  it('serves an unlisted draft slug only if published_pathways has it (DB copy, not the file)', async () => {
-    const [draft] = uncuratedDraftSlugs();
-    published(() => ({ data: { title: 'Published copy', content: 'DB body' } }));
-    expect(await getWikiPathway(draft)).toEqual({ title: 'Published copy', content: 'DB body' });
-  });
-
-  it('returns null for an unknown slug', async () => {
-    expect(await getWikiPathway('does-not-exist')).toBeNull();
-  });
-
-  it('returns null when the published lookup errors', async () => {
-    published(() => ({ error: { message: 'down' } }));
-    expect(await getWikiPathway('does-not-exist')).toBeNull();
+  it('lets a database error through (the page shows the generic error)', async () => {
+    vi.mocked(getPublishedDocument).mockRejectedValue(new Error('connection refused'));
+    await expect(getWikiPathway('maha')).rejects.toThrow('connection refused');
   });
 });
