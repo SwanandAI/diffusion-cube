@@ -405,7 +405,7 @@ export async function buildGrounding(opts: {
     }
     if (kept.length === 0) return { kind: 'broad', text: NOTHING, slugs: [] };
     const text =
-      `## Lessons across pathways (${seen.length} pathway${seen.length === 1 ? '' : 's'})\n\nCredit every point to the pathway it comes from. Name any part of the question none of them covers as a gap.\n\n` +
+      `## Lessons across pathways (${seen.length} pathway${seen.length === 1 ? '' : 's'})\n\nAnswer from the one pathway that best fits the question and take every point from it; use more only if the user asked to compare or asked what's common. Credit every point to the pathway it comes from. Name any part of the question none of them covers as a gap.\n\n` +
       kept.map(unitBlock).join('\n\n');
     return { kind: 'broad', text, slugs: seen };
   }

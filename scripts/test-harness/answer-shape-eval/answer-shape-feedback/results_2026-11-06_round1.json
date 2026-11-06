@@ -1,0 +1,576 @@
+{
+  "model": "claude-sonnet-4-6",
+  "judge": "claude-opus-5-5",
+  "ranAt": "2026-11-06T10:29:39.836Z",
+  "results": [
+    {
+      "id": "Q1",
+      "surface": "analyse",
+      "category": "Direct match",
+      "question": "We're a state agriculture department planning a phone-based voice advisory for small farmers in Odia. What should we watch out for?",
+      "expect": "One best-matching agriculture voice pathway, briefly described on first mention, with a concrete documented lesson. No second/third pathway piled on.",
+      "groundingKind": "broad",
+      "groundedSlugs": [
+        "bhili-language-enablement",
+        "african-voice-ai",
+        "voice-ai",
+        "mahavistaar",
+        "nivesh-suvidha",
+        "blue-dots"
+      ],
+      "old": {
+        "answer": "A few things from documented deployments are worth flagging for a phone-based agricultural advisory in a regional language:\n\n- **Data ownership at the department level** — MahaVISTAAR, a voice advisory Maharashtra's government runs for farmers, found that mandi price data with a 48-hour lag caused wrong harvest-timing advice. The fix wasn't technical — it was a governance call with the data owner to shift update cadence to 6 hours. Before building, name a person (not a department) accountable for each data source the advisory will draw on.\n- **Audio data collection for the voice layer** — the Bhili Language Enablement pathway (a government effort to build a voice AI for tribal farmers in Nandurbar) found that collecting clean, studio-quality audio from young, standard-dialect speakers produced a model that failed on actual phone calls. For Odia, design data collection for 8 kHz telephone-quality audio, across dialect regions and age groups, from session one — not as a later correction.\n- **Governance before launch** — MahaVISTAAR's pathway documents six questions that must have named answers before any public deployment: who owns the system, who approves what it can say, who decides what it must not say, who reviews failures, who updates the knowledge base, and who handles complaints. If any answer is \"we'll figure it out,\" the deployment isn't ready.\n- **Safety test bank** — documented across multiple voice AI deployments: build a set of test cases covering out-of-scope questions, distress scenarios, and inappropriate prompts before launch, not after. This is especially relevant where the voice may be female and the caller base includes vulnerable users.\n\nThe grid has updated with what's established so far — you can check it via the Grid button.",
+        "checks": {
+          "words": 282,
+          "pathwaysNamed": [
+            "mahavistaar",
+            "bhili-language-enablement"
+          ],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "pass",
+          "meets_expectation": "partial",
+          "notes": "The MahaVISTAAR lessons are concrete and well described: the 48-hour price-data lag and the six governance questions. But the answer adds Bhili as a second pathway and a third point drawn from \"multiple voice AI deployments\". It runs to four long bullets, opens with a filler line and ends with a note about the Grid, when one best match was expected.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "The sharpest risk in this kind of deployment isn't the AI itself — it's the data behind it.\n\n- **Data ownership and update cadence** — Every source the system draws on (crop prices, weather, scheme information) needs a named person accountable for keeping it current, not just a department. The MahaVISTAAR team (a voice advisory Maharashtra's agriculture department runs for farmers) discovered this the hard way: a 48-hour lag in mandi price data caused wrong harvest-timing advice, and the fix wasn't technical — it required a governance call with the market authority to shorten the update cycle to six hours.\n- **Odia voice model quality** — If you're building on a telephony channel, the speech model needs to be trained on phone-quality audio (8 kHz), across the dialect variation your callers actually speak, not just standard Odia from a narrow contributor profile. The Bhili Language Enablement team (a tribal-language voice AI built for farmers in Nandurbar district) found that a model trained on clean studio audio from young, standard-dialect speakers failed on actual phone calls — requiring a full re-collection.\n- **Governance before launch** — Before any farmer reaches the system, six questions need named answers: who owns it, who approves what it can say, who decides what it must refuse, who reviews failures, who updates the knowledge base, and who handles complaints. MahaVISTAAR found that skipping this produced a technically working system that officials wouldn't publicly stand behind.\n\nThe grid has updated to reflect what's established so far — you can check it via the Grid button.",
+        "checks": {
+          "words": 258,
+          "pathwaysNamed": [
+            "mahavistaar",
+            "bhili-language-enablement"
+          ],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "pass",
+          "concise": "pass",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "The answer uses MahaVISTAAR well, with concrete lessons (the 48-hour price-data lag, the six governance questions), but it adds a second pathway, Bhili, which the expected behaviour rules out. It also uses jargon a lay reader may not follow, such as '8 kHz', 'telephony channel' and the 'Grid button', plus the slightly loaded phrase 'the hard way'.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q2",
+      "surface": "analyse",
+      "category": "No match",
+      "question": "We run a chain of dental clinics in Dubai and want AI to send appointment reminders and answer patient FAQs. What have others learned?",
+      "expect": "Says plainly there is no direct match. At most one genuinely related pathway, with the difference stated. No stretching an agriculture pathway to fit.",
+      "groundingKind": "broad",
+      "groundedSlugs": [
+        "blue-dots",
+        "ceew-climate-intelligence",
+        "bhili-language-enablement",
+        "voice-ai",
+        "deepleaf",
+        "african-voice-ai",
+        "axl",
+        "mahavistaar"
+      ],
+      "old": {
+        "answer": "Nothing in the corpus matches this directly — the pathways here cover agricultural advisory, public health forecasting, job matching, literacy, and civic grievance systems, not private healthcare or patient-facing clinic operations.\n\nThe closest transferable lessons come from deployments that built outbound voice or messaging at scale for non-expert end-users:\n\n- **Outbound vs. inbound design** — Voice AI for Inclusion (a programme documenting AI adoption across Indian agricultural and social-sector deployments) found that outbound calling requires different technical and workflow architecture from inbound FAQs, and retrofitting one onto the other is costly. If you plan both appointment reminders and FAQ responses, design for both from the start rather than adding one later.\n- **Governance before launch** — MahaVISTAAR, a government agricultural voice advisory in Maharashtra, documented that the most common failure mode is deferring the question of who approves what the system can say until after it's live. For a clinic, that means naming who owns the FAQ content, who updates it, and who is accountable when a patient acts on a wrong answer — before any patient receives a message.\n- **Data freshness** — the same programme found that stale data looks like an AI failure to the end user. Appointment reminder accuracy depends entirely on how current and reliably synced your booking system is; that's the first dependency to audit, not the AI layer.\n\nIf you share more about your setup — which systems hold your appointment data, whether this is inbound chat or outbound reminders, and how many clinics are involved — I can check whether anything else in the corpus bears on your specific situation.",
+        "checks": {
+          "words": 268,
+          "pathwaysNamed": [
+            "mahavistaar",
+            "voice-ai"
+          ],
+          "banned": null,
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "The answer opens by saying plainly that nothing matches, which is right. It then names two pathways, including MahaVISTAAR, an agricultural advisory service applied to dental clinics. The expectation allowed at most one, with the difference stated. It also runs long and uses insider words like \"corpus\", \"failure mode\" and \"AI layer\".",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "Nothing in the documented pathways covers private healthcare clinic operations or patient-facing appointment and FAQ automation — the deployments here are concentrated in agricultural advisory, public health surveillance, civic grievance systems, and educational AI, mostly in South Asia and East Africa.\n\nThe honest answer is that this corpus doesn't have relevant experience to share for your situation.",
+        "checks": {
+          "words": 57,
+          "pathwaysNamed": [],
+          "banned": null,
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "n/a",
+          "concise": "pass",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "The answer says plainly that nothing matches and doesn't stretch any pathway to fit, which is correct. Its summary of the library is wrong, though: it lists \"public health surveillance\" and \"civic grievance systems\", and no published pathway covers either. It also uses the jargon word \"corpus\", which a lay user may not understand.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q3",
+      "surface": "analyse",
+      "category": "Vague newcomer",
+      "question": "I work at a small NGO and I'm new to AI. Where do I even start?",
+      "expect": "Short, plain language, no jargon. Does not dump multiple pathways; may ask one clarifying question (within the message, not as the final sentence).",
+      "groundingKind": "situation",
+      "groundedSlugs": [
+        "ceew-climate-intelligence",
+        "mahavistaar",
+        "voice-ai"
+      ],
+      "old": {
+        "answer": "The most useful starting point is a specific problem your NGO is already trying to solve — not AI in general, but one task or service where something is currently slow, expensive, inconsistent, or simply not reaching the people it should.\n\nA few questions worth sitting with before anything else:\n\n- **Who isn't being reached** by your current services, and why — cost, language, geography, time?\n- **What takes the most staff time** that is repetitive and rule-based rather than judgment-heavy?\n- **Where does quality vary** depending on which person handles something?\n\nIf you share what your NGO actually does and where the friction is, the corpus here has documented adoptions from similar contexts that can tell you what others tried, what worked, and under what conditions.",
+        "checks": {
+          "words": 127,
+          "pathwaysNamed": [],
+          "banned": null,
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "n/a",
+          "concise": "pass",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "It gives a short, sensible starting point, doesn't list multiple pathways, and asks a clarifying question inside the message. But the closing line uses insider words (\"the corpus here has documented adoptions\") that a newcomer to AI wouldn't understand, and the three reflective questions make it a bit longer than a single focused clarifying question.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "The most useful starting point is usually a specific frustration — something your team currently does manually that's slow, repetitive, or inconsistent.\n\nA few common places NGOs have found genuine value:\n\n- **Drafting and summarising** — grant reports, meeting notes, donor updates. This is where most NGOs get their first real time savings, with low risk.\n- **Answering repeated questions** — if staff or beneficiaries ask the same questions over and over, that's a candidate for a simple AI-assisted response system.\n- **Data processing** — turning unstructured feedback (survey responses, field notes) into something searchable or categorised.\n\nNone of the documented pathways in this library covers a generic NGO productivity use case — the deployments here tend to be specific: a government agricultural advisory line, a civic grievance system, a multilingual chat tool. If you share what your NGO actually does and what's taking too much time, I can check whether any of that experience genuinely applies to your situation.",
+        "checks": {
+          "words": 160,
+          "pathwaysNamed": [],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "n/a",
+          "concise": "pass",
+          "neutral_plain": "pass",
+          "meets_expectation": "partial",
+          "notes": "Good: it opens with practical advice in plain words, lists no pathways, and says honestly that nothing in the library fits a general NGO question. Problems: the clarifying request comes as the final sentence, which the expected behaviour rules out, and it mentions a \"civic grievance system\" that isn't one of the published pathways.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q4",
+      "surface": "analyse",
+      "category": "Common patterns (multi allowed)",
+      "question": "What are the common reasons AI pilots in government struggle to scale?",
+      "expect": "User asked what is common, so more than one pathway is allowed; each credited and briefly described. Calls something common only if 2+ pathways show it.",
+      "groundingKind": "patterns",
+      "groundedSlugs": [
+        "mahavistaar",
+        "blue-dots",
+        "nivesh-suvidha"
+      ],
+      "old": {
+        "answer": "A few patterns from the corpus — these aren't universal claims, but each traces to a specific documented deployment:\n\n- **Data ownership stays informal** — MahaVISTAAR (a voice line Maharashtra's government ran for farmers) found that data sources which had no named, accountable owner within a department couldn't be reliably updated; the AI layer started drifting from reality, and the fix required governance agreements, not technical ones.\n- **No named operational owner after the pilot team leaves** — the African Voice AI programme (voice-based agricultural advisory across several countries) explicitly names \"who maintains this in three years\" as still-open, with contracts expiring and compute allocations ending — the technology worked, but institutional absorption hadn't happened yet.\n- **The institution disowns the first public failure** — this is the strongest single signal in the corpus about whether something will scale; an institution that distances itself from a failure rather than owning it rarely builds the continuous improvement loop that scale requires.\n- **Budget stays project-based, never becomes a line item** — when funding depends on the founding team or external grant rather than a recurring institutional budget, the service exists at the pleasure of the original project, not the institution.\n\nNone of these are technology problems — they sit in the institution and ecosystem dimensions, which is consistent with what documented deployments show: the build is roughly 30% of the work, the institutional absorption is the other 70%.\n\nIf you share your own project, I can check it against the corpus and tell you what actually applies to your situation.",
+        "checks": {
+          "words": 259,
+          "pathwaysNamed": [
+            "african-voice-ai",
+            "mahavistaar"
+          ],
+          "banned": null,
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "fail",
+          "meets_expectation": "fail",
+          "notes": "The answer calls these patterns \"common\", but each one rests on a single pathway at most. The last two patterns (\"disowns the first public failure\", \"budget stays project-based\") credit no pathway at all, and the 30%/70% split has no source. It also uses jargon a lay user wouldn't follow (\"corpus\", \"institutional absorption\", \"compute allocations\", \"institution and ecosystem dimensions\"), opens with a preamble, ends with an extra offer, and calls African Voice AI multi-country when the pathway is about Kenya.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "Government AI pilots most often stall for institutional reasons rather than technical ones — the technology works, but the conditions for sustained operation were never built.\n\nThe documented pathways point to a few recurring patterns:\n\n- **No named operational owner** — when the pilot team moves on, no one inside the institution carries daily responsibility. The service survives as long as the founding team's attention does, not longer.\n- **Project funding, not a budget line** — running costs were covered by a grant or external partner, with no plan for who pays in year two. MahaVISTAAR (a government phone advisory service for farmers in Maharashtra) names this explicitly: the question of who maintains the system after the initial funding cycle is a governance question, not a technical one.\n- **Data that worked at pilot scale breaks at population scale** — one pathway covering job-matching in rural India found that government-held participant data was stale by the time it was used, and managing freshness had to become an ongoing operational discipline, not a one-time fix.\n- **The institution disowns the first public failure** — without a named accountability structure, the response to the first visible mistake is to distance rather than own and fix.\n\nThe pattern across documented deployments is that the work of building, testing, and launching takes most of the energy, while the quieter questions — who owns this, who pays, who monitors it — get left for later, and later never comes.\n\nIf you share what your own project looks like, I can check it against specific pathways and tell you which of these is most likely to bite you.",
+        "checks": {
+          "words": 272,
+          "pathwaysNamed": [
+            "mahavistaar"
+          ],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "pass",
+          "concise": "pass",
+          "neutral_plain": "pass",
+          "meets_expectation": "partial",
+          "notes": "The answer presents four \"recurring patterns\", but none is backed by two or more pathways. Two (no named owner, disowning the first failure) cite no pathway at all, and the funding and data points each rest on a single pathway (MahaVISTAAR; the unnamed rural job-matching one, which looks like Blue Dots). That is generalising beyond the evidence. Credit for briefly describing the pathways it does cite and for opening with the answer.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q5",
+      "surface": "analyse",
+      "category": "Explicit comparison (multi allowed)",
+      "question": "Compare how MahaVISTAAR and the African Voice AI project in Kenya handled local languages.",
+      "expect": "Both pathways compared (explicitly requested), each described in a few words, neutral, concise.",
+      "groundingKind": "specific",
+      "groundedSlugs": [
+        "african-voice-ai",
+        "mahavistaar"
+      ],
+      "old": {
+        "answer": "Both are voice AI deployments for smallholder farmers, but they faced different language problems and solved them differently.\n\n- **MahaVISTAAR's challenge was dialect variation at scale** — Marathi is the primary language, but regional dialects and vocabulary (crop names, pest names, scheme names, mandi terms) caused ASR and retrieval failures. The fix was a bilingual Marathi↔English agricultural glossary, now available as a reusable asset via OpenAgriNet.\n- **The African Voice AI's challenge was code-switching within a single sentence** — Kenyan farmers and field agents routinely mix Kiswahili and English mid-utterance. The base Msingi AI models supported only pure Kiswahili, so code-switching had to be engineered into the ASR and TTS layers separately — the LLM handled it natively, but that didn't propagate to the speech layers automatically.\n- **A concrete downstream consequence in Kenya:** a text normaliser (which assumes one output language) broke mid-sentence in code-switched replies, so number-spelling was delegated to the language model itself, in whichever language it was using in that sentence.\n- **One thing both show:** language work doesn't end with the model — it surfaces in data (glossaries, agricultural vocabulary), in the speech pipeline (ASR/TTS accuracy), and in the conversational design (pacing, vocabulary assumed of the speaker). MahaVISTAAR absorbed this over nine months of build; the African deployment hit it during the Define stage adaptation phase.\n\nThe African Voice AI pathway (documented August 2026) is still pre-pilot, so there's no field data yet on how the code-switching fix holds against real telephony audio with real users.",
+        "checks": {
+          "words": 251,
+          "pathwaysNamed": [
+            "african-voice-ai",
+            "mahavistaar"
+          ],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "pass",
+          "concise": "pass",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "Compares both requested pathways in a neutral tone, with brief context (voice AI for smallholder farmers, Marathi vs. Kiswahili/English). But it uses a lot of unexplained jargon (ASR, TTS, LLM, text normaliser, mandi, Msingi AI, OpenAgriNet, 'Define stage adaptation phase'), and the text-normaliser bullet adds detail most users won't need.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "Both pathways dealt with language as a technical and institutional challenge, but at very different layers of the stack.\n\n- **What the language gap actually was** — MahaVISTAAR's challenge was reaching farmers who spoke Marathi and had no text literacy, so the question was channel (voice was the only viable interface) and institutional trust (the voice had to carry government authority to be acted on). The African Voice AI team's challenge was more structural: their ASR and TTS models were trained on Kiswahili alone, but Kenyan callers routinely switch between Kiswahili and English mid-sentence, so the speech layers broke even when the underlying language model handled it fine.\n- **The fix in each case** — MahaVISTAAR's language work was largely a design and federation decision: Marathi as the primary voice, with proactive outreach built to find farmers rather than wait for them to call. African Voice AI had to engineer code-switching into the speech models themselves — and separately, stop using a text normaliser for numbers, because a normaliser has to assume one output language and fails mid-sentence in a mixed reply.\n- **What didn't transfer automatically** — African Voice AI reused an India-built orchestration stack (the same ecosystem MahaVISTAAR drew on), and the team was explicit that porting the stack saved substantial integration time but that local language adaptation — code-switching, response-style tuning, provider-specific channel work — had to be budgeted and executed as a separate phase. The build compressed, but the language work didn't come along for free.\n- **One gap worth noting** — as of August 2026, the African Voice AI team had not yet benchmarked their code-switching fix against real, accented, noisy telephony audio; all their latency and accuracy figures were measured on clean test audio. MahaVISTAAR's production data at scale (342K+ users, 1.67M+ questions) gives it a much deeper evidence base on what actually holds in the field.\n\nIf you tell me what you're working on, I can check which of these findings actually applies to your situation.",
+        "checks": {
+          "words": 333,
+          "pathwaysNamed": [
+            "african-voice-ai",
+            "mahavistaar"
+          ],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "fail",
+          "concise": "fail",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "The answer compares both pathways as asked, and the tone stays neutral. It never says what either one is: it doesn't call MahaVISTAAR Maharashtra's AI farm advisory, and it doesn't say the Kenya project gives voice-based advice to farmers. It is also long, opens with a framing sentence instead of the answer, and uses jargon a lay user won't follow (ASR/TTS, text normaliser, orchestration stack, federation, \"layers of the stack\").",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q6",
+      "surface": "analyse",
+      "category": "Judgement bait",
+      "question": "Which of these projects flopped the worst, and why?",
+      "expect": "Declines to rank or judge; neutral factual wording; never uses \"flopped\" or similar; may describe a documented setback-and-fix neutrally.",
+      "groundingKind": "broad",
+      "groundedSlugs": [
+        "deepleaf",
+        "mahavistaar",
+        "blue-dots",
+        "nivesh-suvidha",
+        "bhili-language-enablement",
+        "amul-sarla-ben",
+        "african-voice-ai"
+      ],
+      "old": {
+        "answer": "Nothing in the corpus is framed in terms of which project \"flopped\" — the pathways document decisions, failures, and fixes, not verdicts on overall outcomes.\n\nWhat the corpus does contain is specific, named things that broke and what they revealed: a 48-hour data lag that gave farmers wrong harvest timing (MahaVISTAAR), a voice channel built out two to three times before the team realised farmers preferred chat for advisory (Amul/Sarla Ben), a metadata schema that had to be rebuilt mid-conversion because it wasn't designed before the first table was opened (Nivesh Suvidha).\n\nIf you're trying to avoid a specific kind of failure — data quality, channel misjudgement, institutional approval bottlenecks — I can point you to the pathways that document that failure in detail, with the fix and the conditions under which it applies.",
+        "checks": {
+          "words": 134,
+          "pathwaysNamed": [
+            "amul-sarla-ben",
+            "mahavistaar",
+            "nivesh-suvidha"
+          ],
+          "banned": "flopped",
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "fail",
+          "concise": "pass",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "The answer rightly refuses to rank projects and describes documented setbacks and their fixes in factual terms. But it repeats \"flopped\" (even if in quotes), uses jargon like \"corpus\" and \"metadata schema\", and names MahaVISTAAR and Nivesh Suvidha without saying what they are.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "None of the documented pathways are described in terms of success or failure rankings — the corpus documents what happened, what broke, what was fixed, and under what conditions, not which project performed worst.\n\nIf there's a specific challenge you're working through — a channel that isn't reaching users, a data dependency that's stalling things, an institution that hasn't committed — that's where the documented experience is likely to be useful.",
+        "checks": {
+          "words": 71,
+          "pathwaysNamed": [],
+          "banned": null,
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "n/a",
+          "pathway_context": "n/a",
+          "concise": "pass",
+          "neutral_plain": "pass",
+          "meets_expectation": "pass",
+          "notes": "It declines to rank or judge the projects, never repeats 'flopped', and stays neutral by pointing to documented setbacks and fixes. A minor issue: 'corpus' and 'data dependency' are slightly technical for a lay user, though the meaning is still clear.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q7",
+      "surface": "analyse",
+      "category": "Sector match (education)",
+      "question": "We want to use AI to help teachers in government schools in Uttar Pradesh track children's reading levels.",
+      "expect": "One best match (education/literacy pathway), described on first mention, concrete lesson, concise.",
+      "groundingKind": "situation",
+      "groundedSlugs": [
+        "ceew-climate-intelligence",
+        "axl",
+        "deepleaf"
+      ],
+      "old": {
+        "answer": "A few things are genuinely documented that bear on this, so let me give you what's real before anything else.\n\nThe most directly relevant experience in the corpus is EkStep Foundation's AxL deployment — a proficiency-based reading and numeracy system now active across 18,000+ schools in 10+ Indian states, including government school contexts in Karnataka, Tamil Nadu, Bihar, and Delhi. It isn't an exact match for UP specifically, but the institutional and infrastructure conditions are closely comparable.\n\nThree findings from that deployment that would change how you approach this:\n\n- **Timetable slot before anything else** — AxL found that securing a recurring, dedicated period in the school timetable was the single most important implementation requirement, ahead of device procurement or teacher training. Without a named slot, usage doesn't happen regardless of tool quality. In Tamil Nadu, this was written into state timetable policy under the Mozhigal programme.\n- **Adding a language is production work, not configuration** — to onboard Nepali into the reading system, a team of language experts spent a week building and grading that language's content bank. If you're targeting specific UP dialects or regional varieties of Hindi, that's the equivalent effort you'd be scoping.\n- **Sustaining a deployment outweighs launching it by roughly 100,000 to 1** — EkStep estimates that at ~1,000 schools, the conversations required to keep a programme alive at teacher, head teacher, and block level across a year number in the hundreds of thousands, dwarfing the handful needed to get a state's initial commitment. That's the operational design question that determines whether this actually works.\n\nThe AxL corpus also has a seven-stage rollout protocol with named owners specifically for onboarding state education departments — that's a reusable asset worth looking at as you think about the UP structure.\n\nThe grid has updated on the Persona and Institution dimensions — you can check it via the Grid button.\n\nThe most important thing to nail down at this stage is whether UP's Basic Shiksha Parishad has an identified champion who wants this to work — not procurement sign-off, but the person whose professional stake is tied to the outcome.",
+        "checks": {
+          "words": 353,
+          "pathwaysNamed": [
+            "axl"
+          ],
+          "banned": null,
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "It picks the single right match (AxL), explains it in plain words when first named, and gives concrete lessons such as securing a timetable slot. However, it opens with filler (\"let me give you what's real\"), runs long, and uses insider terms a lay user wouldn't follow (\"corpus\", \"the grid has updated on the Persona and Institution dimensions\", \"configuration\").",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "Two pathways in the corpus touch this directly — one exact, one adjacent.\n\n- **EkStep Foundation's AxL** (an AI-powered foundational literacy and numeracy system now live across 18,000+ schools in 10+ Indian states) is the closest match. Their experience is that the hardest problem isn't the AI itself — it's securing a recurring timetable slot in each school, without which sessions simply don't happen regardless of tool quality. Tamil Nadu embedded a similar programme into state timetable policy before usage became consistent.\n- **The teacher's role** in AxL is worth noting: the system surfaces each child's reading level to teachers through a daily dashboard, but the AI handles the diagnostic work — teachers don't assess individually, they respond to what the system flags. That separation is what kept teacher load from increasing.\n\nThe single most useful question to settle early: who inside the UP education department would personally want this to work and has the standing to get it written into school schedules — not procurement sign-off, but the person whose professional stake is tied to it succeeding. The AxL pathway shows that state-level ownership (naming the programme under the state's own identity, writing it into timetable policy) is what determined whether deployments lasted past the pilot phase.",
+        "checks": {
+          "words": 208,
+          "pathwaysNamed": [
+            "axl"
+          ],
+          "banned": null,
+          "jargon": "corpus",
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "It correctly picks AxL as the one best match, explains it in plain words when first named, and gives a concrete lesson: getting a regular timetable slot and state ownership matter most. But the first line wrongly says \"Two pathways\" match, and the second bullet is still about AxL, which is confusing. It also opens with that line instead of the answer and uses the insider word \"corpus\".",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q8",
+      "surface": "library-overview",
+      "category": "Library: not covered",
+      "question": "Do you have anything on AI for courts or legal systems?",
+      "expect": "Says plainly in one line the library does not have it; offers a related pathway only if genuinely related; this \"not covered\" reply ends plainly without a closing question.",
+      "groundingKind": "broad",
+      "groundedSlugs": [
+        "ceew-climate-intelligence",
+        "deepleaf",
+        "amul-sarla-ben",
+        "voice-ai",
+        "african-voice-ai",
+        "mahavistaar",
+        "nivesh-suvidha",
+        "blue-dots"
+      ],
+      "old": {
+        "answer": "That's not covered in the library — none of the 10 pathways touch courts, legal aid, or justice systems.\n\nThe closest thing here is the **CEEW** pathway, which looks at AI for public-sector decision-making (climate data and disease forecasting for government officials). It has some useful thinking on building institutional trust and governing AI in contexts where decisions are consequential — which is obviously relevant to legal settings even if it's not the same domain.\n\nThere's also solid material on **data readiness for government** in the Nivesh Suvidha pathway, if the question is really about making public records or case data AI-accessible.\n\nWould either of those be worth digging into, or is there a different angle — like AI for citizen-facing services or public grievance systems — where I might find something more useful for you?",
+        "checks": {
+          "words": 136,
+          "pathwaysNamed": [
+            "nivesh-suvidha",
+            "ceew-climate-intelligence"
+          ],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": true
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "pass",
+          "meets_expectation": "fail",
+          "notes": "The opening line correctly and plainly says the library doesn't cover courts or legal systems. After that it brings in two loosely related pathways (CEEW and Nivesh Suvidha) that don't really fit, and its claim that CEEW is \"obviously relevant\" is a stretch. It also ends with a follow-up question, which the expectation says a \"not covered\" reply shouldn't do.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "The library doesn't have anything on AI for courts or legal systems.",
+        "checks": {
+          "words": 12,
+          "pathwaysNamed": [],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": false
+        },
+        "judge": {
+          "best_match": "pass",
+          "pathway_context": "n/a",
+          "concise": "pass",
+          "neutral_plain": "pass",
+          "meets_expectation": "pass",
+          "notes": "A single plain line saying the topic isn't covered. It doesn't push an unrelated pathway (none of the 10 are about courts or legal systems) and it ends without a closing question.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q9",
+      "surface": "library-overview",
+      "category": "Library: broad question",
+      "question": "How did teams get rural users to actually trust and use a voice assistant?",
+      "expect": "Answers from the single best-fitting pathway (described in a few words), short, neutral, plain words; ends with a short question about that same pathway, not a second pathway.",
+      "groundingKind": "broad",
+      "groundedSlugs": [
+        "voice-ai",
+        "amul-sarla-ben",
+        "mahavistaar",
+        "african-voice-ai",
+        "blue-dots",
+        "deepleaf",
+        "bhili-language-enablement",
+        "nivesh-suvidha"
+      ],
+      "old": {
+        "answer": "The honest answer is: they didn't trust the *voice assistant*. They trusted the institution behind it. That's the finding that shows up across multiple pathways — MahaVISTAAR and Voice AI for Inclusion both make this explicit.\n\nIn Maharashtra, women farmers were getting contradictory advice from fertiliser sellers who had a commercial incentive to sell. When the same question got answered by a government-backed voice in Marathi — a language they actually understood — the trust equation changed. Not because the AI was impressive, but because the answer came from a source they already had reason to trust.\n\nThe flip side is worth knowing too: if the institution itself isn't trusted, voice AI amplifies that deficit rather than fixing it. It's not a trust-building tool on its own.\n\nThe other thing that mattered was **channel fit**. MahaVISTAAR's target users were feature-phone-dependent, Marathi-speaking, and text-illiterate — voice wasn't a preference, it was the only interface that could work. Bhili Language Enablement adds another layer: for tribal women in Nandurbar who had far less Marathi exposure than men who left for work, hearing the advisory in their own language (Dehwali Bhili) was itself a trust signal.\n\nAnd Amul's Sarla Ben found something interesting about *when* trust shows up in usage data: peaks at **6–9am and 6–9pm** — exactly the milking windows. The design matched the actual use moment, which is its own form of trust-building.\n\nWhich of these feels most relevant to what you're working on — the institutional credibility angle, the language question, or the channel-fit side?",
+        "checks": {
+          "words": 255,
+          "pathwaysNamed": [
+            "amul-sarla-ben",
+            "mahavistaar",
+            "voice-ai",
+            "bhili-language-enablement"
+          ],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": true
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "fail",
+          "concise": "fail",
+          "neutral_plain": "fail",
+          "meets_expectation": "fail",
+          "notes": "The answer names four pathways (MahaVISTAAR, Voice AI for Inclusion, Bhili, Amul Sarla Ben) when the user didn't ask for a comparison, so it should have picked just one. Voice AI for Inclusion and Amul's Sarla Ben get no plain description, and the answer is long, opens with \"The honest answer is\", uses jargon like \"trust equation\" and \"channel fit\", and ends by asking the user to choose between several angles instead of a short follow-up on a single pathway.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "The clearest answer on this comes from MahaVISTAAR (Maharashtra's government voice advisory service for smallholder farmers). The core finding is that **trust didn't come from the AI itself** — it came from who was speaking.\n\nWomen farmers in Marathwada were receiving contradictory advice from fertiliser sellers who had a commercial incentive to sell. A government-backed voice advisory in Marathi, delivered through a phone they already had, changed the trust equation — not because the technology was impressive, but because the answer came from an institution the farmer already had reason to trust.\n\nThe design reflected this: the bot is named Vasudha and speaks as the Department of Agriculture, Maharashtra. That's not a branding decision — it's the entire design premise. A wrong answer isn't experienced as \"the model got it wrong.\" It's experienced as \"the department gave me wrong advice.\" That framing changes what gets tested, governed, and owned before anything goes live.\n\nThe same pattern shows up in Voice AI for Inclusion (a pathway that draws on several deployments across India and Africa). It frames this as: users trust a voice service **because of who stands behind it**, whether it speaks their language, and whether it solves a real problem — in that order.\n\nOne important caveat both pathways flag: this only holds when the institution itself is trusted by that specific population. Where government credibility is low or contested, putting an institutional voice on the AI can amplify distrust rather than resolve it.\n\nWhat aspect are you most curious about — how they handled cases where the advice turned out to be wrong, or how they actually got farmers to pick up the phone in the first place?",
+        "checks": {
+          "words": 280,
+          "pathwaysNamed": [
+            "mahavistaar",
+            "voice-ai"
+          ],
+          "banned": "got it wrong",
+          "jargon": null,
+          "endsWithQuestion": true
+        },
+        "judge": {
+          "best_match": "fail",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "pass",
+          "meets_expectation": "partial",
+          "notes": "It starts well with one strong match, MahaVISTAAR, and explains it in plain words. But it then adds a second pathway, Voice AI for Inclusion, even though the user didn't ask for a comparison, and says the caveat comes from both pathways. That extra material plus some rhetorical padding ('not a branding decision — it's the entire design premise') makes the answer longer than it needs to be.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    },
+    {
+      "id": "Q10",
+      "surface": "library-pathway",
+      "slug": "blue-dots",
+      "category": "Library: one pathway, setbacks",
+      "question": "What did they get wrong early on, and what did they change?",
+      "expect": "Neutral description of early setbacks and changes (no \"flopped\"/\"failed miserably\"), short, plain words, ends with a question about this same pathway.",
+      "groundingKind": "specific (pathway open)",
+      "groundedSlugs": [
+        "blue-dots"
+      ],
+      "old": {
+        "answer": "Three things went wrong early, and each one led to a concrete fix.\n\nThe first was **consent**. The district team in Dharwad wanted to convert existing government data directly into Blue Dots — the data already existed, so why not use it? The team pushed back hard: holding data and holding consent to use it in a new way are two completely different things. They built a direct communication process to reach each person individually, explain the initiative, and get proper consent before creating any record.\n\nThe second was **data freshness**. Even after consent was sorted, government-held data turned out to be stale — people's situations had already changed since the data was collected. The fix wasn't a one-time cleanup; it became an ongoing operational discipline. This is still not fully resolved — at the time the pathway was documented (September 2026), they were still working on how to treat the data as a shared public rail rather than a single-purpose dataset.\n\nThe third was **dialect**. The speech model was initially tuned on standard Kannada as spoken in Bangalore. Dharwad Kannada is faster and uses vocabulary that simply doesn't appear in that training data. Engagement measurably dropped. The fix was building a local glossary and adjusting the conversational tone and pacing to match how people actually talk there. The lesson they drew: dialect adaptation is local and non-optional — you can't inherit it from a neighboring deployment even if it's technically the \"same\" language.\n\nThe bigger pattern across all three is that the failures were predictable in retrospect, and each one is now a named precondition for the next adopter rather than a surprise to stumble into.\n\nWhich of these is most relevant to your context — are you thinking about data sourcing, voice/language design, or something else entirely?",
+        "checks": {
+          "words": 299,
+          "pathwaysNamed": [],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": true
+        },
+        "judge": {
+          "best_match": "n/a",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "fail",
+          "meets_expectation": "partial",
+          "notes": "It's accurate, stays on the pathway the user has open, and ends with a follow-up question. But at about 330 words it's long, and it adds a summary paragraph nobody asked for. It also uses loaded or insider wording: 'failures', 'shared public rail', 'operational discipline' and 'named precondition'.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      },
+      "new": {
+        "answer": "Three things went wrong early, and each led to a concrete change.\n\nThe first was **consent**. The district team proposed converting existing government-held citizen data directly into Blue Dots — the data already existed, so why not use it? The objection was that holding data and holding consent to use it in a new way are two different things. The fix was building a direct communication process to reach each person individually, explain what Blue Dots was, and get proper consent before creating any record.\n\nThe second was **data freshness**. Even once consent was handled, government-held data turned out to be stale — a person's situation changes, but the database doesn't update itself. The team had to treat freshness as an ongoing operational discipline, not a one-time clean-up at launch.\n\nThe third was **dialect**. The speech model had been tuned on Kannada as spoken in Bangalore — but Dharwad Kannada is faster and uses vocabulary that simply isn't in the standard form. Engagement was measurably lower until the team built a local glossary and adjusted the agent's tone and phrasing to match how people actually talk there. The lesson they drew: dialect adaptation is local and non-optional — you can't inherit it from a neighbouring deployment that uses the \"same\" language.\n\nOf the three, the consent issue is probably the one with the longest tail, since India's data protection regulation (the DPDP Act) is making that distinction increasingly formal and enforceable.\n\nWhich of these would be the stickiest problem in a context you're thinking about — the consent side, keeping data fresh, or getting the voice interaction right for a local dialect?",
+        "checks": {
+          "words": 272,
+          "pathwaysNamed": [],
+          "banned": null,
+          "jargon": null,
+          "endsWithQuestion": true
+        },
+        "judge": {
+          "best_match": "n/a",
+          "pathway_context": "pass",
+          "concise": "fail",
+          "neutral_plain": "pass",
+          "meets_expectation": "partial",
+          "notes": "The answer stays on the open pathway (Blue Dots), describes the three setbacks and fixes neutrally, and ends with a question about this pathway. It runs about 300 words, though, and the extra DPDP Act paragraph plus the 'lesson they drew' lines are padding. Phrases like 'operational discipline' and 'longest tail' could also be plainer.",
+          "gradedBy": "claude-opus-5-5"
+        }
+      }
+    }
+  ]
+}

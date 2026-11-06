@@ -199,9 +199,14 @@ async function handlePOST(req: Request) {
   // the mode and flow (requiredRole) — the UI showing a choice is not the
   // enforcement boundary.
   if (mode !== 'library') {
-    const roles = user ? await currentRoles(supabase) : new Set<Role>();
+    // Every account holds 'adopter' from signup (migration 0039), so no roles
+    // means either no session at all or a role row removed by hand.
+    if (!user) {
+      return Response.json({ error: 'Please sign in to continue.' }, { status: 403 });
+    }
+    const roles = await currentRoles(supabase);
     if (roles.size === 0) {
-      return Response.json({ error: 'Your account is awaiting approval.' }, { status: 403 });
+      return Response.json({ error: "Your account doesn't have access yet. Please contact an administrator." }, { status: 403 });
     }
     const required = requiredRole(mode, flow);
     if (!roles.has(required.role)) {

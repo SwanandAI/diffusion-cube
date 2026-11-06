@@ -40,7 +40,7 @@ describe('GET /api/wiki-stats', () => {
     signIn(USER, []);
     const res = await GET();
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'Your account is awaiting approval.' });
+    expect(await res.json()).toEqual({ error: "Your account doesn't have access yet. Please contact an administrator." });
   });
 
   it.each([['adopter'], ['pathway_contributor'], ['admin']])('serves any role (%s)', async (role) => {

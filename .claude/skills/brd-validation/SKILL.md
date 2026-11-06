@@ -82,20 +82,27 @@ primary source of truth, more current than the root-level `CLAUDE.md`/`ARCHITECT
 - `ai-context.md` first (one-page summary, plus time-sensitive operational warnings).
 - `business/business-overview.md` — product vision, scope, and the **"Roadmap (Planned, Not Yet
   Implemented)"** section (milestones through 15-Mar-27, the prioritized requirements backlog
-  with per-item status, the execution model).
-- `business/workflows.md` — current workflows W1–W4 and **"Planned Workflows"** W5–W7 (W5
-  contributor reuse/incentive loop, W6 pathway curation lifecycle, W7 guided Adopter-to-Contributor
-  transition).
-- `business/users-and-personas.md` — the four roles (`general_user`, `adopter`,
-  `pathway_contributor`, `admin`) and what each can do, including the documented gap between the
-  charter's intended Adopter/Contributor relationship and current behaviour.
-- `business/business-rules.md` — product rules (matching, provenance, absence framing).
+  with the charter's own per-item status **and** a "Code evidence" column — several items the
+  charter still marks "Not started" are already built or partly built, e.g. account deletion,
+  toolkit assets, rate limiting, error logging — the execution model).
+- `business/workflows.md` — current workflows W1–W7 (W5 toolkit-asset sharing, W6 seeding
+  pathways, W7 admin deletes a pathway, among them) and **"Planned Workflows"** W8–W10 (W8
+  contributor reuse/incentive loop, W9 remaining pathway-curation lifecycle, W10 guided
+  Adopter-to-Contributor transition). These were numbered W5–W7 before November 2026.
+- `business/users-and-personas.md` — the three roles (`adopter`, `pathway_contributor`,
+  `admin`) plus the anonymous visitor, and what each can do. Every new account is an Explorer
+  (`adopter`) from signup, with no approval step; the old `general_user` role no longer exists.
+  Includes the documented gap between the charter's intended Adopter/Contributor relationship and
+  current behaviour.
+- `business/business-rules.md` — product rules (matching, answer shape, provenance, absence
+  framing, publishing, toolkit assets).
 - `knowledge/glossary.md` — use the product's own words (pathway, Explorer, Contributor, grid,
   dimension, stage, toolkit asset) in the requirement.
 - `knowledge/technical-debt.md` — only for limitations a user would notice in the affected area.
 - `docs/features/` — existing requirement folders, both to avoid duplicating a feature already in
   flight and as style references (`docs/features/toolkit-asset-files/requirement_toolkit_asset_files.md`
-  is the reference requirement doc).
+  is the reference requirement doc; `docs/features/pathway-storage/` is a complete recent
+  example).
 
 If the wiki looks stale against what you can see in the product (a page or flow it doesn't
 mention), tell the user and ask whether to regenerate it (`llm-wiki` skill) or carry on. Don't
@@ -104,28 +111,48 @@ silently skip this choice.
 Then cross-reference the requirement against what you found:
 
 - **Is it already on the roadmap?** If the requirement, or something next to it, is named in the
-  roadmap backlog or in W5–W7, build on that stated intent (named scope, target milestone, charter
-  status) rather than re-deriving goals. Examples: contributor-reuse visibility maps to W5 and the
-  "Incentivize Contributors" / "Visibility into Pathway Usage & Reuse" milestones; pathway removal
-  or curation maps to W6; the Explorer/Contributor relationship maps to W7 (e.g. the charter wants
-  an existing contributor to be able to analyse their own adoption too, which the product doesn't
-  allow today). Where the requester's ask differs from the roadmap's stated scope, make that a
-  **Stage 2 question**. Never settle it silently either way.
+  roadmap backlog or in W8–W10, build on that stated intent (named scope, target milestone, charter
+  status) rather than re-deriving goals. Examples: contributor-reuse visibility maps to W8 and the
+  "Incentivize Contributors" / "Visibility into Pathway Usage & Reuse" milestones (admins already
+  see usage counts; contributors see nothing yet); retiring or unpublishing a pathway without
+  deleting it maps to W9; the Explorer/Contributor relationship maps to W10 (the charter wants the
+  option to contribute offered at the right moment, without a hard switch, and a way to connect
+  with the people behind a pathway — neither exists today; a contributor analysing their own
+  adoption, by contrast, already works because every account is an Explorer). If the backlog's code
+  evidence shows the ask is already built, say so before asking anything else. Where the
+  requester's ask differs from the roadmap's stated scope, make that a **Stage 2 question**. Never
+  settle it silently either way.
 - **Which product rules does it touch?** Never silently contradict one. In business terms, the
   ones most often hit are:
   - **Nothing goes public without an admin.** A contributor sending a pathway for review does not
-    make it live; only an admin publishing it does. A requirement that assumes contributors
-    self-publish works against how the product actually behaves. Flag it.
+    make it live; only an admin publishing it does (seeded pathways loaded by the operator are the
+    one exception). A requirement that assumes contributors self-publish works against how the
+    product actually behaves. Flag it.
+  - **Deleting a pathway takes it out of the library, permanently.** There is no "unpublish but
+    keep" today; delete also removes its files. A requirement that needs a reversible take-down is
+    new scope (W9).
   - **Provenance stays with the contributor.** The source-trace appendix of a pathway is shown to
     its contributors only, never to adopters or on the public library.
-  - **Everything the assistant says is grounded in the corpus**, and it says so plainly when the
-    corpus has nothing (absence framing), rather than inventing.
-  - **There are two pathway collections**: the one the assistant reasons over and the public
-    library. A requirement about "pathway content" must say which one it means.
-- **Known external dates.** The Anthropic AI account behind every assistant feature expires
-  **28-Oct-2026** and the AWS account expires **December 2026** (Product Charter). If the
-  requirement depends on the assistant or on stored files and its timeline goes near those dates,
-  say so in the requirement's risks.
+  - **Everything the assistant says is grounded in the documented pathways**, and it says so
+    plainly when they have nothing (absence framing), rather than inventing.
+  - **How answers read (from adopter feedback, November 2026):** one best-matching pathway by
+    default (say plainly when nothing matches directly; more than one only when the user asks to
+    compare or for common patterns), describe a pathway in a few plain words the first time it's
+    named, short answers that open with the answer, neutral wording about what other teams did,
+    and no insider jargon. A requirement that changes answer style changes these rules everywhere,
+    not on one screen — ask whether that's intended.
+  - **There is one pathway collection.** Every pathway — seeded or contributed — lives in the app
+    itself; the public library, the pathway pages and the assistant all use the same published
+    pathways. Drafts and pathways waiting for review are private to their contributors and admins.
+  - **Every new account can start analysing straight away.** There is no signup approval; only
+    becoming a Contributor or an admin needs an admin.
+- **Known external dates.** The Product Charter recorded the Anthropic AI account behind every
+  assistant feature as expiring **28-Oct-2026** — that date has passed, and whether it was renewed
+  can't be confirmed from the repository — and the AWS account as expiring **December 2026**. If
+  the requirement depends on the assistant, say in the requirement's risks that the account status
+  needs confirming; if it depends on the AWS hosting path, note the December date. Also note that
+  pathway content now exists only in the app's database, so anything that deletes or changes
+  pathways depends on the database being backed up.
 
 Never invent product behaviour. If the wiki doesn't confirm something, say so rather than
 assuming.
@@ -142,9 +169,9 @@ Cover, where relevant:
 
 - **Goal and success** — what problem does this solve, for whom, and how will we know it worked
   (a behaviour change, a number, a milestone)? Does it trace to a charter backlog item?
-- **Actors** — which roles take part (`adopter`/Explorer, `pathway_contributor`/Contributor,
-  `admin`/Program Team, `general_user`, the public with no login)? Who starts the journey, who
-  approves, who only sees the result?
+- **Actors** — which roles take part (`adopter`/Explorer — every signed-in user,
+  `pathway_contributor`/Contributor, `admin`/Program Team, the public with no login)? Who starts
+  the journey, who approves, who only sees the result?
 - **Scope boundaries** — what is explicitly in and out for this release; is it additive or does
   it change behaviour users already rely on (check `business-rules.md` and `workflows.md`)? Where
   does it appear (Analyse, Contribute, Explore library, admin console, emails)?
@@ -162,7 +189,8 @@ Cover, where relevant:
   being unavailable, very large or unusual input. Ask what the user should **see** in each case.
 - **Assistant behaviour** (if the assistant is involved) — when it should and shouldn't raise
   something, how it phrases suggestions (e.g. "could reuse", never "you should"), what it says
-  when nothing fits.
+  when nothing fits, and whether the standing answer rules (one best match, plain words, short,
+  neutral) apply as-is or need an exception.
 - **Non-functional needs in business terms** — who and how many will use it, how quickly it
   needs to respond from the user's view, English-only or other languages (the product has no
   translation support today, so confirm rather than assume), accessibility, any deadline.
@@ -243,8 +271,9 @@ something, what it says, what it never does)>
 <Out of scope, plus future enhancements recorded as roadmap>
 
 ## Trade-offs and risks, in plain terms
-<Costs, dependencies, external dates (28-Oct-2026 AI account, Dec 2026 AWS account) where
-relevant, anything a PM should consciously accept>
+<Costs, dependencies, external dates where relevant (AI account status to confirm — its
+recorded 28-Oct-2026 expiry has passed; Dec 2026 AWS account), anything a PM should consciously
+accept>
 ```
 
 If the requirement traces to a Product Charter backlog item, say so in **Source**. This repo's
@@ -366,6 +395,17 @@ already exists, update its files rather than starting a second folder.
 > charts) out of `.claude/skills/brd-task-creator/SKILL.md`, whose grounding came from the wiki at
 > `docs/wiki/diffusion-cube/`. If the roles, the roadmap, the product rules or the external dates
 > change, re-run this procedure.
+>
+> **Refresh, 2026-11-06**, against the wiki fully refreshed that day (`ai-context.md`,
+> `business/business-overview.md`, `business/workflows.md`, `business/users-and-personas.md`,
+> `business/business-rules.md`, `knowledge/technical-debt.md`). Business-level fixes only:
+> workflow numbering (W1–W7 implemented, W8–W10 planned); roles after migration `0039` (every
+> signup is an Explorer, `general_user` gone, no signup approval); the stale "two pathway
+> collections" rule replaced by one collection in the app's database, plus the permanent-delete
+> rule; the November 2026 answer-shape rules; the roadmap's code-evidence column; the
+> "contributor can't analyse own adoption" example (now possible); the passed 28-Oct-2026 AI
+> account date. Stages, question themes, requirement template and flow-chart conventions were
+> otherwise unchanged.
 
 Trigger: the user says something like *"Update this skill to suit the tech stack of this
 codebase"* (or names this skill while asking for the same).

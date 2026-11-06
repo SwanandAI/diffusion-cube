@@ -41,7 +41,7 @@ export async function listWikiPathways(): Promise<WikiPathwaySummary[]> {
 
 export interface WikiStats {
   total: number;
-  // Unique real sectors across the merged static + published corpus (see
+  // Unique real sectors across the published pathways (see
   // WikiPathwaySummary.sector) — excludes "Cross-Sector" and any pathway with
   // no sector tagged (all community-published ones, for now), since neither
   // is an actual sector to name in browse-intent copy.

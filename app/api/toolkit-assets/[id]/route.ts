@@ -26,8 +26,8 @@ function notFound() {
 //
 // If the asset was already sent for review, it's also taken out of the
 // document the admin reviews and publishes (pathways.content_cache), so the
-// admin never approves an asset that no longer exists. The copy committed to
-// GitHub catches up on the next Send for Review.
+// admin never approves an asset that no longer exists. The saved
+// pathway_versions row catches up on the next Send for Review.
 async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   if (!isAssetId(id)) return notFound()

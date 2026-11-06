@@ -4,16 +4,19 @@ description: >
   Turns business requirement (BRD, feature ask, one-liner, or attached requirement doc) into
   implementation-ready task list — tailored to Diffusion Cube, the Next.js 16 App Router /
   React 19 / TypeScript / Tailwind v4 monolith at 100pathways.com's Adoption Companion, backed by
-  Supabase Postgres+Auth (no ORM, sequential migrations under `supabase/migrations/`) and a
-  single Anthropic (`claude-sonnet-4-6`) chat route (`app/api/chat/route.ts`, 8 modes). Grounds
-  itself in this repo's LLM-native wiki (`docs/wiki/diffusion-cube/`, primary source of truth —
-  more current than `CLAUDE.md`/`ARCHITECTURE.md`) or a direct repo scan if the wiki is stale,
-  asks clarification questions before planning, reasons through requirement's architectural
-  impact — boundaries crossed, alternatives, tradeoffs, and non-functional consequences — before
-  drafting human-reviewed implementation plan, and — only after plan is approved — converts it
-  into task list of User Stories with Acceptance Criteria and a Test Plan covering positive,
-  edge, and negative cases (with realistic manual-verification framing, since this repo has no
-  automated test suite today). Use when user asks to "turn this requirement into
+  Supabase (Postgres + pgvector, Auth, RLS, Storage, one `embed` Edge Function; no ORM, 42
+  sequential migrations under `supabase/migrations/`; every pathway stored in the database via
+  `lib/pathway-store.ts`) and one Anthropic chat route (`app/api/chat/route.ts`, 7 modes on
+  `claude-sonnet-4-6`, grounded per message by `lib/retrieval.ts` hybrid search with a
+  `claude-haiku-5-5` classifier). Grounds itself in this repo's LLM-native wiki
+  (`docs/wiki/diffusion-cube/`, primary source of truth — more current than the stale root
+  `ARCHITECTURE.md`/`README.md`) or a direct repo scan if the wiki is stale, asks clarification
+  questions before planning, reasons through requirement's architectural impact — boundaries
+  crossed, alternatives, tradeoffs, and non-functional consequences — before drafting
+  human-reviewed implementation plan, and — only after plan is approved — converts it into task
+  list of User Stories with Acceptance Criteria and a Test Plan covering positive, edge, and
+  negative cases (named Vitest tests in the existing `tests/` layout, plus manual checks for what
+  the mocked suite can't prove). Use when user asks to "turn this requirement into
   tasks", "create user stories from this BRD", "break this feature down into a task list",
   "generate acceptance criteria", or pastes/attaches requirement and asks for plan or backlog.
   Also triggers on "update this skill to suit the tech stack of this codebase" — see **Tailoring
@@ -31,10 +34,13 @@ collapse stages or skip ahead — value of this skill is in never presenting use
 they haven't had chance to correct upstream.
 
 This copy of the skill has been tailored to **Diffusion Cube** (this repo, branch `Swanand_DC` at
-tailoring time): a Next.js 16 App Router monolith, Supabase Postgres/Auth as the only stateful
-backend (no ORM), and a single Anthropic chat route serving 8 modes. Every stage below names this
-repo's actual conventions rather than a generic placeholder — if the stack changes materially,
-re-run the tailoring procedure at the bottom rather than trusting these specifics blindly.
+tailoring time, last refreshed 2026-11-06): a Next.js 16 App Router monolith, Supabase
+(Postgres + pgvector, Auth, RLS, Storage, the `embed` Edge Function) as the only stateful backend
+(no ORM), and a single Anthropic chat route serving 7 modes with retrieval-based grounding. A
+Vitest suite exists (`tests/`, `npm test`, all external clients mocked) but CI does not run it.
+Every stage below names this repo's actual conventions rather than a generic placeholder — if the
+stack changes materially, re-run the tailoring procedure at the bottom rather than trusting these
+specifics blindly.
 
 ```
 Requirement → Repo Context → Clarifying Questions (STOP) → Plan (STOP) → Task List
@@ -166,79 +172,123 @@ today.
 
 1. **Check for existing project context first**, in order of preference:
    - This repo's LLM-native wiki, `docs/wiki/diffusion-cube/` (produced by the `llm-wiki` skill,
-     code-verified as of branch `Swanand_DC`) — **the primary source of truth**, more current
-     than the root-level `CLAUDE.md`/`ARCHITECTURE.md`/`conversation_design.md`, which the wiki's
-     own reconciliation tables document as substantially stale (e.g. `CLAUDE.md` still describes
-     a four-intent Explorer menu and a `/explore` entry point that no longer exist; both docs
-     describe the Contributor's publish button as single-step self-serve when it is actually a
-     two-step contributor-assemble + admin-publish gate). Always start with
+     code-verified as of branch `Swanand_DC`, last full refresh 2026-11-06) — **the primary
+     source of truth**. `CLAUDE.md` is now only a short pointer into this wiki (and its "no
+     tests" table cell and GitHub/Sheets services entry are themselves stale); the root
+     `ARCHITECTURE.md`, `README.md`, `AGENTS.md` and `conversation_design.md` are documented as
+     stale (TD-08) — e.g. `ARCHITECTURE.md` still describes a committed `content/wiki/` corpus,
+     whole-corpus prompt injection and `published_pathways` as a table admin publish writes to,
+     none of which is true since migration `0042`. Always start with
      `docs/wiki/diffusion-cube/ai-context.md`, then pull only the pages matching the
      requirement's affected areas:
      - Routes/API → `application/api-specification.md`, `architecture/sequence-diagrams.md`
-     - Data/schema → `application/database.md` (32 sequential Supabase migrations, ERD, RLS notes)
+     - Data/schema → `application/database.md` (42 sequential Supabase migrations, ERD, RLS notes,
+       the `0042` pathway-storage tables and `published_pathways` view)
      - Auth/roles → `business/users-and-personas.md`, `business/business-rules.md`
-     - AI/LLM chat surface → `integrations/ai-llm.md`
+     - AI/LLM chat surface, retrieval and the `<grid_update>` contract → `integrations/ai-llm.md`
+     - Conventions to follow in new code (validation order, `withErrorHandling`, retrieval
+       conventions, prompt-rule constants, test mocking) → `architecture/coding-patterns.md`,
+       `architecture/repository-conventions.md`
+     - Tests (what the Vitest suite covers and what it can't) → `architecture/testing.md`
      - Frontend → `application/frontend.md`
      - Known limitations for the affected area → `knowledge/technical-debt.md`
      - Whether this is already-roadmapped, not a fresh ask → `business/business-overview.md`'s
        "Roadmap (Planned, Not Yet Implemented)" section (milestones through 15-Mar-27, the
-       prioritized requirements backlog with per-item status, the execution model) and
-       `business/workflows.md`'s "Planned Workflows" section (W5 contributor reuse/incentive loop,
-       W6 pathway curation lifecycle, W7 guided Adopter-to-Contributor transition)
+       prioritized requirements backlog with the charter's own status **and** a "Code evidence
+       (2026-11-06)" column showing where code has moved past the charter, the execution model)
+       and `business/workflows.md`'s "Planned Workflows" section (W8 contributor reuse/incentive
+       loop, W9 remaining pathway-curation lifecycle, W10 guided Adopter-to-Contributor
+       transition — numbered W5–W7 before November 2026; W1–W7 are now the *implemented*
+       workflows, including W5 toolkit-asset sharing, W6 seeding and W7 admin delete)
    - `CLAUDE.md`/`AGENTS.md`/`ARCHITECTURE.md`, only as secondary corroboration, and only where
      the wiki doesn't cover something — never let a raw doc override a wiki claim it explicitly
      reconciles against.
    - If the wiki itself looks stale relative to what you can see in code (a route/table it
-     doesn't mention, or a migration number higher than what it lists): tell the user and ask
+     doesn't mention, or a migration number higher than `0042`): tell the user and ask
      whether to regenerate it (`llm-wiki` skill) or proceed on a direct repo scan (grep/glob over
-     `app/api/**/route.ts`, `supabase/migrations/*.sql`, `lib/`, `components/`) as a cross-check.
-     Don't silently skip this choice.
+     `app/api/**/route.ts`, `supabase/migrations/*.sql`, `lib/`, `components/`, `tests/`) as a
+     cross-check. Don't silently skip this choice.
 2. Cross-reference requirement against what you found. Note explicitly (for your own working
    notes, and later for plan):
    - **Check whether this requirement is already scoped by the product roadmap before designing
      anything.** Before reasoning about *how* to build what's been asked, check
      `business/business-overview.md`'s "Roadmap (Planned, Not Yet Implemented)" section and
-     `business/workflows.md`'s "Planned Workflows" (W5–W7) for whether this requirement — or
+     `business/workflows.md`'s "Planned Workflows" (W8–W10) for whether this requirement — or
      something adjacent to it — is already named there (e.g. a requirement touching
-     contributor-reuse visibility maps to W5 and the "Incentivize Contributors"/"Visibility into
-     Pathway Usage & Reuse" milestones, both currently "Not started" and reading from the
-     write-only `adoption_queries` table; a requirement touching pathway removal/curation maps to
-     W6; a requirement touching the Explorer/Contributor relationship maps to W7 and the
-     `users-and-personas.md#planned-vs-current-adopter-contributor-relationship` gap — e.g. the
-     charter's stated intent that an existing `pathway_contributor` should be able to analyze their
-     own adoption too, which current code does not allow since `/analyse` requires the `adopter`
-     role specifically). If the requirement is already scoped there: **build the plan on top of
-     that stated intent** (named scope, target milestone, charter status) rather than re-deriving
-     goals from scratch — and treat any place where the requester's actual ask diverges from the
-     roadmap's stated scope as an **explicit decision point for Stage 2's clarifying questions**,
-     never something this skill silently resolves either way (neither silently narrowing to what
-     the roadmap says nor silently expanding to match it without asking).
+     contributor-reuse visibility maps to W8 and the "Incentivize Contributors" milestone (not
+     started) and "Visibility into Pathway Usage & Reuse" (admin-only usage counts exist at
+     `/admin/usage`; no likes/dislikes, reuse acknowledgements or contributor-facing view), reading
+     from the still write-only `adoption_queries` table; a requirement touching unpublishing or
+     curation maps to W9 — the `retired` status is reserved but unused, and delete is the only way
+     to take a pathway down (TD-22); a requirement touching the Explorer/Contributor relationship
+     maps to W10 and `users-and-personas.md#planned-vs-current-adoptercontributor-relationship` —
+     note the charter's "a contributor can analyse their own adoption" intent is **now met**,
+     because every account holds `adopter` from signup (migration `0039`), while the smooth
+     in-conversation transition and "connect with the contributors behind a pathway" are still
+     unbuilt). Also check the backlog's code-evidence column: several charter items marked "Not
+     started" are already built or partly built (account deletion, toolkit assets, tests, rate
+     limits, error logging) — don't plan to build them again. If the requirement is already scoped
+     there: **build the plan on top of that stated intent** (named scope, target milestone,
+     charter status) rather than re-deriving goals from scratch — and treat any place where the
+     requester's actual ask diverges from the roadmap's stated scope as an **explicit decision
+     point for Stage 2's clarifying questions**, never something this skill silently resolves
+     either way (neither silently narrowing to what the roadmap says nor silently expanding to
+     match it without asking).
    - Which existing routes/handlers (`app/api/**/route.ts`), `lib/` modules, Supabase tables, or
-     `components/`/page files this touches
+     `components/`/page files this touches — and which existing test files under `tests/` already
+     cover them (e.g. `tests/api/chat.test.ts`, `tests/unit/server/retrieval.test.ts`,
+     `tests/unit/server/pathway-store.test.ts`, `tests/db/migrations.test.ts`)
    - Which documented business rule this extends, changes, or contradicts — **never silently
      violate**, in particular:
-     - The model never writes to Supabase directly — every `/api/chat` mode returns a trailing
-       `<grid_update>` JSON block; the *client* (`lib/adoption-conversation.ts`) parses it and
-       performs the actual write. A requirement that implies "the model saves X" needs to be
-       reframed as "the model signals X, the client persists it."
-     - The Provenance/Source Trace appendix on a pathway document is contributor-only — never
-       adopter-facing, never surfaced on `/wiki` or in `/analyse` chat.
-     - Publishing a pathway is two independently-gated steps: contributor "assemble"
-       (`POST /api/pathways/assemble`, commits to GitHub, sets `pathways.content_cache`/
-       `review_requested`) does **not** make it live; only admin "publish"
-       (`POST /api/admin/pathways/publish`, copies into `published_pathways`) does. A requirement
-       that assumes one-step self-serve publish (the description in `CLAUDE.md`) is working
-       against a stale model — flag this explicitly rather than building toward it.
+     - The model never writes to Supabase directly — `/api/chat` modes stream prose plus (for
+       most modes) a trailing `<grid_update>` JSON block; the *client*
+       (`lib/adoption-conversation.ts`) parses it (`lib/grid-update.ts`) and performs every
+       conversation write. Pathway-store writes (`saveVersion`, `publishVersion`, unit indexing)
+       happen only on explicit human actions — contributor Send for Review, admin Publish, the
+       operator's seed script — never from a model turn. A requirement that implies "the model
+       saves X" needs to be reframed as "the model signals X, the client (or a human action)
+       persists it."
+     - The Provenance/Source Trace appendix on a pathway document is contributor-only — stripped
+       by `adopterDocument()` → `stripProvenanceAppendix()` (`lib/provenance.ts`) from every
+       adopter-facing surface (`/explore`, `/wiki`, `/analyse` grounding, documents). Seeded source
+       passages reach adopters only when the seed manifest marked them public.
+     - Publishing a pathway is two independently-gated steps, both inside Supabase: contributor
+       "Send for review" (`POST /api/pathways/assemble` → `saveVersion` in `lib/pathway-store.ts`,
+       a new `pathway_versions` row; a `draft` pathway moves to `in_review`, an already-`published`
+       one stays live with `review_requested` set) does **not** make anything live; only admin
+       "publish" (`POST /api/admin/pathways/publish` → `publishVersion`: sets
+       `pathways.published_version_id`, parses units into `pathway_units` and embeds them) does.
+       There is no GitHub commit and no redeploy any more (`lib/github.ts` was removed).
+       `published_pathways` is now a **view** — never insert into it. Admin delete
+       (`/api/admin/pathways/delete`) is permanent and also unpublishes. A requirement that
+       assumes one-step self-serve publish, or a Git-committed pathway file, is working against a
+       stale model — flag it explicitly rather than building toward it.
+     - Pathways live **only** in Supabase — never add pathway markdown under `content/` (which now
+       holds only `framework.md`, `pathway-generation-prompt.md`, `resources.md`, `legal/`); new
+       pathways arrive via the contributor → admin publish flow or `npm run seed:pathways`.
+     - Answer shape is governed by shared constants in `lib/system-prompts.ts` —
+       `BEST_MATCH_RULE`, `PATHWAY_CONTEXT_RULE`, `NEUTRAL_LANGUAGE_RULE`, `PLAIN_WORDS_RULE`
+       (single best-matching pathway by default, describe a pathway on first mention, short
+       answer-first replies, neutral wording, no insider jargon). A requirement that changes how
+       answers read should change those constants, not add a per-prompt one-off.
+     - Every account is an `adopter` from signup (DB trigger, migration `0039`); there is no
+       pending state and `general_user` no longer exists.
    - Any tracked technical debt from `knowledge/technical-debt.md` worth flagging for the
-     affected area — e.g. a requirement touching the Contributor publish path inherits TD-01
-     (three route files/one lib module still reference the dropped `pathway_submissions` table —
-     don't extend or resurrect that pattern); a requirement adding a new Anthropic call site
-     inherits TD-05 (no retry/backoff exists anywhere on any Anthropic call today — match that
-     absence rather than quietly adding a one-off retry wrapper, and flag the gap in Risks &
-     Open Items instead); a requirement touching pathway content should ask which of the two
-     independently-maintained corpora (`content/wiki/pathways/` grounding corpus vs.
-     `content/library-wiki/pathways/` Library corpus, TD-02) it's meant to affect, since they can
-     drift apart silently.
+     affected area — e.g. a requirement adding a new Anthropic call site inherits TD-05 (no
+     explicit retry/timeout policy on any Anthropic client — only the SDK's implicit 2 pre-response
+     retries, nothing mid-stream; the only explicit retry is `lib/embeddings.ts`'s 503/504/546
+     backoff) and TD-20 (model IDs are hardcoded per call site — `claude-sonnet-4-6` in the chat
+     route, `check-similar` and the seed script, `CLASSIFIER_MODEL = 'claude-haiku-5-5'` in
+     `lib/retrieval.ts`); a requirement touching pathway data inherits TD-17 (no copy of pathway
+     content outside Supabase, no export tooling) and possibly TD-26 (units saved without vectors
+     after an embed failure are only re-embedded on re-publish); a requirement touching the admin
+     publish path inherits TD-23 (publish takes the *latest* version, not the reviewed one); one
+     touching `published_pathways` inherits TD-18 (owner-rights view — intentional, any new column
+     is publicly readable); one touching contributor membership/registration inherits TD-24 (RLS
+     insert policies don't restrict columns). Match existing behaviour rather than quietly
+     fixing these, and flag the gap in Risks & Open Items instead. TD-01 (dead
+     `pathway_submissions` code) and TD-02 (two pathway corpora) are **resolved** — don't plan
+     around them.
 
 Never invent affected files or components — if existing context or repo scan doesn't confirm
 something, say so rather than assuming.
@@ -255,49 +305,73 @@ Cover, where relevant to requirement:
 - **Scope boundaries** — what's explicitly out of scope; is this additive or does it change
   existing documented behavior (check against `docs/wiki/diffusion-cube/business/business-rules.md`
   and `business/workflows.md` first)?
-- **Actors & permissions** — which of `general_user`/`adopter`/`pathway_contributor`/`admin` are
-  affected. This repo enforces access **three layers deep, and only the last is the real gate**:
-  `proxy.ts` middleware only checks for a signed-in session (treats `/analyse` and `/contribute`
-  as publicly reachable at that layer, deliberately); page-level checks (e.g.
-  `StrengthenWorkspace.tsx`, `ContributeGrid.tsx`) are UX only; the actual enforcement is
-  `hasRole`/`hasAnyRole` (`lib/roles.ts`) re-checked inside the API route handler, and in a couple
-  of places (e.g. `pathways` insert) an `exists (select ... from user_roles)` RLS policy at the
-  database layer too. Ask explicitly which of these layers the new requirement needs to add or
-  change — don't assume a page-level check alone is sufficient.
+- **Actors & permissions** — which of `adopter` (every account, granted by the `0039` signup
+  trigger; not grantable or removable in the admin console), `pathway_contributor` (admin-granted,
+  plus an approved `contributor_registrations` row for `/contribute`), `admin` (role row or
+  `ADMIN_EMAILS`) or the anonymous visitor (`/explore` and published toolkit-asset downloads) are
+  affected. `general_user` was removed by migration `0039` — don't design for it. This repo
+  enforces access in layers, and the page layer is never the real gate: `proxy.ts` middleware only
+  checks for a signed-in session against a public-path list (`/analyse` and `/contribute` are
+  deliberately reachable at that layer so each page renders its own tiered view); page-level checks
+  (e.g. `app/analyse/page.tsx` + `StrengthenWorkspace.tsx`, `app/contribute/page.tsx` +
+  `ContributeAccessGate.tsx`/`ContributeGrid.tsx`) are UX only; the actual enforcement is the API
+  route re-checking the session — `requiredRole(mode, flow)` over `currentRoles()` in
+  `app/api/chat/route.ts`, `hasRole`/`hasAnyRole`/`isAdmin` (`lib/roles.ts`) elsewhere; and Postgres
+  RLS is the floor (e.g. `0040` limits `pathways` reads to their contributors and admins, the
+  `pathways` insert policy requires `pathway_contributor`). Service-role modules
+  (`lib/pathway-store.ts`, `lib/retrieval.ts`) bypass RLS and state "callers check who may call".
+  Ask explicitly which of these layers the new requirement needs to add or change — don't assume a
+  page-level check alone is sufficient.
 - **Data contract** — new columns/tables need a new file under `supabase/migrations/`, numbered
-  one higher than the current max, with a leading SQL comment stating its purpose (matching every
-  existing migration's style) — there is no ORM, so there's no separate schema-definition file to
-  keep in sync, but there's also no compile-time contract catching a call site that still reads an
-  old column/table shape (this is exactly how TD-01's dead code and migration `0027`'s
-  silently-failing constraint happened) — call out anywhere a rename/removal could break a sibling
-  `.from('table')` call site that isn't obviously nearby.
+  one higher than the current max (`0043` at the 2026-11-06 refresh — re-check), opening with a
+  SQL comment stating its purpose and calling out any destructive step in capitals as `0042` does.
+  There is no ORM and no generated schema types, so no compile-time contract catches a call site
+  that still reads an old column/table shape (this is how migration `0027`'s silently-failing
+  constraint happened) — call out anywhere a rename/removal could break a sibling `.from('table')`
+  call site that isn't obviously nearby, and note that `tests/db/migrations.test.ts` asserts on
+  migration text (sequential numbering, RLS on every table, `0042` as latest and flagged
+  destructive), so a new migration will need a matching assertion there. Pathway data goes through
+  `lib/pathway-store.ts` (the one repository-style module), not new inline queries; never insert
+  into the `published_pathways` view; any column added to that view is publicly readable (TD-18).
 - **Route/API contract** — new endpoints go under `app/api/**/route.ts`, one file per endpoint,
   named by resource/action folder path (e.g. `app/api/pathways/[id]/join/route.ts`), **not** by
-  HTTP verb; state the request/response shape; state whether it needs `hasAnyRole`/`hasRole` from
-  `lib/roles.ts`, and if it's a `companion`-mode-adjacent call, whether `flow`/role also needs
-  server-side re-validation the way `app/api/chat/route.ts` already does.
+  HTTP verb; each defines `handle<METHOD>` and exports
+  `export const <METHOD> = withErrorHandling('api/<path>', handle<METHOD>)` (`lib/errors.ts`),
+  throwing `ValidationError`/`AuthError`/`NotFoundError` for expected failures (5xx bodies are
+  replaced with the generic message; the real error goes to `sys_errors`). State the
+  request/response shape; state which role check it needs; and if it calls a model, whether it
+  follows the chat route's validation order (rate limit → body size 413 → JSON shape 400 → role
+  403 → message shape 400 → text size 413, named constants with a comment on each cap).
 - **AI/LLM impact** — if this touches the chat surface: does it need a **new mode** on the single
-  `app/api/chat/route.ts` dispatcher (which already carries 8: `companion`, `library`,
-  `extract-insights`, `analysis-doc`, `executive-summary`, `plan-document`, `pathway-draft`,
-  `pathway-exec-summary`), or does it extend an existing mode's prompt in `lib/system-prompts.ts`?
-  Does it need to read/write the `<grid_update>` contract (`lib/grid-update.ts`)? Which pathway
-  corpus does it touch — the grounding corpus (`content/wiki/pathways/`, `lib/wiki-loader.ts`) or
-  the Library corpus (`content/library-wiki/pathways/`, `lib/library-wiki-loader.ts`) — these are
-  two independently-maintained corpora (TD-02), not one, and confusing them silently is a real
-  drift risk. Note there is no retry/backoff on any Anthropic call anywhere in this app (TD-05) —
-  a new call site should match that absence rather than quietly introducing its own one-off retry
-  wrapper, unless the user explicitly wants that gap closed as part of this requirement.
+  `app/api/chat/route.ts` dispatcher (which carries 7 in its `MODES` array: `companion`,
+  `analysis-doc`, `executive-summary`, `extract-insights`, `pathway-draft`, `library`,
+  `asset-reuse`), plus a `requiredRole` mapping for it, or does it extend an existing mode's prompt
+  builder in `lib/system-prompts.ts`? Does it change the shared answer-shape constants
+  (`BEST_MATCH_RULE` etc.) rather than one prompt? Does it need to read/write the `<grid_update>`
+  contract (`lib/grid-update.ts`, marker constants)? How is it grounded — through
+  `buildGrounding()` in `lib/retrieval.ts` with an existing `Surface` (`analyse`, `contribute`,
+  `document`, `explore-overview`, `explore-pathway`) or a new one? Does it add a Haiku classifier
+  call (only `analyse` and `explore-overview` run one today), extra embedding round-trips via the
+  `embed` Edge Function (`lib/embeddings.ts`, batches of 4, 20 s timeout), or change `LIMITS`
+  (tuned against `docs/features/pathway-storage/test_set_pathway_storage.md`)? Every retrieval
+  failure has a defined degradation (classifier → default kind; embedding → full text + labels;
+  only a DB error throws) — a new path should define its own. On retries: no Anthropic client sets
+  `maxRetries`/`timeout` (TD-05) — a new call site should match that and flag the gap, unless the
+  user explicitly wants the policy defined as part of this requirement; model IDs are hardcoded per
+  call site (TD-20), so a new call site adds one more place to change.
 - **Invariant-critical impact** — does this change anything the model currently must never write
-  directly (all persistence for companion-mode conversations goes through the client parsing
-  `<grid_update>`, never a server-side DB write from the model's own response), or the two-step
-  pathway-publish gate (contributor "assemble" vs. admin "publish")? Any such write must go
-  through the existing mechanism, never a new direct write that bypasses it.
+  directly (all conversation persistence goes through the client parsing `<grid_update>`; the chat
+  route's only writes are telemetry — `adoption_queries`, `ai_usage`, `sys_errors`), the two-step
+  pathway-publish gate (Send for Review → `saveVersion` vs. admin Publish → `publishVersion`), or
+  Source Trace stripping (`adopterDocument`)? Any such write must go through the existing
+  mechanism, never a new direct write that bypasses it.
 - **Frontend decisions this repo requires explicit answer on before design** (always ask, never
   assume):
   - Does the new page/view get its own `AppShell` + `Sidebar` instantiation (the pattern each of
     `/explore`, `/analyse`, `/contribute`, and the `(app)` route group currently follows
-    independently — there is no single central authenticated layout), or does it belong inside an
-    existing surface's workspace (e.g. `AdoptionWorkspace.tsx`)?
+    independently — there is no single central authenticated layout; `/admin*` pages use a
+    standalone layout with no `AppShell`), or does it belong inside an existing surface's
+    workspace (e.g. `AdoptionWorkspace.tsx`)?
   - Any new async interaction — this repo has **no client-side state-management library**
     (no Redux/Zustand/etc.); state is local `useState`/custom hooks per page, with
     `lib/adoption-conversation.ts`'s `useAdoptionConversation` as the one substantial shared hook.
@@ -309,45 +383,57 @@ Cover, where relevant to requirement:
   i18n/localization framework anywhere in this repo (all copy is hardcoded English JSX) — confirm
   with the user whether new user-facing strings need to consider one, rather than assuming either
   that one exists or that English-only is fine by default.
-- **Edge cases requirement is silent on** — empty states, concurrent double-submit of request
-  (this app has no job queue or background worker anywhere — everything runs inline in the
-  request/response cycle of a Next.js route handler), large input (document uploads go through
-  client-side extraction — `pdfjs-dist`/`mammoth`/`xlsx`/`jszip` — before ever reaching an API
-  route), external-call failures mid-pipeline (no retry exists on any Anthropic call today, see
-  TD-05 above), permission-denied paths (which of the three enforcement layers should surface the
-  denial, and how).
-- **Integration impact** — the only external providers this app actually integrates with are the
-  Anthropic API (`app/api/chat/route.ts`, `app/api/pathways/check-similar/route.ts`), Supabase
-  Auth (session, OTP, the Send Email Auth Hook at `app/api/auth/send-email/route.ts`), SMTP via
-  `nodemailer` (`lib/email.ts`), the GitHub Contents API (`lib/github.ts`, used only by contributor
-  "assemble"), and Google Sheets logging (`lib/logger.ts`, fire-and-forget, optional). There is no
-  payment provider, no messaging/webhook integration beyond Supabase's own Auth hook, and no
-  OAuth/SSO beyond Supabase's own email+password/OTP flow. If the requirement implies any of
-  these, name which one and confirm it's genuinely new rather than an extension of one already
-  listed.
+- **Edge cases requirement is silent on** — empty states (including "no published pathways yet",
+  which `buildGrounding` already answers with a single line), concurrent double-submit (this app
+  has no job queue or background worker — everything runs inline in a Next.js route handler, with
+  side effects deferred via `after()` at most; `saveVersion` relies on the
+  `(pathway_id, version_number)` unique key for races), large input (document uploads go through
+  client-side extraction — `pdfjs-dist`/`mammoth`/`xlsx`/`jszip` — before reaching an API route;
+  chat caps bodies at 32 MB and ~800K chars), rate limiting (per account `chat-user` 30/min ·
+  300/day, per IP `explore` 20/min · 200/day — does the new surface need one?), external-call
+  failures mid-pipeline (Anthropic pre-stream failure → generic 500 via `withErrorHandling`;
+  mid-stream → `streamFailed()`, partial reply + generic message, nothing saved; `embed` failure →
+  degraded search or units stored without vectors), permission-denied paths (which layer should
+  surface the denial, and how).
+- **Integration impact** — the only external providers this app integrates with are the Anthropic
+  API (Sonnet in `app/api/chat/route.ts`, `app/api/pathways/check-similar/route.ts` and
+  `scripts/seed-pathways.ts`; Haiku in `lib/retrieval.ts`), Supabase (Postgres + pgvector, Auth
+  with OTP and the Send Email Auth Hook at `app/api/auth/send-email/route.ts`, Storage buckets
+  `toolkit-assets` and `pathway-sources`, the `check_rate_limit` and `match_pathway_units`/
+  `match_source_chunks` RPCs), the self-hosted `embed` Edge Function
+  (`supabase/functions/embed/`, `gte-small`, called by `lib/embeddings.ts` with the service-role
+  key), and SMTP via `nodemailer` (`lib/email.ts`). Vercel is a CI deploy target only. The GitHub
+  Contents API and Google Sheets logging were **removed** — don't plan against them. There is no
+  payment provider, no messaging/webhook integration beyond Supabase's Auth hook, and no OAuth/SSO
+  beyond Supabase email+password/OTP. If the requirement implies any new provider, name it and
+  confirm it's genuinely new rather than an extension of one already listed.
 - **Architectural impact** — think like architect, not just feature-writer, and ask rather than
   assume:
-  - Does this cross an existing boundary — e.g. adding a ninth mode to the single
-    `app/api/chat/route.ts` dispatcher, or a new call site into a table another surface already
-    owns (`designs` for Explorer, `pathways`/`design_documents` for Contributor)?
+  - Does this cross an existing boundary — e.g. adding an eighth mode to the single
+    `app/api/chat/route.ts` dispatcher (already ~440 lines; splitting modes into separate routes
+    is a recorded-but-unimplemented alternative), a new call site into a table another surface
+    already owns (`designs` for Explorer/Contributor workspaces, `design_documents` for generated
+    documents and drafts, `pathways`/`pathway_versions`/`pathway_units` behind
+    `lib/pathway-store.ts`), or a new `Surface` in `lib/retrieval.ts`?
   - Does an equivalent problem already have a solution elsewhere in this codebase that should be
-    reused rather than duplicated — e.g. the forced-tool-use pattern in
-    `app/api/pathways/check-similar/route.ts` (the one non-streaming Anthropic call in the app),
-    the `hasRole`/`hasAnyRole` permission-check pattern (`lib/roles.ts`), or the
-    content-hash-cache pattern in `design_documents` (regeneration served from DB when the
-    underlying conversation hasn't changed) — rather than inventing a new caching or
-    permission-check mechanism from scratch?
+    reused rather than duplicated — e.g. the forced-tool-use pattern (`check-similar`'s
+    `report_match`, the classifier's `route_question`), the validation order and `requiredRole`
+    in the chat route, `withErrorHandling` + `logError`, the fire-and-forget `after()` telemetry
+    pattern, `lib/embeddings.ts`'s bounded retry, the content-hash cache in `design_documents`
+    (`hashConversationState`), or Anthropic prompt caching at `PROMPT_CACHE_BREAK`
+    (`lib/prompt-cache.ts`) — rather than inventing a new mechanism from scratch?
   - Does this introduce a new failure mode — new external call, new async step — that needs
-    explicit handling, given that this repo has zero retry/backoff anywhere today and an
-    unhandled Anthropic SDK error currently surfaces as a raw Next.js 500?
-  - Does this put meaningful new pressure on the one thing this repo already tracks as a scaling
-    concern — whole-corpus prompt injection (~22K tokens of framework + all pathway docs, per
-    companion turn, with no retrieval layer) — or is the pressure genuinely negligible and worth
-    saying so explicitly?
+    explicit handling and a defined degradation, given there is no explicit Anthropic retry
+    policy (TD-05) and no circuit breaker or fallback provider?
+  - Does this add per-message cost or latency — another Haiku classifier call, more embedding
+    round-trips, larger `LIMITS` (more grounding tokens per Sonnet call) — on surfaces that already
+    make two model calls per Analyse/Library question, or is the pressure genuinely negligible and
+    worth saying so explicitly?
   - Is there a real architectural alternative here — e.g. extend an existing `/api/chat` mode vs.
-    add a new one, reuse the existing corpus-loader pattern vs. add a third loader, synchronous
-    inline handling vs. some new async mechanism this repo doesn't currently have — even if the
-    answer turns out to be "no, the obvious approach is also the only reasonable one"?
+    add a new one, reuse an existing retrieval `Surface`/kind vs. add a new one, extend
+    `lib/pathway-store.ts` vs. query tables inline, synchronous inline handling vs. some new async
+    mechanism this repo doesn't currently have — even if the answer turns out to be "no, the
+    obvious approach is also the only reasonable one"?
 
 Present questions as numbered list, grouped by theme if more than ~6. End with explicit prompt:
 *"Answer these, or tell me to proceed with reasonable assumptions — I'll mark any assumed items
@@ -423,11 +509,12 @@ Structure:
 ## Affected Areas
 | Area | Component(s) | Nature of change |
 |------|--------------|-------------------|
-| Routes/API | `app/api/<resource>/[...]/route.ts` (new file) or an existing handler, e.g. `app/api/chat/route.ts`'s mode dispatch | new route / modified handler / new mode |
-| Data | `supabase/migrations/00NN_<description>.sql` (next sequential number, leading comment stating purpose) | new migration — no ORM, so also note every `.from('table')` call site elsewhere that needs updating |
-| Domain logic | `lib/<concern>.ts` (flat, one file per concern — e.g. `lib/system-prompts.ts` for prompt changes, `lib/roles.ts` for access logic, `lib/grid-update.ts` for the `<grid_update>` contract) | new/modified module |
-| External integration/config | Anthropic (`app/api/chat/route.ts` mode + `lib/system-prompts.ts`), Supabase Auth/email (`lib/email.ts`, `app/api/auth/*`), GitHub (`lib/github.ts`), or Sheets logging (`lib/logger.ts`) — name which | new call site / config change |
-| Frontend | `app/<surface>/page.tsx` (server) + its client counterpart (e.g. `StrengthenWorkspace.tsx`, `ContributeGrid.tsx`), or a new/modified file under `components/` | new/modified page or component |
+| Routes/API | `app/api/<resource>/[...]/route.ts` (new file, wrapped in `withErrorHandling('api/<path>', handle<METHOD>)`) or an existing handler, e.g. `app/api/chat/route.ts`'s mode dispatch + `requiredRole` | new route / modified handler / new mode |
+| Data | `supabase/migrations/00NN_<description>.sql` (next sequential number after `0042`, leading purpose comment, destructive steps called out in capitals) | new migration — no ORM, so also note every `.from('table')` call site elsewhere that needs updating, and any `published_pathways` view change |
+| Domain logic | `lib/<concern>.ts` (flat, one file per concern — e.g. `lib/system-prompts.ts` for prompt changes and the shared answer-shape constants, `lib/retrieval.ts` for grounding/`LIMITS`, `lib/pathway-store.ts` for pathway versions/publish, `lib/roles.ts` for access logic, `lib/grid-update.ts` for the `<grid_update>` contract, `lib/rate-limit.ts` for limits) | new/modified module |
+| External integration/config | Anthropic (`app/api/chat/route.ts` mode + `lib/system-prompts.ts`; Haiku classifier in `lib/retrieval.ts`), `embed` Edge Function (`lib/embeddings.ts`, `supabase/functions/embed/`), Supabase Storage (`toolkit-assets`, `pathway-sources`), Supabase Auth/email (`lib/email.ts`, `app/api/auth/*`), env vars (`.env.example`, `architecture/configuration.md`) — name which | new call site / config change |
+| Frontend | `app/<surface>/page.tsx` (server) + its client counterpart (e.g. `StrengthenWorkspace.tsx`, `ContributeGrid.tsx`, `ExploreLibrary.tsx`), or a new/modified file under `components/` | new/modified page or component |
+| Tests | Vitest files in the existing `tests/` layout — `tests/unit/lib/`, `tests/unit/server/`, `tests/api/<area>/`, `tests/client/`, `tests/features/<feature>/`, `tests/pages/`, `tests/proxy/`, `tests/db/migrations.test.ts` — using `tests/helpers/` mocks | new/extended test files |
 
 ## Architectural Approach
 <Which existing boundary/module/service/layer this lives inside, and whether it crosses one;
@@ -453,22 +540,29 @@ decision truly has none, which should be rare:>
 <Only the dimensions genuinely relevant to this feature — but check all of them before omitting
 any, and say "negligible" explicitly rather than leaving a dimension out silently:>
 - **Performance/scale**: new query/processing patterns against Supabase (no ORM — a raw
-  `.from('table')` call, so N+1 risk is on the caller to notice), payload size (relevant if this
-  adds to the ~22K-token whole-corpus prompt injection every companion turn already carries),
-  expected request volume relative to what this single-Node-process monolith already handles
+  `.from('table')` call, so N+1 risk is on the caller to notice; several FK/RLS-filter columns
+  already lack indexes, TD-25), grounding size and per-message cost (retrieval sends only what
+  `LIMITS` allows — does this raise a limit, add a Haiku classifier call or extra `embed`
+  round-trips?), expected request volume relative to what this single-Node-process monolith and
+  the per-account/per-IP rate limits already allow
 - **Availability/failure modes**: what happens if a new external call, new async step, or new
-  dependency this feature introduces fails or times out — remember this repo has **zero
-  retry/backoff on any Anthropic call today**, so an unhandled failure here surfaces as a raw
-  Next.js 500 unless this plan explicitly adds handling; does the feature degrade gracefully, or
-  does it risk taking something else down with it?
-- **Security**: new attack surface — a new input, a new permission boundary (and which of the
-  three enforcement layers — middleware session gate, page-level UX check, API-level `hasRole`/
-  RLS — actually owns it), a new external call, a new place user-controlled data flows into
+  dependency this feature introduces fails or times out — there is **no explicit retry/timeout
+  policy on any Anthropic call** (only the SDK's implicit 2 pre-response retries, TD-05); a
+  pre-stream failure becomes a 500 with the generic message via `withErrorHandling`, a mid-stream
+  one a partial reply + generic message with nothing saved; the `embed` function retries twice and
+  then callers degrade. Does the feature degrade gracefully (state the degradation), or does it
+  risk taking something else down with it?
+- **Security**: new attack surface — a new input, a new permission boundary (and which layer —
+  `proxy.ts` session gate, page-level UX check, API-level `requiredRole`/`hasRole`/`isAdmin`, RLS —
+  actually owns it), whether it needs a rate limit or size cap, a new service-role read that
+  bypasses RLS (who checks the caller?), anything newly readable through the owner-rights
+  `published_pathways` view (TD-18), a new place user-controlled data flows into prompts (no PII
+  screening exists, TD-15)
 - **Consistency/coupling**: does this introduce a new dependency between previously-independent
-  parts of the system (e.g. a new cross-reference between the grounding corpus and the Library
-  corpus, or between `designs` and `pathways`), or duplicate logic that already exists elsewhere
-  in the codebase (check `knowledge/technical-debt.md`'s "deliberate vs. debt" duplication notes
-  before adding a fourth parser/loader/renderer where a third already exists)?
+  parts of the system (e.g. between `designs` and `pathways`, or between a new surface and
+  `lib/retrieval.ts`), or duplicate logic that already exists elsewhere in the codebase (check
+  `architecture/coding-patterns.md`'s "deliberately independent markdown renderers" and
+  `knowledge/technical-debt.md` TD-14 before adding another renderer or chat UI)?
 
 ## Data Model / API Changes
 <New/changed tables, fields, endpoints, request/response shapes — only if applicable>
@@ -476,13 +570,14 @@ any, and say "negligible" explicitly rather than leaving a dimension out silentl
 ## Risks & Open Items
 <Anything uncertain, any known technical debt this touches, any performance-sensitive logic that
 will need a comment flagging it per this repo's conventions, and any accepted Key Tradeoff whose
-cost the team should consciously sign off on rather than discover later. If this requirement's
-rollout/delivery timeline would land near or after **28-Oct-2026**, flag TD-16 explicitly here: the
-Anthropic API account backing every AI-mode call in this app (`app/api/chat/route.ts`,
-`app/api/pathways/check-similar/route.ts`) is a free grant that expires that date per the Product
-Charter, with no fallback model/provider configured anywhere in code — if it lapses unrenewed,
-every AI-backed feature stops working outright. This is a real external constraint to surface for
-the team's awareness when timing is relevant, not something this plan is expected to solve>
+cost the team should consciously sign off on rather than discover later. If this requirement
+depends on any AI call, flag TD-16 here: the Product Charter recorded the Anthropic API account as
+a free grant expiring **28-Oct-2026** — that date has passed and whether it was renewed cannot be
+seen from code — with no fallback provider (the chat route, the Haiku classifier, `check-similar`
+and the seed script all depend on it). If it depends on the Docker/AWS path, note the AWS account
+expires December 2026. If it touches pathway data, note TD-17 (no copy outside Supabase, no export
+tooling). These are external constraints to surface for the team's awareness, not something this
+plan is expected to solve>
 
 ## Sequencing
 <Suggested build order if there are dependencies between parts>
@@ -523,45 +618,71 @@ For each story, use this structure:
 - Given <context>, when <action>, then <expected outcome>
 - Given ..., when ..., then ...
   <cover every clarified behavior and every business rule this touches from repo context — e.g.
-  "Given the model's response includes `pathwayAction: 'publish'`, when the client processes it,
-  then it calls `/api/pathways/assemble`, not `published_pathways` directly" or "Given a caller
-  without the `pathway_contributor` role, when they POST to the new endpoint, then the API route
-  itself returns 403 regardless of what any page-level check already did">
+  "Given the model's `<grid_update>` includes `pathwayAction`, when the client processes it,
+  then the client — not the model — triggers the follow-up call, and nothing reaches
+  `pathway_versions` until the contributor clicks Send for Review" or "Given a caller without the
+  `pathway_contributor` role, when they POST to the new endpoint, then the API route itself
+  returns 403 regardless of what any page-level check already did">
 
 **Test Plan:**
-> This repo has **no automated test suite today** (no `*.test.*`/`*.spec.*` files, no Jest/Vitest
-> config, no CI test job — `.github/workflows/deploy.yml` only builds and deploys). Every case
-> below is a **manual verification step** — a concrete action plus an expected observable result
-> in the running app or in Supabase — unless the plan explicitly calls for standing up a test
-> framework as part of this requirement. Don't phrase a case as if a CI gate already exists to
-> catch it.
+> This repo has a **Vitest 3 suite** (`npm test` = `vitest run`; `vitest.config.mts`; 105 test
+> files under `tests/`; Testing Library + jsdom for components). Every external client is mocked
+> (`tests/setup.ts` fake env vars, `tests/helpers/supabase-mock.ts`, `tests/helpers/anthropic-mock.ts`),
+> so no test reaches the real Supabase project, Anthropic, the `embed` Edge Function or SMTP. It is
+> **not run in CI** (`.github/workflows/deploy.yml` only deploys), so "Vitest" means a test added
+> to `tests/` and run locally (`npm install` first, for dev dependencies) before the PR — don't
+> phrase a case as if a CI gate will catch it. Label each case:
+> - **Vitest:** name the file to add or extend in the existing layout — `tests/unit/lib/<module>.test.ts`
+>   (pure modules), `tests/unit/server/<module>.test.ts` (server modules, mocked I/O),
+>   `tests/api/<area>/<route>.test.ts`, e.g. `tests/api/admin/pathways-publish.test.ts` (call the
+>   exported `POST`/`GET` with a built `Request`;
+>   `tests/helpers/request.ts`, `routes-auth.ts`), `tests/client/` (the conversation hook),
+>   `tests/features/<feature>/<Component>.test.tsx` (first line `// @vitest-environment jsdom`),
+>   `tests/pages/`, `tests/proxy/proxy.test.ts`, `tests/db/migrations.test.ts` (migration *text*
+>   only — no database runs).
+> - **Manual:** what the mocked suite cannot prove — real Supabase behaviour (RLS policies, the
+>   `published_pathways` view, `match_pathway_units`/`match_source_chunks` SQL, a migration applying
+>   cleanly), real model output and prompt quality, the deployed `embed` function, browser-level
+>   end-to-end flows (no Playwright/Cypress), real email. State the concrete action and observable
+>   result against the dev app or dev Supabase project.
+> - **Manual, paid:** a manual case that calls the real Anthropic API or the deployed `embed`
+>   function (costs money / mutates real state) — run on dev only. (`docs/features/pathway-storage/task_list_pathway_storage.md`
+>   is the reference for this labelling.)
 - *Positive:*
-  - ... (state the concrete manual action — e.g. "sign in as an `adopter`, submit X, confirm Y
-    appears in `designs.grid_state`" — not just "happy path works")
+  - ... (e.g. "**Vitest:** `tests/api/chat.test.ts` — a `companion` request with `flow:
+    'contributor'` from a `pathway_contributor` streams and records `ai_usage`" or "**Manual:**
+    sign in as an `adopter`, submit X, confirm Y appears in `designs.grid_state`" — not just "happy
+    path works")
 - *Edge cases:*
-  - ... (empty input; large document upload through the client-side extraction pipeline
-    (`pdfjs-dist`/`mammoth`/`xlsx`/`jszip`); double-submit of a companion chat message during the
-    lazy `designs` row creation, which `lib/adoption-conversation.ts` already dedups via
-    `creatingRef` — confirm this new behavior doesn't bypass that)
+  - ... (empty input; no published pathways; large document upload through the client-side
+    extraction pipeline (`pdfjs-dist`/`mammoth`/`xlsx`/`jszip`); double-submit of a companion chat
+    message during the lazy `designs` row creation, which `lib/adoption-conversation.ts` already
+    dedups via `creatingRef` — confirm this new behavior doesn't bypass that (`tests/client/`);
+    classifier or embedding failure → the defined degradation (`tests/unit/server/retrieval.test.ts`,
+    `embeddings.test.ts`))
 - *Negative cases:*
-  - ... (invalid input; unauthenticated access — confirm the **API route** itself rejects it, not
-    just the page; wrong-role access, e.g. an `adopter` hitting a `pathway_contributor`-gated
-    route; an Anthropic call failure — confirm it surfaces as something better than an unhandled
-    500, if this plan added that handling; a Supabase write failure)
+  - ... (invalid input → 400; unauthenticated access — confirm the **API route** itself rejects it,
+    not just the page; wrong-role access, e.g. an `adopter` hitting a `pathway_contributor`-gated
+    route → 403; rate limit → 429; oversized body → 413; an Anthropic failure before the stream
+    (500 with the generic message, recorded in `sys_errors`) and mid-stream (`streamFailed()`,
+    `ai_usage ok:false`) — `tests/helpers/anthropic-mock.ts` has a mid-stream failure option; a
+    Supabase write failure)
 - *Non-functional (if applicable):*
   - Responsive layout check against the Tailwind v4 / `app/globals.css` brand tokens this repo
-    actually uses
-  - Migration correctness: does `supabase/migrations/00NN_<description>.sql` apply cleanly on top
-    of the current 32, and does it stay additive per this repo's convention (only two prior
-    migrations were destructive, and each says so in its filename/comment)?
+    actually uses (Manual)
+  - Migration correctness: **Vitest** — extend `tests/db/migrations.test.ts` for the new
+    migration (numbering, RLS on new tables, server-only functions); **Manual** — does
+    `supabase/migrations/00NN_<description>.sql` apply cleanly on the dev project on top of the
+    current 42, and is any destructive step called out in its header (only `0008`, `0018`,
+    `0039`, `0042` are destructive so far)?
   - Invariant correctness: any grid-state/document write happens through the client parsing
-    `<grid_update>`, never a direct model-to-DB write; a pathway-publish story confirms "assemble"
-    alone does **not** make content visible at `/wiki` or `/explore` until the separate admin
-    publish step runs
-  - Note explicitly whether this story would benefit from becoming this repo's *first* automated
-    test (per `architecture/testing.md`'s recommendation: pure `lib/` string/JSON transforms are
-    the cheapest starting point) — flag it as a suggestion, don't assume it will happen as part of
-    this requirement unless the user said so
+    `<grid_update>`, never a direct model-to-DB write; a pathway-publish story confirms Send for
+    Review alone does **not** make content visible at `/explore`, `/wiki` or in Analyse grounding
+    until the separate admin publish step runs; adopter-facing output never contains the Source
+    Trace appendix
+  - Run `npm test` before and after the change and compare to the baseline — at the 2026-11-06
+    wiki refresh one stale failure was known (`tests/features/admin/AdminPathwaysPanel.test.tsx`,
+    old delete-dialog wording); don't count a pre-existing failure against this story
 ```
 
 Rules for this stage:
@@ -573,20 +694,26 @@ Rules for this stage:
 2. **Every story needs at least one negative and one edge test case** — story with only
    happy-path tests isn't done.
 3. **Reuse domain vocabulary from repo context** (entity names like `designs`/`pathways`/
-   `published_pathways`, role names like `adopter`/`pathway_contributor`, workflow IDs like
-   W1–W4 from `business/workflows.md`) rather than renaming concepts.
+   `pathway_versions`/`pathway_units`/`published_pathways`, role names like `adopter`/
+   `pathway_contributor`/`admin`, workflow IDs W1–W7 (implemented) and W8–W10 (planned) from
+   `business/workflows.md`, terms from `knowledge/glossary.md`) rather than renaming concepts.
 4. **Flag UI-decision stories** (shared `AppShell` vs. standalone page, hook-based interaction
    pattern) with the answer captured in Stage 2 stated directly in the story, not left implicit.
 5. **Keep stories vertically sliced** where possible (touches route + its UI for one
    user-visible behavior) rather than slicing by layer, unless plan's sequencing explicitly
    calls for layer-by-layer delivery (e.g. a migration must land before the route that reads it).
-6. **State test executability concretely, not aspirationally** — since this repo has no automated
-   test runner or CI test gate today, every test case defaults to a manual verification step
-   (state the concrete action and the concrete expected observation) unless the plan itself
-   introduces test tooling. Never describe a case as though a CI suite will catch it when none
-   exists. Live/integration checks that cost real money (e.g. an actual Anthropic call, an actual
-   SMTP send via `scripts/smtp-test.mjs`) or mutate real state must be called out as such, never
-   silently assumed to run automatically.
+6. **State test executability concretely, not aspirationally** — label every case **Vitest**
+   (with the concrete test file in the existing `tests/` layout, using the `tests/helpers/` mocks
+   rather than a new mocking style) or **Manual** (concrete action + concrete expected
+   observation). Prefer Vitest for anything the app's own logic decides (validation, role checks,
+   prompt text shape, parsing, store calls); use Manual only for what mocks can't prove (real
+   RLS/SQL/view behaviour, model output quality, the deployed `embed` function, end-to-end browser
+   flows). The suite runs locally only — never describe a case as though CI will catch it (no CI
+   test job exists, TD-03). Live checks that cost real money or mutate real state (an actual
+   Anthropic call, the deployed `embed` function, an actual SMTP send via
+   `scripts/smtp-test.mjs`, a real seed run — `npm run seed:pathways -- --dry-run` is the safe
+   pre-check) must be labelled **Manual, paid** or called out as mutating, never silently assumed
+   to run automatically.
 
 ---
 
@@ -631,7 +758,9 @@ under `docs/features/` that still uses the old names (`requirement.md`, `plan.md
 files to this pattern and update the links between them. A single combined
 `clarifications_<feature_name>.md` written before the business/architecture split (e.g. the one
 in `docs/features/toolkit-asset-files/`) is a dated decision record: keep it as it is rather than
-splitting it, and write any new rounds of questions into the two new files.
+splitting it, and write any new rounds of questions into the two new files. For a complete recent
+example with the split clarifications files and a Vitest/Manual-labelled task list, see
+`docs/features/pathway-storage/` (also `docs/features/monitoring-logging-cleanup/`).
 
 Don't write `plan_<feature_name>.md` or `task_list_<feature_name>.md` until their respective
 stage has been approved.
@@ -706,6 +835,25 @@ the charter's Requirements tab (per the Stage 1 roadmap check above), say so in
 > the roadmap itself moves (milestones complete, backlog items reprioritized, the charter
 > superseded by a different tracking artifact), re-run this refresh rather than trusting the
 > specifics above blindly.
+>
+> **Third pass — stack refresh, 2026-11-06**, branch `Swanand_DC` (HEAD `0a1ca00`), against the
+> wiki fully refreshed that day (`ai-context.md`, `architecture/architecture-overview.md`,
+> `architecture/testing.md`, `architecture/coding-patterns.md`,
+> `architecture/repository-conventions.md`, `business/business-overview.md`,
+> `business/workflows.md`, `business/users-and-personas.md`, `business/business-rules.md`,
+> `integrations/ai-llm.md`, `integrations/third-party-integrations.md`, `application/frontend.md`,
+> `knowledge/technical-debt.md`), with spot-checks in code (`MODES` in `app/api/chat/route.ts`,
+> `CLASSIFIER_MODEL` in `lib/retrieval.ts`, 42 migrations, 105 test files, `lib/github.ts` and
+> `lib/logger.ts` absent, `content/` holding no pathways). Changed: 8 → 7 chat modes; two models
+> (Sonnet + Haiku classifier) plus the `embed` Edge Function; retrieval grounding replaces
+> whole-corpus injection; pathways stored only in Supabase (`0042`, `lib/pathway-store.ts`,
+> `published_pathways` view) with GitHub publish, Sheets logging and the static corpus removed;
+> every signup an `adopter` (`0039`), `general_user` gone; per-user chat rate limits; 32 → 42
+> migrations; workflows renumbered (W1–W7 implemented, W8–W10 planned); TD references updated
+> (TD-01/02 resolved; TD-05 reworded; TD-17/18/20/22/23/24/26 added; TD-16 date passed); test
+> plans now name Vitest tests in the existing `tests/` layout plus labelled Manual / Manual, paid
+> checks, instead of "manual verification only". Not re-derived: the frontend questions (still
+> accurate per `application/frontend.md`) and the Stage 0 flow-chart conventions.
 
 Trigger: user says something like *"Update this skill to suit the tech stack of this
 codebase"* (or names this skill directly while asking for same).

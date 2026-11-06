@@ -401,6 +401,7 @@ describe('POST /api/chat — signed-in modes: access', () => {
     signIn(null);
     const res = await post({ mode: 'companion', messages: [userMsg()] });
     expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'Please sign in to continue.' });
     expect(session.ops('user_roles')).toHaveLength(0);
     expect(anthropic.stream).not.toHaveBeenCalled();
   });
@@ -409,7 +410,7 @@ describe('POST /api/chat — signed-in modes: access', () => {
     signIn(USER, []);
     const res = await post({ mode: 'companion', messages: [userMsg()] });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'Your account is awaiting approval.' });
+    expect(await res.json()).toEqual({ error: "Your account doesn't have access yet. Please contact an administrator." });
   });
 
   it.each([
@@ -796,7 +797,7 @@ describe('POST /api/chat — database failures', () => {
     expect((await res.json()).error).toBe(GENERIC_ERROR_MESSAGE);
     expect(anthropic.stream).not.toHaveBeenCalled();
   });
-  it('500s (not a misleading "awaiting approval" 403) when the roles lookup fails', async () => {
+  it('500s (not a misleading no-access 403) when the roles lookup fails', async () => {
     session = createSupabaseMock({
       user: USER,
       tables: { user_roles: { error: { message: 'connection refused' } } },
@@ -804,7 +805,7 @@ describe('POST /api/chat — database failures', () => {
     vi.mocked(createClient).mockResolvedValue(session.client);
     const res = await post({ mode: 'companion', flow: 'explorer', messages: [userMsg()] });
     expect(res.status).toBe(500);
-    expect((await res.json()).error).not.toContain('awaiting approval');
+    expect((await res.json()).error).not.toContain("doesn't have access");
     expect(anthropic.stream).not.toHaveBeenCalled();
   });
 });

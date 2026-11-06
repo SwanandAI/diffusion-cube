@@ -9,8 +9,8 @@ import { recordAiUsage } from '@/lib/ai-usage'
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // Forced tool-use rather than free text — the only thing this call needs to
-// produce is one id (or null), same idiom as EXTRACT_TOOL in
-// app/api/pathways/assemble/route.ts.
+// produce is one id (or null), the same idiom as the retrieval classifier's
+// forced tool in lib/retrieval.ts.
 const MATCH_TOOL: Anthropic.Tool = {
   name: 'report_match',
   description: 'Report whether the candidate pathway is the same underlying pathway as an existing one.',

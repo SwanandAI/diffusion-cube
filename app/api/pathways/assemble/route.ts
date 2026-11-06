@@ -32,7 +32,7 @@ async function handlePOST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   if (!(await hasAnyRole(supabase))) {
-    return NextResponse.json({ error: 'Account not approved' }, { status: 403 })
+    return NextResponse.json({ error: "Your account doesn't have access yet. Please contact an administrator." }, { status: 403 })
   }
   if (!(await hasRole(supabase, 'pathway_contributor'))) {
     return NextResponse.json({ error: 'Contributor role required' }, { status: 403 })
