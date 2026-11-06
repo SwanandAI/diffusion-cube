@@ -88,7 +88,7 @@ describe('POST /api/pathways/assemble — access', () => {
     setup({ roles: [] });
     const res = await post(valid);
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'Account not approved' });
+    expect(await res.json()).toEqual({ error: "Your account doesn't have access yet. Please contact an administrator." });
   });
 
   it('403s an adopter without the contributor role', async () => {

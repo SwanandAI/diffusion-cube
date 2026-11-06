@@ -30,7 +30,7 @@ const ASSET_COLUMNS =
 // After assets were removed (contributor Remove, or a deleted contribution):
 // take them out of the document the admin reviews and publishes
 // (pathways.content_cache), keeping the ones that still exist, so the admin
-// never approves an asset that's gone. The copy committed to GitHub catches
+// never approves an asset that's gone. The saved pathway_versions row catches
 // up on the next Send for Review. Best-effort — logged, never thrown.
 export async function dropAssetsFromReviewCopy(pathwayId: string, assetIds: string[]): Promise<void> {
   if (assetIds.length === 0) return;

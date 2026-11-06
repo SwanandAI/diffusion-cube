@@ -41,3 +41,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /tests/coverage
+
+# Answer-shape eval (npm run eval:answers): results and the temporary --baseline copy
+/scripts/test-harness/answer-shape-eval/results/
+/scripts/test-harness/answer-shape-eval/.baseline/

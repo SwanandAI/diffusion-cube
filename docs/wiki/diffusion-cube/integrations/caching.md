@@ -1,10 +1,12 @@
 # Caching
 
-There is no dedicated cache layer (no Redis, no CDN cache config, no `CACHES` setting) anywhere in this application. Four distinct, unrelated caching mechanisms exist instead — two in the client, one in the server process, and one at Anthropic:
+*Last verified against code: 2026-11-06 (HEAD `0a1ca00`).*
+
+There is no dedicated cache layer (no Redis, no CDN cache config, no `CACHES` setting) anywhere in this application. Five distinct, unrelated caching mechanisms exist instead — two in the client, one in the server process, one at Anthropic, and one in an offline script:
 
 ## 1. Generated-document content-hash cache
 
-**Where**: [`lib/design-documents.ts`](../../../lib/design-documents.ts), used by `analysis-doc` and `executive-summary` modes via `lib/adoption-conversation.ts`.
+**Where**: [`lib/design-documents.ts`](../../../../lib/design-documents.ts), used by `analysis-doc` and `executive-summary` modes via `lib/adoption-conversation.ts`.
 
 **Mechanism**: `hashConversationState` computes a non-cryptographic djb2 hash over the current conversation + grid state. Before generating a new Analysis Document or Executive Summary, the client compares this hash against the stored `design_documents.content_hash` for the latest row of that `doc_type`. If unchanged, the stored row is served back directly — **no Anthropic API call is made**.
 
@@ -16,7 +18,7 @@ There is no dedicated cache layer (no Redis, no CDN cache config, no `CACHES` se
 
 ## 2. Adoptions-list in-memory TTL cache
 
-**Where**: [`lib/adoptions-cache.ts`](../../../lib/adoptions-cache.ts), used by `app/(app)/adoptions/page.tsx`, `app/contribute/ContributeGrid.tsx`, `components/Sidebar.tsx`'s recent-list.
+**Where**: [`lib/adoptions-cache.ts`](../../../../lib/adoptions-cache.ts), used by `app/(app)/adoptions/page.tsx`, `app/contribute/ContributeGrid.tsx` and `app/analyse/StrengthenWorkspace.tsx` (`components/Sidebar.tsx` no longer imports it).
 
 **Mechanism**: a 60-second in-memory (per browser tab, not shared across tabs/users/server) cache of the caller's `designs` list (`fetchAdoptionsList`).
 
@@ -26,24 +28,42 @@ There is no dedicated cache layer (no Redis, no CDN cache config, no `CACHES` se
 
 ## 3. Production memoisation of committed `content/` files
 
-**Where**: [`lib/static-content.ts`](../../../lib/static-content.ts) `readStaticFile()`, used by `lib/wiki-loader.ts` and `lib/wiki-content.ts` (framework, resources, generation prompt, grounding corpus under `content/wiki/`).
+**Where**: [`lib/static-content.ts`](../../../../lib/static-content.ts) `readStaticFile()`, used only by `lib/wiki-loader.ts` — i.e. `content/framework.md`, `content/resources.md` and `content/pathway-generation-prompt.md`. (The grounding corpus is no longer a set of files: `content/wiki/` was removed with the pathway-storage feature, and `lib/wiki-content.ts` now reads the database. The file's own header comment still mentions "the grounding corpus" — stale.)
 
 **Mechanism**: an in-memory `Map` of file path → read promise, **per server instance, in production only** (`NODE_ENV === 'production'`); development re-reads on every call so edits show immediately. A failed read returns `''` and is not kept, so a missing file is retried.
 
-**Invalidation**: none needed — these files only change with a deploy, which starts new instances. **Database content is never cached here**: `loadWikiContext()` still queries `published_pathways` on every call, so an admin publish appears on the next request. `lib/library-documents.ts` (the library chat) reads through the same cache.
+**TTL**: none — lives as long as the server instance.
+
+**Invalidation strategy**: none needed — these files only change with a deploy, which starts new instances. **Database content is never cached anywhere in the app**: every pathway (cards, overview, documents, units for retrieval) is read from Supabase on each request via `lib/pathway-store.ts`, so an admin publish appears on the next message.
 
 ## 4. Anthropic prompt caching
 
-**Where**: [`lib/prompt-cache.ts`](../../../lib/prompt-cache.ts), used by both `messages.stream` calls in `app/api/chat/route.ts`.
+**Where**: [`lib/prompt-cache.ts`](../../../../lib/prompt-cache.ts), used by both `messages.stream` calls in `app/api/chat/route.ts`.
 
-**Mechanism**: for `companion` and `library` only, the stable part of the system prompt (everything before `PROMPT_CACHE_BREAK`) and the last message carry `cache_control: {type: 'ephemeral'}`, so the next turn within the **5-minute TTL** reads the corpus prefix and history from Anthropic's cache. One-shot modes are not cached. Cache read/write tokens are recorded in `ai_usage` and shown on `/admin/usage`. Detail: [`ai-llm.md`](ai-llm.md#prompt-caching).
+**Mechanism**: for `companion` and `library` only, the stable part of the system prompt (everything before `PROMPT_CACHE_BREAK` — framework, resources, toolkit assets, the library overview or open pathway document) and the last message carry `cache_control: {type: 'ephemeral'}`, so the next turn reads that prefix and the history from Anthropic's cache. Since retrieval-based grounding landed, the per-message pathway grounding sits *after* the break and is never cached. One-shot modes, the Haiku retrieval classifier and `check-similar` are not cached. Cache read/write tokens are recorded in `ai_usage` and shown on `/admin/usage`. Detail: [`ai-llm.md`](ai-llm.md#prompt-caching).
+
+**TTL**: Anthropic's **5-minute** ephemeral TTL, refreshed on each hit.
+
+**Invalidation strategy**: implicit — the cache key is the exact prefix text, so any change to the stable part (framework edit, a newly published toolkit asset, a different open pathway) simply misses and writes a new entry.
+
+## 5. Seed-script generation cache (offline)
+
+**Where**: `scripts/seed-pathways.ts` (`npm run seed:pathways`), not the running app.
+
+**Mechanism**: each generated pathway document is written to `.seed-cache/<slug>.md` next to the manifest, with a `<slug>.sha256` of the model ID, title, sector, organisation, framework, generation prompt and all source texts. A re-run (e.g. after a later step failed) reuses the file instead of paying for another 32K-token Sonnet generation.
+
+**TTL**: none.
+
+**Invalidation strategy**: content-hash — any change to the inputs changes the hash and forces regeneration; `--regenerate` ignores the cache explicitly.
 
 ## Deprecated/inert cache tables (database, not application cache)
 
-`pathway_cache` (migration `0002`) and `wiki_cache` (migration `0004`) are Supabase tables originally built as AI-output and GitHub-raw-fetch caches respectively. **Neither is read or written by any current code path** — confirmed by repo-wide grep. They are dead schema, not a live caching layer. See [`../knowledge/technical-debt.md`](../knowledge/technical-debt.md).
+`pathway_cache` (migration `0002`) and `wiki_cache` (migration `0004`) are Supabase tables originally built as AI-output and GitHub-raw-fetch caches respectively. **Neither is read or written by any current code path** — confirmed by repo-wide grep (re-checked 2026-11-06; migration `0042` did not drop them). They are dead schema, not a live caching layer. See [`../knowledge/technical-debt.md`](../knowledge/technical-debt.md).
+
+`pathways.content_cache`, despite its name, is not a cache: it holds the latest assembled ("sent for review") document, read by the admin review card (`/api/admin/pathways/document`, which prefers the latest `pathway_versions` row) and by the contributor's draft merge.
 
 > **Note:** No framework-level caching (Redis, HTTP cache headers, CDN edge caching) is configured today — adding it would be new infrastructure, not a matter of enabling something already present.
 
 ## Source files
 
-`lib/design-documents.ts`, `lib/adoptions-cache.ts`, `lib/static-content.ts`, `lib/prompt-cache.ts`, `supabase/migrations/0002_pathway_cache.sql`, `supabase/migrations/0004_wiki_cache.sql`.
+`lib/design-documents.ts`, `lib/adoptions-cache.ts`, `lib/static-content.ts`, `lib/wiki-loader.ts`, `lib/prompt-cache.ts`, `scripts/seed-pathways.ts`, `supabase/migrations/0002_pathway_cache.sql`, `supabase/migrations/0004_wiki_cache.sql`.

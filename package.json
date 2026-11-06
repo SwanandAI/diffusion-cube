@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "seed:pathways": "vite-node --config scripts/vite-node.config.mts scripts/seed-pathways.ts --"
+    "seed:pathways": "vite-node --config scripts/vite-node.config.mts scripts/seed-pathways.ts --",
+    "eval:answers": "vite-node --config scripts/test-harness/answer-shape-eval/vite-node.config.mts scripts/test-harness/answer-shape-eval/run.ts --"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",

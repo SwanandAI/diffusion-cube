@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises';
 
 // Reads a file committed under content/ (framework, resources, generation
-// prompt, the grounding corpus). These only change with a deploy, so in
+// prompt). These only change with a deploy, so in
 // production each is read from disk once per server instance and kept in
 // memory; in development every call re-reads, so edits show immediately.
 // A failed read returns '' and isn't kept, so a missing file is retried.

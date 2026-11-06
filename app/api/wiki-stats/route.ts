@@ -11,7 +11,7 @@ async function handleGET() {
   const supabase = await createClient();
   const approved = await hasAnyRole(supabase);
   if (!approved) {
-    return Response.json({ error: 'Your account is awaiting approval.' }, { status: 403 });
+    return Response.json({ error: "Your account doesn't have access yet. Please contact an administrator." }, { status: 403 });
   }
 
   const stats = await getWikiStats();

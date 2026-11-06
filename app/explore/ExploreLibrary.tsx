@@ -65,7 +65,7 @@ export default function ExploreLibrary({
   // Explorations" link) — resolved server-side in app/explore/page.tsx.
   initialConversation?: SavedConversation | null;
 }) {
-  // DB pathways take precedence over static ones with the same slug so a
+  // Every pathway comes from the store (published versions only), so a
   // re-published pathway is always the latest version.
   const allPathways = dbPathways;
 
