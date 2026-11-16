@@ -46,7 +46,7 @@ async function uniqueSlug(base: string): Promise<string> {
  * (migration 0040) lets a user read just the pathways they contribute to, so
  * the full list is read here with the service role.
  */
-async function handleGET(req: NextRequest) {
+async function handleGET(_req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

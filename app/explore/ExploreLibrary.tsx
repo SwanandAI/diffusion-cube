@@ -129,21 +129,24 @@ export default function ExploreLibrary({
   function toggleStage(stage: Stage) {
     setFilterStages((prev) => {
       const next = new Set(prev);
-      next.has(stage) ? next.delete(stage) : next.add(stage);
+      if (next.has(stage)) next.delete(stage);
+      else next.add(stage);
       return next;
     });
   }
   function toggleSector(sector: string) {
     setFilterSectors((prev) => {
       const next = new Set(prev);
-      next.has(sector) ? next.delete(sector) : next.add(sector);
+      if (next.has(sector)) next.delete(sector);
+      else next.add(sector);
       return next;
     });
   }
   function toggleTag(tag: string) {
     setFilterTags((prev) => {
       const next = new Set(prev);
-      next.has(tag) ? next.delete(tag) : next.add(tag);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
       return next;
     });
   }

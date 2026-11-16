@@ -60,10 +60,10 @@ function StrengthenWorkspaceContent() {
     };
   }, [openId]);
 
-  // Show a loading state only when fetching a pre-existing session — not
-  // during in-session row creation where onCreated already populated the state.
-  const loading =
-    Boolean(openId) && openId !== createdInSessionRef.current && loadedFor !== openId;
+  // Show a loading state only when fetching a pre-existing session. In-session
+  // row creation never shows it: onCreated sets loadedFor before the URL
+  // changes, so loadedFor already equals openId by then.
+  const loading = Boolean(openId) && loadedFor !== openId;
   const initial = openId && loadedFor === openId ? opened : null;
 
   if (loading) {
