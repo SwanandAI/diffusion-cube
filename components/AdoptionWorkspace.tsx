@@ -200,16 +200,21 @@ export default function AdoptionWorkspace({
     };
   }, [panelDragging]);
 
-  // Auto-open panel when an explorer document is generated.
-  useEffect(() => {
+  // Auto-open panel when an explorer document is generated. Adjusted during
+  // render when the value changes (not in an effect) to avoid a cascading render.
+  const [prevExplorerDocOpen, setPrevExplorerDocOpen] = useState<typeof explorerDoc.open>(null);
+  if (explorerDoc.open !== prevExplorerDocOpen) {
+    setPrevExplorerDocOpen(explorerDoc.open);
     if (explorerDoc.open === 'analysis') setRightPanel('analysis');
     else if (explorerDoc.open === 'plan') setRightPanel('summary');
-  }, [explorerDoc.open]);
+  }
 
   // Auto-open panel when the contributor's pathway document is first generated.
-  useEffect(() => {
+  const [prevPathwayPaneOpen, setPrevPathwayPaneOpen] = useState(false);
+  if (pathwayDoc.paneOpen !== prevPathwayPaneOpen) {
+    setPrevPathwayPaneOpen(pathwayDoc.paneOpen);
     if (pathwayDoc.paneOpen) setRightPanel((prev) => (prev === 'none' ? 'document' : prev));
-  }, [pathwayDoc.paneOpen]);
+  }
 
   const activeIntent: ExplorerIntent = conversation?.meta.intent ?? 'open';
 
@@ -222,8 +227,6 @@ export default function AdoptionWorkspace({
     pathwayDoc.content ??
     pathwayDoc.pathwayPublishedContent ??
     '';
-  const pathwayDocPublishedSlug =
-    pathwayDoc.publishedSlug ?? pathwayDoc.pathwayPublishedSlug;
   const isViewingLatestVersion = pathwayDoc.selectedVersionNumber === null;
   const latestVersionId = pathwayDoc.versions[0]?.id ?? null;
   const isLatestAssembled = latestVersionId !== null && latestVersionId === pathwayDoc.assembledDesignDocId;
