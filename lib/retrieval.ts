@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { embedTexts, toPgVector } from '@/lib/embeddings';
-import { adopterDocument, getPublishedDocuments, listPublished, type PublishedCard } from '@/lib/pathway-store';
+import { adopterDocument, getPublishedDocuments, listPublished, publicSourceTexts, type PublishedCard, type SourceText } from '@/lib/pathway-store';
+import { chunkText, keywordScore, keywordsOf } from '@/lib/text-chunks';
 import { recordAiUsage } from '@/lib/ai-usage';
 import { logError } from '@/lib/errors';
 import { datedLine } from '@/lib/wiki-loader';
@@ -16,6 +17,9 @@ import { DIMENSIONS, STAGES, UNIT_TYPES, type DimensionCode, type Stage, type Un
 //      pathways (UC2) or common patterns (UC3) — plus any named pathway and
 //      dimension / stage / unit-type filters, and a search text.
 //   2. Hybrid search (match_pathway_units: vector + full text + labels).
+//      A question about one pathway gets its full write-up instead, plus its
+//      original documents when Haiku finds the write-up doesn't answer it
+//      (pathwayPassages).
 //   3. The results are shaped per kind. Pattern counts are computed here, in
 //      code, never left to the model.
 //
@@ -272,14 +276,155 @@ async function sourcePassages(slug: string, vector: string | null, count: number
   return ((data ?? []) as Passage[]).filter((p) => p.is_public === true);
 }
 
-// The public source-document passages of one published pathway nearest to
-// the question, formatted for a prompt — '' when it has none (contributor
-// pathways never do; seeded ones only for documents marked public).
-export async function pathwayPassages(slug: string, searchText: string): Promise<string> {
+// ── One pathway: write-up first, original documents when it falls short ──
+//
+// For a question about one published pathway (UC1), the model always gets
+// the full write-up. Its original documents are added only when the
+// write-up doesn't answer the question:
+//
+//   1. No public originals → nothing to add (no model call).
+//   2. The write-up passages nearest the question (pathway_doc_chunks,
+//      embedded at publish) go to Claude Haiku, which says whether they
+//      answer it. If they do → nothing to add.
+//   3. Otherwise the originals' text is added directly — it is never
+//      embedded for contributor pathways. All of it when it fits
+//      SOURCE_TEXT_BUDGET; past that, the passages that best match the
+//      question (seeded pathways' embedded passages first, then by shared
+//      keywords), so a long document never floods the prompt.
+//
+// When the coverage check can't run (no vector, no indexed write-up, a
+// Haiku error) the originals are added: a wasted few thousand tokens beats
+// a "not documented" answer the documents could have given.
+
+export const COVERAGE_MODEL = CLASSIFIER_MODEL;
+// ~15k tokens of original text per question at most.
+export const SOURCE_TEXT_BUDGET = 60_000;
+const COVERAGE_PASSAGES = 5;
+
+interface DocPassage {
+  section: string;
+  text: string;
+  similarity: number;
+}
+
+async function writeUpPassages(slug: string, vector: string | null): Promise<DocPassage[]> {
+  if (!vector) return [];
+  const { data, error } = await createAdminClient().rpc('match_pathway_doc_chunks', {
+    query_embedding: vector,
+    pathway_slug: slug,
+    match_count: COVERAGE_PASSAGES,
+  });
+  if (error) throw error;
+  return (data ?? []) as DocPassage[];
+}
+
+function coverageTool(): Anthropic.Tool {
+  return {
+    name: 'judge_coverage',
+    description: 'Say whether the pathway write-up excerpts answer the question.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        answered: {
+          type: 'boolean',
+          description: 'true only if the excerpts contain the specific facts the question asks for; false if they are silent, only general, or only partly answer it.',
+        },
+      },
+      required: ['answered'],
+    },
+  };
+}
+
+// true / false from Haiku; null when it couldn't say (error, no tool call).
+export async function writeUpAnswers(question: string, passages: DocPassage[], flow: string | null = null): Promise<boolean | null> {
+  const excerpts = passages.map((p, i) => `[${i + 1}] ${p.text}`).join('\n\n');
+  try {
+    const result = await anthropic.messages.create(
+      {
+        model: COVERAGE_MODEL,
+        max_tokens: 100,
+        thinking: { type: 'disabled' },
+        output_config: { effort: 'low' },
+        tools: [coverageTool()],
+        tool_choice: { type: 'tool', name: 'judge_coverage' },
+        messages: [
+          {
+            role: 'user',
+            content: `Question about one AI deployment pathway:\n${question}\n\nExcerpts from that pathway's write-up (the closest matches to the question):\n\n${excerpts}`,
+          },
+        ],
+      },
+      { maxRetries: 2 }
+    );
+    recordAiUsage({ mode: 'retrieval-coverage', flow, model: result.model, usage: result.usage, ok: true });
+    const tool = result.content.find((b) => b.type === 'tool_use');
+    if (!tool || tool.type !== 'tool_use') return null;
+    const answered = (tool.input as { answered?: unknown }).answered;
+    return typeof answered === 'boolean' ? answered : null;
+  } catch (err) {
+    recordAiUsage({ mode: 'retrieval-coverage', flow, model: COVERAGE_MODEL, ok: false });
+    logError('lib/retrieval', err, { step: 'coverage' });
+    return null;
+  }
+}
+
+// The originals' text for the prompt, within the budget. Whole documents
+// when they all fit; otherwise the best-matching passages, each file's in
+// document order.
+export function selectSourceText(sources: SourceText[], question: string, preferred: Passage[] = [], budget = SOURCE_TEXT_BUDGET): string {
+  const total = sources.reduce((n, s) => n + s.text.length, 0);
+  if (total <= budget) {
+    return sources.map((s) => `### Source document: ${s.file_name}\n${s.text.trim()}`).join('\n\n');
+  }
+
+  const keywords = keywordsOf(question);
+  type Pick = { file: string; order: number; text: string; rank: number };
+  const candidates: Pick[] = [];
+  preferred.forEach((p, i) => candidates.push({ file: p.file_name, order: p.chunk_index, text: p.text, rank: 1000 - i }));
+  for (const s of sources) {
+    chunkText(s.text).forEach((text, i) => {
+      const score = keywordScore(text, keywords);
+      if (score > 0) candidates.push({ file: s.file_name, order: i, text, rank: score });
+    });
+  }
+  candidates.sort((a, b) => b.rank - a.rank);
+
+  const chosen: Pick[] = [];
+  const seen = new Set<string>();
+  let used = 0;
+  for (const c of candidates) {
+    if (seen.has(c.text) || used + c.text.length > budget) continue;
+    seen.add(c.text);
+    chosen.push(c);
+    used += c.text.length;
+  }
+  if (chosen.length === 0) return '';
+
+  const byFile = new Map<string, Pick[]>();
+  for (const c of chosen) byFile.set(c.file, [...(byFile.get(c.file) ?? []), c]);
+  return [...byFile.entries()]
+    .map(([file, picks]) => {
+      const parts = picks.sort((a, b) => a.order - b.order).map((p) => p.text);
+      return `### Source document: ${file} (excerpts)\n${parts.join('\n\n[…]\n\n')}`;
+    })
+    .join('\n\n');
+}
+
+// The original-document text to add for a question about one published
+// pathway — '' when the write-up answers it, or there are no originals.
+// `flow` is only for the usage record ('explore' for the library).
+export async function pathwayPassages(slug: string, searchText: string, flow: string | null = null): Promise<string> {
   if (!searchText) return '';
+  const sources = await publicSourceTexts(slug);
+  if (sources.length === 0) return '';
+
   const vector = await queryVector(searchText);
-  const passages = await sourcePassages(slug, vector, LIMITS.specific.passages);
-  return passages.map((p) => `### Source document: ${p.file_name}\n${p.text}`).join('\n\n');
+  const nearest = await writeUpPassages(slug, vector);
+  if (nearest.length > 0 && (await writeUpAnswers(searchText, nearest, flow)) === true) return '';
+
+  const total = sources.reduce((n, s) => n + s.text.length, 0);
+  const preferred = total > SOURCE_TEXT_BUDGET ? await sourcePassages(slug, vector, LIMITS.specific.passages) : [];
+  return selectSourceText(sources, searchText, preferred);
 }
 
 // ── 3. Shape ──────────────────────────────────────────────────────────────
@@ -358,10 +503,10 @@ export async function buildGrounding(opts: {
     // Source passages only for one pathway, and only when it has public
     // originals (seeded pathways) — the fallback for what the write-up lacks.
     if (docs.length === 1 && searchText) {
-      const passages = await pathwayPassages(docs[0].slug, searchText);
+      const passages = await pathwayPassages(docs[0].slug, searchText, opts.surface === 'explore-overview' ? 'explore' : opts.flow ?? null);
       if (passages) {
         parts.push(
-          `## Passages from "${docs[0].title}"'s source documents\n\nUse these ONLY if the write-up above doesn't answer the question, and say the answer comes from the source document, naming the file.\n\n${passages}`
+          `## "${docs[0].title}"'s original documents\n\nThe write-up above may not fully answer this question, so its original documents follow. Use them ONLY for what the write-up doesn't answer, and say the answer comes from the source document, naming the file.\n\n${passages}`
         );
       }
     }

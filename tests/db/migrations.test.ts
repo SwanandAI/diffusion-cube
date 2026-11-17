@@ -190,8 +190,7 @@ describe('0042_pathway_storage', () => {
   const raw = fs.readFileSync(path.join(DIR, '0042_pathway_storage.sql'), 'utf8');
   const sql = sourceOf('0042_pathway_storage.sql');
 
-  it('is the latest migration and says up front that it is destructive', () => {
-    expect(files[files.length - 1]).toBe('0042_pathway_storage.sql');
+  it('says up front that it is destructive', () => {
     const header = raw.split('\n').filter((l) => l.startsWith('--')).join('\n');
     expect(header).toMatch(/DESTRUCTIVE/);
     expect(header).toMatch(/published_pathways/);
@@ -251,5 +250,40 @@ describe('0042_pathway_storage', () => {
 
   it('leaves no existing pathway published', () => {
     expect(sql).toMatch(/set\s+status\s*=\s*case\s+when\s+review_requested\s+then\s+'in_review'\s+else\s+'draft'\s+end/);
+  });
+});
+
+describe('0043_contributor_sources_doc_chunks', () => {
+  const sql = sourceOf('0043_contributor_sources_doc_chunks.sql');
+
+  it('is the latest migration', () => {
+    expect(files[files.length - 1]).toBe('0043_contributor_sources_doc_chunks.sql');
+  });
+
+  it('marks where each original came from, and dedupes a contributor document sent twice', () => {
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+origin\s+text\s+not\s+null\s+default\s+'seed'/);
+    expect(sql).toMatch(/check\s*\(\s*origin\s+in\s*\(\s*'seed',\s*'contributor'\s*\)\s*\)/);
+    expect(sql).toMatch(/create\s+unique\s+index[^;]*pathway_sources\s*\(\s*pathway_id,\s*content_hash\s*\)[^;]*where\s+origin\s*=\s*'contributor'/);
+  });
+
+  it('embeds the published document in a server-only table', () => {
+    expect(sql).toMatch(/create\s+table\s+if\s+not\s+exists\s+public\.pathway_doc_chunks\b/);
+    expect(sql).toMatch(/alter\s+table\s+public\.pathway_doc_chunks\s+enable\s+row\s+level\s+security/);
+    expect(sql).not.toMatch(/create\s+policy[^;]*\bon\s+public\.pathway_doc_chunks\b/);
+    expect(sql).toMatch(/embedding\s+extensions\.vector\(384\)/);
+    expect(sql).toMatch(/on\s+public\.pathway_doc_chunks\s+using\s+hnsw\s*\(\s*embedding\s+extensions\.vector_cosine_ops\s*\)/);
+  });
+
+  it('searches only the live version of a published pathway, server-side only', () => {
+    const fn = sql.match(/function\s+public\.match_pathway_doc_chunks\([\s\S]*?\$\$([\s\S]*?)\$\$/)?.[1] ?? '';
+    expect(fn).toMatch(/p\.status\s*=\s*'published'/);
+    expect(fn).toMatch(/c\.version_id\s*=\s*p\.published_version_id/);
+    expect(sql).toMatch(/revoke\s+all\s+on\s+function\s+public\.match_pathway_doc_chunks\([^)]*\)\s+from\s+public,\s*anon,\s*authenticated/);
+    expect(sql).toMatch(/grant\s+execute\s+on\s+function\s+public\.match_pathway_doc_chunks\([^)]*\)\s+to\s+service_role/);
+  });
+
+  it('records each pathway index status', () => {
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+index_status\s+text\s+not\s+null\s+default\s+'none'/);
+    expect(sql).toMatch(/check\s*\(\s*index_status\s+in\s*\(\s*'none',\s*'pending',\s*'indexed',\s*'failed'\s*\)\s*\)/);
   });
 });

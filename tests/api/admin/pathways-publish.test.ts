@@ -56,7 +56,7 @@ interface Setup {
   version?: { id: string; content: string; version_number: number } | null;
   publishError?: Error;
   skippedUnits?: { unit: number; title: string; reason: string }[];
-  embedded?: boolean;
+  embedded?: boolean | null;
   title?: string;
   assetsUpdate?: MockResponse;
   doc?: MockResponse;
@@ -83,7 +83,7 @@ function useAdmin(setup: Setup = {}) {
       title: setup.title ?? 'Farmer Advisory Bot',
       indexedUnits: 3,
       skippedUnits: setup.skippedUnits ?? [],
-      embedded: setup.embedded ?? true,
+      embedded: setup.embedded === undefined ? true : setup.embedded,
     });
   admin = createSupabaseMock({
     tables: {
@@ -180,13 +180,18 @@ describe('POST /api/admin/pathways/publish — happy path', () => {
     const res = await post({ pathway_id: 'p1' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      ok: true, slug: 'farmer-advisory-bot', assetsPublished: true, skippedUnits: [], embedded: true,
+      ok: true, slug: 'farmer-advisory-bot', assetsPublished: true, skippedUnits: [], embedded: true, indexStatus: 'indexed',
     });
 
     const [select] = admin.ops('pathways', 'select');
     expect(select.filters).toEqual([['eq', 'id', 'p1']]);
     expect(latestVersion).toHaveBeenCalledWith('p1', admin.client);
-    expect(publishVersion).toHaveBeenCalledWith({ pathwayId: 'p1', versionId: 'v2', publishedBy: 'caller' }, admin.client);
+    // Embedding runs after the response, so the admin's request never waits on it.
+    expect(publishVersion).toHaveBeenCalledWith(
+      { pathwayId: 'p1', versionId: 'v2', publishedBy: 'caller' },
+      admin.client,
+      { index: 'background' }
+    );
     // published_pathways is a view now — never written.
     expect(admin.ops('published_pathways')).toHaveLength(0);
   });
@@ -197,6 +202,14 @@ describe('POST /api/admin/pathways/publish — happy path', () => {
     const body = await (await post({ pathway_id: 'p1' })).json();
     expect(body.skippedUnits).toEqual(skipped);
     expect(body.embedded).toBe(false);
+    expect(body.indexStatus).toBe('failed');
+  });
+
+  it("says indexing is pending while it runs in the background", async () => {
+    useAdmin({ embedded: null });
+    const body = await (await post({ pathway_id: 'p1' })).json();
+    expect(body.embedded).toBeNull();
+    expect(body.indexStatus).toBe('pending');
   });
 
   it('clears the review request and points published_design_doc_id at the reviewed draft', async () => {
