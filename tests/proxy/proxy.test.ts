@@ -66,6 +66,7 @@ describe('proxy — anonymous visitors', () => {
     '/api/toolkit-assets/abc/download',
     '/api/auth/send-email',
     '/api/errors/client',
+    '/api/feedback',
   ];
 
   it.each(publicPaths)('lets an anonymous request through to %s', async (path) => {

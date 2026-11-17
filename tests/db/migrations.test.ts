@@ -190,8 +190,7 @@ describe('0042_pathway_storage', () => {
   const raw = fs.readFileSync(path.join(DIR, '0042_pathway_storage.sql'), 'utf8');
   const sql = sourceOf('0042_pathway_storage.sql');
 
-  it('is the latest migration and says up front that it is destructive', () => {
-    expect(files[files.length - 1]).toBe('0042_pathway_storage.sql');
+  it('says up front that it is destructive', () => {
     const header = raw.split('\n').filter((l) => l.startsWith('--')).join('\n');
     expect(header).toMatch(/DESTRUCTIVE/);
     expect(header).toMatch(/published_pathways/);
@@ -251,5 +250,41 @@ describe('0042_pathway_storage', () => {
 
   it('leaves no existing pathway published', () => {
     expect(sql).toMatch(/set\s+status\s*=\s*case\s+when\s+review_requested\s+then\s+'in_review'\s+else\s+'draft'\s+end/);
+  });
+});
+
+// Thumbs up / down on Cube's replies (POST /api/feedback, shown on /admin/usage).
+describe('0043_message_feedback', () => {
+  const raw = fs.readFileSync(path.join(DIR, '0043_message_feedback.sql'), 'utf8');
+  const sql = sourceOf('0043_message_feedback.sql');
+
+  it('is the latest migration and says it is additive', () => {
+    expect(files[files.length - 1]).toBe('0043_message_feedback.sql');
+    const header = raw.split('\n').filter((l) => l.startsWith('--')).join('\n');
+    expect(header).toMatch(/Additive only/);
+    expect(header).not.toMatch(/DESTRUCTIVE/);
+    expect(sql).not.toMatch(/\bdrop\s+(table|view|column|function)\b/);
+  });
+
+  it('creates message_feedback with RLS and no client policy', () => {
+    expect(sql).toMatch(/create\s+table\s+if\s+not\s+exists\s+public\.message_feedback\b/);
+    expect(sql).toMatch(/alter\s+table\s+public\.message_feedback\s+enable\s+row\s+level\s+security/);
+    expect(sql).not.toMatch(/create\s+policy/);
+  });
+
+  it('keeps one vote per reply per voter, and only +1 / -1', () => {
+    expect(sql).toMatch(/unique\s*\(\s*message_id\s*,\s*voter_key\s*\)/);
+    expect(sql).toMatch(/check\s*\(\s*vote\s+in\s*\(\s*1\s*,\s*-1\s*\)\s*\)/);
+    expect(sql).toMatch(/check\s*\(\s*surface\s+in\s*\(\s*'explore'\s*,\s*'analyse'\s*,\s*'contribute'\s*\)\s*\)/);
+  });
+
+  it('removes a deleted account\'s votes with it', () => {
+    expect(sql).toMatch(/user_id\s+uuid\s+references\s+auth\.users\s*\(\s*id\s*\)\s+on\s+delete\s+cascade/);
+  });
+
+  it('makes admin_feedback_stats() a security-definer function only the server may call', () => {
+    expect(sql).toMatch(/create\s+or\s+replace\s+function\s+public\.admin_feedback_stats\(\)[\s\S]*?security\s+definer/);
+    expect(sql).toMatch(/revoke\s+all\s+on\s+function\s+public\.admin_feedback_stats\(\)\s+from\s+public\s*,\s*anon\s*,\s*authenticated/);
+    expect(sql).toMatch(/grant\s+execute\s+on\s+function\s+public\.admin_feedback_stats\(\)\s+to\s+service_role/);
   });
 });

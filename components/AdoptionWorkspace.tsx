@@ -147,6 +147,7 @@ export default function AdoptionWorkspace({
     explorerDoc,
     openExplorerDocument,
     closeExplorerDocument,
+    setMessageFeedback,
   } = useAdoptionConversation({ initial, pathwayId, onCreated, onChange });
 
   const defaultFlow: AdoptionFlow =
@@ -1028,6 +1029,11 @@ export default function AdoptionWorkspace({
                   : undefined
               }
               pathwayLookup={pathwayLookup}
+              feedback={{
+                surface: flow === 'contributor' ? 'contribute' : 'analyse',
+                conversationId: conversation.id,
+                onChange: setMessageFeedback,
+              }}
               onToolkitAssetConsent={flow === 'contributor' ? answerToolkitAssetConsent : undefined}
               hasToolkitAssetFile={hasToolkitAssetFile}
               resourceReviewActions={

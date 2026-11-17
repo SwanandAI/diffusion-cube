@@ -181,7 +181,13 @@ describe('useAdoptionConversation — first message', () => {
     const conv = result.current.conversation!;
     expect(conv.messages).toEqual([
       { role: 'user', content: 'We run kiosks' },
-      { role: 'assistant', content: 'Thanks — tell me more about the pilot.', pathwaysReferenced: ['blue-dots'] },
+      {
+        role: 'assistant',
+        // Every finished companion reply gets an id so it can be rated.
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        content: 'Thanks — tell me more about the pilot.',
+        pathwaysReferenced: ['blue-dots'],
+      },
     ]);
     expect(conv.grid['persona:Explore']).toEqual({ density: 2, note: 'farmers' });
     expect(conv.meta).toMatchObject({ name: 'Kiosk', sector: 'Agri', flowStep: 2, flow: 'explorer' });
@@ -189,6 +195,47 @@ describe('useAdoptionConversation — first message', () => {
     await waitFor(() => expect(sb.ops('designs', 'update').length).toBeGreaterThan(0));
     expect(lastPersistedMessages()).toHaveLength(2);
     expect(onChange).toHaveBeenCalled();
+  });
+
+  it('keeps a thumbs vote on the rated reply and saves it; removing the vote drops the field', async () => {
+    routes = () => streamResponse(['Here is the closest match.', gridUpdate({})]);
+    const { result } = renderHook(() => useAdoptionConversation({ initial: existing('explorer', []) }));
+    await act(async () => {
+      await result.current.handleUserSend('Any pathway like ours?');
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const reply = result.current.conversation!.messages.at(-1)!;
+    expect(reply.id).toBeTruthy();
+    const updatesBefore = sb.ops('designs', 'update').length;
+
+    act(() => result.current.setMessageFeedback(reply.id!, -1));
+    expect(result.current.conversation!.messages.at(-1)).toMatchObject({ id: reply.id, feedback: -1 });
+    await waitFor(() => expect(sb.ops('designs', 'update').length).toBeGreaterThan(updatesBefore));
+    expect(lastPersistedMessages().at(-1)).toMatchObject({ id: reply.id, feedback: -1 });
+
+    act(() => result.current.setMessageFeedback(reply.id!, null));
+    expect(result.current.conversation!.messages.at(-1)).not.toHaveProperty('feedback');
+    // The user's own message is untouched, and an unknown id changes nothing.
+    act(() => result.current.setMessageFeedback('no-such-id', 1));
+    expect(result.current.conversation!.messages.some((m) => m.feedback !== undefined)).toBe(false);
+  });
+
+  it('never sends a reply\'s id or vote to /api/chat as history', async () => {
+    routes = () => streamResponse(['ok', gridUpdate({})]);
+    const { result } = renderHook(() =>
+      useAdoptionConversation({
+        initial: existing('explorer', [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', id: 'r1', feedback: 1, content: 'hello' },
+        ]),
+      })
+    );
+    await act(async () => {
+      await result.current.handleUserSend('next');
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const [call] = chatCalls('companion');
+    expect(JSON.stringify(call.body.messages)).not.toMatch(/"id"|"feedback"/);
   });
 
   it('never moves flowStep backwards without an intent switch, and ignores unknown grid cells', async () => {

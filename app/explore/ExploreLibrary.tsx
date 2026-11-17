@@ -7,13 +7,25 @@ import { libraryStages, type Accent, type LibraryPathway, type Stage } from '@/l
 import { parseToolkitAssetsTag, stripToolkitAssetsTag } from '@/lib/toolkit-assets';
 import ToolkitAssetCards from '@/components/ToolkitAssetCards';
 import VoiceInputButton from '@/components/VoiceInputButton';
+import MessageFeedback from '@/components/MessageFeedback';
+import { newMessageId, type FeedbackVote } from '@/lib/message-feedback';
 
 // toolkitAssets: ids of published toolkit assets an assistant reply offered
 // (parsed from its trailing <toolkit_assets> tag, which is never shown) —
 // rendered as download cards under that reply and saved with the chat.
 // `notice` marks a client-made status bubble (a rejected request) — shown, but
 // never sent back to /api/chat as history and never saved.
-type ChatMessage = { role: 'user' | 'assistant'; content: string; toolkitAssets?: string[]; notice?: true };
+// `id` is set on each finished reply so it can be rated (thumbs up/down);
+// `feedback` is the visitor's own vote on it, kept with a signed-in visitor's
+// saved chat so it survives a reload.
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  toolkitAssets?: string[];
+  notice?: true;
+  id?: string;
+  feedback?: FeedbackVote;
+};
 type View = 'library' | 'chat';
 
 // A signed-in visitor's saved chat (library_conversations) — an anonymous
@@ -246,6 +258,7 @@ export default function ExploreLibrary({
       const assetIds = parseToolkitAssetsTag(text);
       const reply: ChatMessage = {
         role: 'assistant',
+        id: newMessageId(),
         content: stripToolkitAssetsTag(text),
         ...(assetIds.length ? { toolkitAssets: assetIds } : {}),
       };
@@ -302,10 +315,30 @@ export default function ExploreLibrary({
     void streamReply([], pathway.id, pathway);
   }
 
+  // Keeps the visitor's thumbs vote on the rated reply. The vote itself was
+  // already recorded by /api/feedback; for a signed-in visitor with a saved
+  // chat the row is updated too, so the chosen thumb is shown after a reload.
+  function setMessageFeedback(messageId: string, vote: FeedbackVote | null) {
+    const next = messages.map((m) => {
+      if (m.id !== messageId) return m;
+      const { feedback: _previous, ...rest } = m;
+      return vote === null ? rest : { ...rest, feedback: vote };
+    });
+    setMessages(next);
+    if (signedIn && currentConversationId) {
+      void createClient()
+        .from('library_conversations')
+        .update({ messages: next.filter((m) => !m.notice), updated_at: new Date().toISOString() })
+        .eq('id', currentConversationId);
+    }
+  }
+
   if (view === 'chat') {
     return (
       <ChatView
         selected={selected}
+        conversationId={currentConversationId}
+        onFeedback={setMessageFeedback}
         messages={messages}
         draft={draft}
         setDraft={setDraft}
@@ -548,6 +581,8 @@ function PathwayCard({
 
 function ChatView({
   selected,
+  conversationId,
+  onFeedback,
   messages,
   draft,
   setDraft,
@@ -557,6 +592,8 @@ function ChatView({
   onBack,
 }: {
   selected: LibraryPathway | null;
+  conversationId: string | null;
+  onFeedback: (messageId: string, vote: FeedbackVote | null) => void;
   messages: ChatMessage[];
   draft: string;
   setDraft: (v: string) => void;
@@ -617,6 +654,18 @@ function ChatView({
               <MessageText content={m.content} />
               {m.role === 'assistant' && m.toolkitAssets?.length && selected ? (
                 <ToolkitAssetCards ids={m.toolkitAssets} pathwaySlug={selected.id} />
+              ) : null}
+              {m.role === 'assistant' && m.id && !m.notice ? (
+                <MessageFeedback
+                  key={m.id}
+                  messageId={m.id}
+                  surface="explore"
+                  content={m.content}
+                  vote={m.feedback}
+                  conversationId={conversationId}
+                  pathwaySlug={selected?.id ?? null}
+                  onChange={onFeedback}
+                />
               ) : null}
             </div>
           ))}
