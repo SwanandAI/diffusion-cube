@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dropAssetsFromReviewCopy, removeAssetObjects } from '@/lib/toolkit-assets-server'
+import { SOURCES_BUCKET } from '@/lib/pathway-sources'
 
 import { withErrorHandling } from '@/lib/errors'
 // The contributor's "No — delete this contribution" answer to "May this
 // pathway be published?": deletes their workspace, its drafts, and every
-// toolkit asset they shared from it that isn't live yet (files included).
+// toolkit asset they shared from it that isn't live yet (files included),
+// and the original documents kept from it (pathway_sources, files included).
 // Assets already published with an earlier approval stay — withdrawing a
 // live asset is out of scope.
 //
@@ -48,6 +50,25 @@ async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ d
     }
     await removeAssetObjects((removed ?? []).flatMap((a) => (a.storage_path ? [a.storage_path as string] : [])))
     await dropAssetsFromReviewCopy(design.pathway_id, (removed ?? []).map((a) => a.unit_internal_id as string))
+
+    // The original documents kept from this workspace (migration 0043) go
+    // too, files included — otherwise they'd outlive it (design_id is only
+    // set null) and keep answering adopters once the pathway is live.
+    const { data: sources, error: sourcesErr } = await admin
+      .from('pathway_sources')
+      .delete()
+      .eq('design_id', designId)
+      .eq('origin', 'contributor')
+      .select('storage_path')
+    if (sourcesErr) {
+      console.error('[contributions/delete] originals:', sourcesErr)
+      return NextResponse.json({ error: 'Could not delete this contribution. Try again.' }, { status: 500 })
+    }
+    const sourcePaths = (sources ?? []).flatMap((s) => (s.storage_path ? [s.storage_path as string] : []))
+    if (sourcePaths.length > 0) {
+      const { error: rmErr } = await admin.storage.from(SOURCES_BUCKET).remove(sourcePaths)
+      if (rmErr) console.error('[contributions/delete] original files:', rmErr)
+    }
 
     const { data: docs } = await admin.from('design_documents').select('id').eq('design_id', designId)
     const docIds = new Set((docs ?? []).map((d) => d.id as string))

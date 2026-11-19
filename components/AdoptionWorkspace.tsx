@@ -155,6 +155,30 @@ export default function AdoptionWorkspace({
   const [welcomeInput, setWelcomeInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  // Contributor flow: names of this workspace's uploads kept as the pathway's
+  // original documents, re-read each time the Files panel opens (saving runs
+  // in the background after a message is sent).
+  const [storedFiles, setStoredFiles] = useState<string[]>([]);
+  const storedFilesKey =
+    filesOpen && conversation?.meta.flow === 'contributor' && conversation.meta.pathwayId
+      ? `${conversation.meta.pathwayId}|${conversation.id}`
+      : null;
+  useEffect(() => {
+    if (!storedFilesKey) return;
+    const [pid, did] = storedFilesKey.split('|');
+    let cancelled = false;
+    fetch(`/api/pathway-sources?pathwayId=${encodeURIComponent(pid)}&designId=${encodeURIComponent(did)}`)
+      .then((res) => (res.ok ? res.json() : { files: [] }))
+      .then((data: { files?: unknown }) => {
+        if (!cancelled) setStoredFiles(Array.isArray(data.files) ? data.files.filter((f): f is string => typeof f === 'string') : []);
+      })
+      .catch(() => {
+        if (!cancelled) setStoredFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [storedFilesKey]);
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [headerExpanded, setHeaderExpanded] = useState(true);
 
@@ -1125,6 +1149,7 @@ export default function AdoptionWorkspace({
                       )
                     : undefined
                 }
+                storedFiles={flow === 'contributor' ? storedFiles : undefined}
                 onAttachFiles={handleAttachFiles}
                 onRemoveAttachment={removeAttachment}
                 accept={flow === 'contributor' ? CONTRIBUTOR_ATTACH_ACCEPT : ATTACH_ACCEPT}

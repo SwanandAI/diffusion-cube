@@ -35,6 +35,7 @@ interface AdminSetup {
   docs?: MockResponse;
   pathway?: MockResponse;
   pathwayUpdate?: MockResponse;
+  sources?: MockResponse;
 }
 
 function useAdmin(setup: AdminSetup = {}) {
@@ -50,6 +51,7 @@ function useAdmin(setup: AdminSetup = {}) {
             }
           : { data: [] },
       design_documents: setup.docs ?? { data: [{ id: 'doc-a' }, { id: 'doc-b' }] },
+      pathway_sources: setup.sources ?? { data: [{ storage_path: 'contrib/p1/k-notes.pdf' }, { storage_path: null }] },
       pathways: (op) => {
         if (op.action === 'update') return setup.pathwayUpdate ?? {};
         // dropAssetsFromReviewCopy reads content_cache — no review copy here.
@@ -133,6 +135,26 @@ describe('DELETE /api/contributions/[designId]', () => {
     const [designDelete] = session.ops('designs', 'delete');
     expect(designDelete.filters).toEqual([['eq', 'id', 'd1']]);
     expect(admin.ops('designs')).toHaveLength(0);
+  });
+
+  it('deletes the original documents kept from this workspace, and their files', async () => {
+    const res = await del('d1');
+    expect(res.status).toBe(200);
+    const [sources] = admin.ops('pathway_sources', 'delete');
+    expect(sources.filters).toEqual([
+      ['eq', 'design_id', 'd1'],
+      ['eq', 'origin', 'contributor'],
+    ]);
+    expect(admin.client.storage.from).toHaveBeenCalledWith('pathway-sources');
+    expect(admin.storageBucket.remove).toHaveBeenCalledWith(['contrib/p1/k-notes.pdf']);
+  });
+
+  it('answers an originals clean-up failure with the generic 500 and keeps the design', async () => {
+    useAdmin({ sources: { error: { message: 'deadlock detected' } } });
+    const res = await del('d1');
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: GENERIC_ERROR_MESSAGE });
+    expect(session.ops('designs', 'delete')).toHaveLength(0);
   });
 
   it('skips all pathway clean-up for a workspace not linked to a pathway', async () => {

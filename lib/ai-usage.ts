@@ -12,9 +12,9 @@ export type UsageArea = 'explore' | 'analyse' | 'contribute';
 // 'check-similar' is app/api/pathways/check-similar's duplicate-pathway check.
 export function areaFor(mode: string, flow?: string | null): UsageArea {
   if (mode === 'library') return 'explore';
-  // lib/retrieval.ts's question classifier runs for every surface; `flow`
-  // carries which ('explore' for the library).
-  if (mode === 'retrieval-classify') {
+  // lib/retrieval.ts's question classifier and write-up coverage check run
+  // for every surface; `flow` carries which ('explore' for the library).
+  if (mode === 'retrieval-classify' || mode === 'retrieval-coverage') {
     return flow === 'explore' ? 'explore' : flow === 'contributor' ? 'contribute' : 'analyse';
   }
   if (mode === 'companion' || mode === 'extract-insights') {

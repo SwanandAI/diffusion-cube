@@ -861,10 +861,10 @@ Your entire response must be the document itself (or the fallback line above) �
 // the conversation itself.
 
 // One pathway selected — grounded ONLY in that pathway's full document.
-// `sourcePassages`: for a seeded pathway with public original documents,
-// passages from them retrieved for the latest question (lib/retrieval.ts) —
-// a fallback for what the write-up doesn't cover. Per-message, so after the
-// cache break.
+// `sourcePassages`: the pathway's original documents (whole, or the parts
+// that best match the latest question), added only when Haiku finds the
+// write-up doesn't answer it (lib/retrieval.ts pathwayPassages) — a fallback
+// for what the write-up doesn't cover. Per-message, so after the cache break.
 export function libraryPathwaySystemPrompt(
   document: string,
   toolkitAssets: ToolkitAssetPromptEntry[] = [],
@@ -900,7 +900,7 @@ PATHWAY DOCUMENT:
 ${document}
 ${toolkitAssetsBlock}${
     sourcePassages
-      ? `${PROMPT_CACHE_BREAK}\nSOURCE DOCUMENT PASSAGES (from this pathway's original documents, selected for the latest question):\nUse these only when the pathway document above doesn't answer the question. When you do, say plainly that it isn't in the pathway write-up but its source document says so, and name the file — e.g. "This isn't in the write-up, but its source document Vendor-Evaluation.pdf says…". If neither answers it, say the pathway doesn't document it.\n\n${sourcePassages}\n`
+      ? `${PROMPT_CACHE_BREAK}\nSOURCE DOCUMENTS (this pathway's original documents, added because the write-up may not answer the latest question):\nUse these only when the pathway document above doesn't answer the question. When you do, say plainly that it isn't in the pathway write-up but its source document says so, and name the file — e.g. "This isn't in the write-up, but its source document Vendor-Evaluation.pdf says…". If neither answers it, say the pathway doesn't document it.\n\n${sourcePassages}\n`
       : ''
   }`;
 }

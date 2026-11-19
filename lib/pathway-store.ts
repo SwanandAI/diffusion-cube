@@ -1,9 +1,14 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { after } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseFrontmatter } from '@/lib/strip-frontmatter';
 import { parseUnits, type ParsedUnit, type SkippedUnit } from '@/lib/pathway-units';
 import { embedTexts, toPgVector } from '@/lib/embeddings';
 import { logError } from '@/lib/errors';
 import { stripProvenanceAppendix } from '@/lib/provenance';
+import { documentChunks } from '@/lib/text-chunks';
+import { sanitizeAssetFileName } from '@/lib/toolkit-assets';
+import { MAX_SOURCE_FILE_BYTES, MAX_SOURCE_TEXT_CHARS, SOURCES_BUCKET } from '@/lib/pathway-sources';
 
 // The one place pathways are saved, published and read
 // (docs/features/pathway-storage/, PS-04). Pathways live only in Supabase:
@@ -118,14 +123,30 @@ export interface PublishResult {
   title: string;
   indexedUnits: number;
   skippedUnits: SkippedUnit[];
-  embedded: boolean;
+  // Whether the units and the document were embedded. null when indexing
+  // runs in the background after the response (index: 'background').
+  embedded: boolean | null;
+}
+
+export interface PublishOptions {
+  // 'now' (default): embed before returning — the seed script.
+  // 'background': return once the version is live and embed after the
+  // response is sent — the admin publish route, so a long document never
+  // holds the admin's request open.
+  index?: 'now' | 'background';
+  retryDelayMs?: number;
 }
 
 // Makes a version live: pointer + card fields, then replaces the pathway's
-// units with this version's and embeds them. If embedding fails the units
-// are still saved (without vectors — search falls back to full text for
-// them) and the failure is recorded; a later publish embeds them.
-export async function publishVersion(input: PublishInput, admin: Admin = createAdminClient()): Promise<PublishResult> {
+// units with this version's (saved without vectors, so keyword search works
+// at once) and indexes it — indexPublishedVersion embeds the units and the
+// whole document, retrying on failure, and records the outcome in
+// pathways.index_status.
+export async function publishVersion(
+  input: PublishInput,
+  admin: Admin = createAdminClient(),
+  options: PublishOptions = {}
+): Promise<PublishResult> {
   const { data: version, error: vErr } = await admin
     .from('pathway_versions')
     .select('id, pathway_id, content')
@@ -160,40 +181,191 @@ export async function publishVersion(input: PublishInput, admin: Admin = createA
       organisation: frontmatterLine(content, 'contributor'),
       published_by: input.publishedBy ?? null,
       first_published_at: (pathway.first_published_at as string | null) ?? new Date().toISOString(),
+      index_status: 'pending',
+      index_error: null,
     })
     .eq('id', input.pathwayId);
   if (upErr) throw upErr;
 
   const { units, skipped } = parseUnits(content, pathway.slug as string);
 
-  let vectors: (number[] | null)[] = units.map(() => null);
-  let embedded = units.length === 0;
-  if (units.length) {
-    try {
-      vectors = await embedTexts(units.map(unitEmbeddingText));
-      embedded = true;
-    } catch (err) {
-      // embedTexts already recorded the cause; note which pathway it hit.
-      logError('lib/pathway-store', err, { step: 'embed units', pathway_slug: pathway.slug });
-    }
-  }
-
   const { error: delErr } = await admin.from('pathway_units').delete().eq('pathway_id', input.pathwayId);
   if (delErr) throw delErr;
 
   if (units.length) {
     const { error: insErr } = await admin.from('pathway_units').insert(
-      units.map((u, i) => ({
-        ...u,
-        pathway_id: input.pathwayId,
-        version_id: version.id,
-        embedding: vectors[i] ? toPgVector(vectors[i] as number[]) : null,
-      }))
+      units.map((u) => ({ ...u, pathway_id: input.pathwayId, version_id: version.id, embedding: null }))
     );
     if (insErr) throw insErr;
   }
 
-  return { slug: pathway.slug as string, title, indexedUnits: units.length, skippedUnits: skipped, embedded };
+  const base = { slug: pathway.slug as string, title, indexedUnits: units.length, skippedUnits: skipped };
+  const job = { pathwayId: input.pathwayId, versionId: version.id as string };
+  const indexOpts = { retryDelayMs: options.retryDelayMs };
+
+  if (options.index === 'background') {
+    runAfterResponse(() => indexPublishedVersion(job, admin, indexOpts));
+    return { ...base, embedded: null };
+  }
+  const indexed = await indexPublishedVersion(job, admin, indexOpts);
+  return { ...base, embedded: indexed.ok };
+}
+
+// ── Indexing (embeddings) ──────────────────────────────────────────────────
+
+// The first try plus two retries. Each embed call already retries a busy
+// Edge Function twice (lib/embeddings.ts); this retries the whole job —
+// a dropped connection, a database error, the function being down for a
+// few seconds — and resumes where the last try stopped (units that already
+// have a vector are skipped).
+export const INDEX_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 3000;
+
+export interface IndexResult {
+  ok: boolean;
+  attempts: number;
+  units: number; // units embedded by this run
+  docChunks: number; // document passages embedded by this run
+  superseded?: boolean; // a newer version was published meanwhile; nothing written
+  error?: string;
+}
+
+// Runs fn after the response has been sent (Next's after()), or straight
+// away, unawaited, outside a request (scripts, tests). Never throws.
+function runAfterResponse(fn: () => Promise<unknown>): void {
+  const run = () => fn().catch((err) => logError('lib/pathway-store', err, { step: 'background index' }));
+  try {
+    after(run);
+  } catch {
+    void run();
+  }
+}
+
+class Superseded extends Error {}
+
+// Embeds a published version: its units (unitEmbeddingText) and its whole
+// adopter-facing document, cut by section (pathway_doc_chunks). Records
+// 'indexed' or 'failed' in pathways.index_status — only while this version
+// is still the live one, so a slow job never overwrites a newer publish.
+export async function indexPublishedVersion(
+  input: { pathwayId: string; versionId: string },
+  admin: Admin = createAdminClient(),
+  options: { attempts?: number; retryDelayMs?: number } = {}
+): Promise<IndexResult> {
+  const attempts = Math.max(1, options.attempts ?? INDEX_ATTEMPTS);
+  const delay = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+  let units = 0;
+  let docChunks = 0;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (attempt > 1 && delay > 0) await new Promise((r) => setTimeout(r, delay * (attempt - 1)));
+    try {
+      const run = await indexOnce(input, admin);
+      units += run.units;
+      docChunks = run.docChunks;
+      await setIndexStatus(input, admin, { index_status: 'indexed', indexed_at: new Date().toISOString(), index_error: null });
+      return { ok: true, attempts: attempt, units, docChunks };
+    } catch (err) {
+      if (err instanceof Superseded) return { ok: true, attempts: attempt, units, docChunks, superseded: true };
+      lastError = err;
+      logError('lib/pathway-store', err, { step: 'index', attempt, pathway_id: input.pathwayId });
+    }
+  }
+
+  const message = lastError instanceof Error ? lastError.message : String(lastError ?? 'unknown error');
+  try {
+    await setIndexStatus(input, admin, { index_status: 'failed', index_error: message.slice(0, 500) });
+  } catch (err) {
+    logError('lib/pathway-store', err, { step: 'record index failure', pathway_id: input.pathwayId });
+  }
+  return { ok: false, attempts, units, docChunks, error: message };
+}
+
+async function setIndexStatus(
+  input: { pathwayId: string; versionId: string },
+  admin: Admin,
+  fields: Record<string, unknown>
+): Promise<void> {
+  const { error } = await admin
+    .from('pathways')
+    .update(fields)
+    .eq('id', input.pathwayId)
+    .eq('published_version_id', input.versionId);
+  if (error) throw error;
+}
+
+// Throws Superseded once another version has been published. Checked before
+// the job starts and again after each slow embedding step, right before the
+// writes it guards.
+async function assertStillLive(input: { pathwayId: string; versionId: string }, admin: Admin): Promise<void> {
+  const { data: pathway, error: pErr } = await admin
+    .from('pathways')
+    .select('published_version_id')
+    .eq('id', input.pathwayId)
+    .maybeSingle();
+  if (pErr) throw pErr;
+  if (!pathway || pathway.published_version_id !== input.versionId) throw new Superseded();
+}
+
+async function indexOnce(
+  input: { pathwayId: string; versionId: string },
+  admin: Admin
+): Promise<{ units: number; docChunks: number }> {
+  await assertStillLive(input, admin);
+
+  // 1. Units still without a vector (all of them on the first try).
+  const { data: pending, error: uErr } = await admin
+    .from('pathway_units')
+    .select('id, title, applies_when, fails_when, adopter_intents, body')
+    .eq('pathway_id', input.pathwayId)
+    .eq('version_id', input.versionId)
+    .is('embedding', null);
+  if (uErr) throw uErr;
+  const rows = (pending ?? []) as (Pick<ParsedUnit, 'title' | 'applies_when' | 'fails_when' | 'adopter_intents' | 'body'> & { id: string })[];
+  if (rows.length) {
+    const vectors = await embedTexts(rows.map((r) => unitEmbeddingText({ ...r, adopter_intents: r.adopter_intents ?? [] })));
+    // Scoped to this version: unit ids (<slug>-uNN) repeat across versions,
+    // so a newer publish's rows can carry the same id by now.
+    for (let i = 0; i < rows.length; i++) {
+      const { error } = await admin
+        .from('pathway_units')
+        .update({ embedding: toPgVector(vectors[i]) })
+        .eq('id', rows[i].id)
+        .eq('version_id', input.versionId);
+      if (error) throw error;
+    }
+  }
+
+  // 2. The whole document, by section.
+  const { data: version, error: vErr } = await admin
+    .from('pathway_versions')
+    .select('content')
+    .eq('id', input.versionId)
+    .maybeSingle();
+  if (vErr) throw vErr;
+  const chunks = documentChunks((version?.content as string | undefined) ?? '');
+  const vectors = chunks.length ? await embedTexts(chunks.map((c) => c.text)) : [];
+
+  // The replace below is pathway-wide: never let a superseded job wipe the
+  // newer version's passages.
+  await assertStillLive(input, admin);
+  const { error: delErr } = await admin.from('pathway_doc_chunks').delete().eq('pathway_id', input.pathwayId);
+  if (delErr) throw delErr;
+  if (chunks.length) {
+    const { error: insErr } = await admin.from('pathway_doc_chunks').insert(
+      chunks.map((c, i) => ({
+        pathway_id: input.pathwayId,
+        version_id: input.versionId,
+        section: c.section,
+        chunk_index: c.chunk_index,
+        text: c.text,
+        embedding: toPgVector(vectors[i]),
+      }))
+    );
+    if (insErr) throw insErr;
+  }
+  return { units: rows.length, docChunks: chunks.length };
 }
 
 // ── Reads (published only) ────────────────────────────────────────────────
@@ -284,8 +456,129 @@ export async function isSlugTaken(slug: string, admin: Admin = createAdminClient
 
 // ── Original documents (seeded pathways) ──────────────────────────────────
 
-// Private bucket for seeded pathways' original files (migration 0042).
-export const SOURCES_BUCKET = 'pathway-sources';
+// Bucket name and limits: lib/pathway-sources.ts (shared with the browser).
+export { SOURCES_BUCKET, MAX_SOURCE_FILE_BYTES, MAX_SOURCE_TEXT_CHARS };
+
+// Where a contributor's upload is stored: under its pathway, with a random
+// part so two files of the same name never collide.
+export function contributorSourcePath(pathwayId: string, fileName: string): string {
+  return `contrib/${pathwayId}/${randomUUID()}-${sanitizeAssetFileName(fileName)}`;
+}
+
+export function isContributorSourcePath(pathwayId: string, path: unknown): path is string {
+  return typeof path === 'string' && path.startsWith(`contrib/${pathwayId}/`) && !path.includes('..');
+}
+
+export interface SaveSourceInput {
+  pathwayId: string;
+  designId: string;
+  uploadedBy: string;
+  fileName: string;
+  mimeType: string | null;
+  storagePath: string | null;
+  text: string;
+}
+
+export interface SavedSource {
+  id: string;
+  sourceKey: string;
+  duplicate: boolean; // the same text was already saved for this pathway
+  storagePath: string | null; // the kept row's file (the existing one's, for a duplicate)
+}
+
+function nextSourceKey(keys: string[]): string {
+  const max = keys.reduce((m, k) => Math.max(m, Number(k.match(/^src-(\d+)$/)?.[1] ?? 0)), 0);
+  return `src-${String(max + 1).padStart(2, '0')}`;
+}
+
+// Keeps one document a contributor sent in their workspace: every upload is
+// kept, with no per-file choice, as is_public — once the pathway is
+// published, lib/retrieval.ts may read its text to answer an adopter's
+// question the write-up doesn't cover. Never embedded. The same text sent
+// twice is kept once. Two saves racing for the next src-NN key retry.
+export async function saveContributorSource(input: SaveSourceInput, admin: Admin = createAdminClient()): Promise<SavedSource> {
+  const text = input.text.slice(0, MAX_SOURCE_TEXT_CHARS);
+  const hash = text.trim() ? createHash('sha256').update(text).digest('hex') : null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (hash) {
+      const { data: dup, error: dupErr } = await admin
+        .from('pathway_sources')
+        .select('id, source_key, storage_path')
+        .eq('pathway_id', input.pathwayId)
+        .eq('origin', 'contributor')
+        .eq('content_hash', hash)
+        .maybeSingle();
+      if (dupErr) throw dupErr;
+      if (dup) {
+        return {
+          id: dup.id as string,
+          sourceKey: dup.source_key as string,
+          duplicate: true,
+          storagePath: (dup.storage_path as string | null) ?? null,
+        };
+      }
+    }
+
+    const { data: existing, error: keysErr } = await admin
+      .from('pathway_sources')
+      .select('source_key')
+      .eq('pathway_id', input.pathwayId);
+    if (keysErr) throw keysErr;
+    const sourceKey = nextSourceKey(((existing ?? []) as { source_key: string }[]).map((r) => r.source_key));
+
+    const { data, error } = await admin
+      .from('pathway_sources')
+      .insert({
+        pathway_id: input.pathwayId,
+        source_key: sourceKey,
+        file_name: input.fileName.slice(0, 255),
+        storage_path: input.storagePath,
+        mime_type: input.mimeType,
+        extracted_text: text,
+        is_public: true,
+        origin: 'contributor',
+        design_id: input.designId,
+        uploaded_by: input.uploadedBy,
+        content_hash: hash,
+      })
+      .select('id')
+      .single();
+    if (!error && data) return { id: data.id as string, sourceKey, duplicate: false, storagePath: input.storagePath };
+    // 23505: another save took this key (or saved the same text) first.
+    if (error?.code !== '23505') throw error ?? new Error('pathway_sources insert returned no row');
+  }
+  throw new Error('Could not save the document after 3 attempts.');
+}
+
+export interface SourceText {
+  id: string;
+  file_name: string;
+  text: string;
+}
+
+// The public originals of one published pathway, with their text, in upload
+// order — what lib/retrieval.ts reads when the write-up doesn't answer.
+export async function publicSourceTexts(slug: string, admin: Admin = createAdminClient()): Promise<SourceText[]> {
+  const { data: pathway, error: pErr } = await admin
+    .from('pathways')
+    .select('id')
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .maybeSingle();
+  if (pErr) throw pErr;
+  if (!pathway) return [];
+  const { data, error } = await admin
+    .from('pathway_sources')
+    .select('id, file_name, extracted_text, is_public')
+    .eq('pathway_id', pathway.id)
+    .eq('is_public', true)
+    .order('source_key', { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as { id: string; file_name: string; extracted_text: string | null; is_public: boolean }[])
+    .filter((r) => r.is_public === true && (r.extracted_text ?? '').trim() !== '')
+    .map((r) => ({ id: r.id, file_name: r.file_name, text: r.extracted_text as string }));
+}
 
 // Removes a pathway's original files from storage before the pathway row is
 // deleted (its pathway_sources / chunks rows cascade away with it). Best
