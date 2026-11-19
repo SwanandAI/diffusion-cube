@@ -12,7 +12,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SLUG_CHARS = 200;
 
 // Records, changes or removes one thumbs up/down on a Cube reply
-// (message_feedback, migration 0043). Analyse and Contribute replies need a
+// (message_feedback, migration 0044). Analyse and Contribute replies need a
 // session; /explore replies can be rated signed out too, keyed by a salted
 // IP hash. Rate-limited first (per account, or per IP signed out), then
 // size-capped and shape-checked. Written with the service role — the table

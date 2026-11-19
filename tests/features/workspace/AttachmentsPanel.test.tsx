@@ -113,6 +113,24 @@ describe('AttachmentsPanel', () => {
     expect(screen.getByText('Not stored')).toBeInTheDocument();
   });
 
+  it('contributor: uploads kept as originals say Saved; a toolkit asset keeps its Download link', () => {
+    renderPanel({
+      uploadedFileNames: ['checklist.xlsx', 'report.pdf', 'old.pdf'],
+      viewableFiles: { 'checklist.xlsx': 'asset-abc' },
+      storedFiles: ['report.pdf', 'checklist.xlsx'],
+    });
+    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/toolkit-assets/asset-abc/download');
+    expect(screen.getAllByText('Saved')).toHaveLength(1);
+    expect(screen.getByText('Saved').closest('div')).toHaveTextContent('report.pdf');
+    expect(screen.getByText('Not stored').closest('div')).toHaveTextContent('old.pdf');
+  });
+
+  it('explorer: no stored status, even if names are passed', () => {
+    renderPanel({ uploadedFileNames: ['report.pdf'], storedFiles: ['report.pdf'] });
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not stored')).not.toBeInTheDocument();
+  });
+
   it('shows no lists when there is nothing staged or shared', () => {
     renderPanel();
     expect(screen.queryByText('Shared in this chat')).not.toBeInTheDocument();

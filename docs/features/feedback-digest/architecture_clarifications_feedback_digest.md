@@ -5,7 +5,7 @@ Technical clarifications (`architecture-plan`). **Answered 2026-11-18** by Anura
 ## Repo findings these questions are based on
 
 - **Branch `feature/message-feedback`** already has:
-  - migration `0043_message_feedback.sql` (`message_feedback` table, `admin_feedback_stats()`);
+  - migration `0044_message_feedback.sql` (`message_feedback` table, `admin_feedback_stats()`);
   - `POST /api/feedback` (`app/api/feedback/route.ts`);
   - `components/MessageFeedback.tsx`;
   - `id` / `feedback` fields on assistant messages (`components/ChatPanel.tsx` `Message`; `app/explore/ExploreLibrary.tsx` `ChatMessage`);
@@ -25,7 +25,7 @@ Technical clarifications (`architecture-plan`). **Answered 2026-11-18** by Anura
   - `content/companion-v2-digest.md`.
 
   It is built on playbooks, jobs and a recorded "gap" signal, none of which exist here.
-- **The wiki** (`docs/wiki/diffusion-cube/`, refreshed 2026-11-06) stops at migration `0042` and doesn't know `0043`, which is this branch's own work.
+- **The wiki** (`docs/wiki/diffusion-cube/`, refreshed 2026-11-06) stops at migration `0042` and doesn't know `0044`, which is this branch's own work.
 
 ## Technical questions
 
@@ -35,7 +35,7 @@ Technical clarifications (`architecture-plan`). **Answered 2026-11-18** by Anura
 | T2 | AI (parked P2) | How is "Cube said not covered" detected? | **Answered: ok.** The digest model reads the first 300 characters of Cube's reply after each question and decides; the app then keeps the tag only for replies that say so in plain words (a cheap wording check, added after review 2026-11-18). No change to any chat prompt or to `<grid_update>`. |
 | T3 | AI (parked P3) | Model and cost? | **Waived — assumed:** `claude-sonnet-4-6` as one constant in the route (one more hardcoded ID, TD-20). List prices in a new `lib/ai-pricing.ts` ($3 / $15 per MTok in/out; cache read $0.30, cache write $3.75). Cost is computed per run and stored. Sonnet 5.5 rejected for now: it 400s on the forced `tool_choice` the digest uses. **Revised 2026-11-19:** the model choice stands, but no cost is computed or stored: `lib/ai-pricing.ts` (and its test) is deleted. The call's tokens are recorded in `ai_usage` (area `admin`) like every other Claude call. |
 | T4 | Data (parked P4) | How are "one at a time" and "10 per day" enforced? | **Waived — assumed:** one `security definer` function takes a one-row lock (5-minute lease) and counts today's attempts (IST day) in the same statement, so two admins can't both pass. `check_rate_limit` is not reused: its window isn't an IST calendar day, and an attempt log is needed for cost anyway. **Revised 2026-11-19 (rationale only):** the lease, cap and attempt log are unchanged; the attempt log now exists only for the daily cap. |
-| T5 | Data (parked P5) | Where are the digest and its cost stored; how are calls recorded in AI usage? | **Waived — assumed:** migration `0044` adds `feedback_digests` (latest per period), `feedback_digest_runs` (one row per attempt: admin, period, status, model, tokens, cost) and `feedback_digest_lock`. It widens `ai_usage.area` to allow `admin`; digest calls are recorded as mode `digest`, area `admin`, and `/admin/usage` gets an "Admin (digest)" row. **Revised 2026-11-19:** no cost is stored. `feedback_digest_runs` keeps only `id, period_days, admin_user_id, started_at, finished_at, status` (no `model`, tokens or `cost_usd`), and `finish_feedback_digest_run` takes `(p_run, p_status, p_payload)`. Tokens live only in `ai_usage`; the page no longer reads `feedback_digest_runs`. |
+| T5 | Data (parked P5) | Where are the digest and its cost stored; how are calls recorded in AI usage? | **Waived — assumed:** migration `0045` adds `feedback_digests` (latest per period), `feedback_digest_runs` (one row per attempt: admin, period, status, model, tokens, cost) and `feedback_digest_lock`. It widens `ai_usage.area` to allow `admin`; digest calls are recorded as mode `digest`, area `admin`, and `/admin/usage` gets an "Admin (digest)" row. **Revised 2026-11-19:** no cost is stored. `feedback_digest_runs` keeps only `id, period_days, admin_user_id, started_at, finished_at, status` (no `model`, tokens or `cost_usd`), and `finish_feedback_digest_run` takes `(p_run, p_status, p_payload)`. Tokens live only in `ai_usage`; the page no longer reads `feedback_digest_runs`. |
 | T6 | Data (parked P6) | How are admins' own conversations excluded? | **Answered: not excluded.** Admins also use Explore, Analyse and Contribute, so their conversations count like anyone's. **This reverses business assumption 4** (business clarifications question 4). The requirement is updated to match at the final-scope step. |
 | T7 | Reuse (parked P7) | How much Cube 2.0 code is reused? | **Waived — assumed:** port the reference-checking pattern (`buildDigestInput` / `validateDigest` / `viewDigest`, refs `M…` for questions, `F…` for 👎 votes), the lease/save SQL pattern, and the screen and button layout. Rewrite the prompt for Summary, Most discussed topics, Unanswered questions and Terms. Drop jobs, states, stuck, complaints and working. |
 | T8 | Data (parked P8) | How do deleted conversations drop out of a saved digest? | **Waived — assumed:** every item stores the conversation keys it rests on (`d:<designs id>`, `l:<library_conversations id>`, `f:<message_feedback id>` for a 👎 with no saved conversation). The stats function returns the keys that still exist, and the page hides items left with none, recounting users (Cube 2.0's `viewDigest` pattern). |
@@ -51,7 +51,7 @@ Technical clarifications (`architecture-plan`). **Answered 2026-11-18** by Anura
 ## Plan-review decisions
 
 - **2026-11-18:** the plan was approved as presented ("Continue with the plan") and written to [`plan_feedback_digest.md`](plan_feedback_digest.md). The requirement was updated to the final scope, with admins' conversations included (T6).
-- **2026-11-19:** after build, cost was removed (T3, T5), the digest page's Users, Conversations and Feedback tiles were dropped (T16), and `/admin/usage`'s "Reply feedback" block was folded into its Activity table as Thumbs up / Thumbs down columns (from `admin_feedback_stats().per_surface`, `0043`, unchanged). The requirement, plan and task list were updated to match.
+- **2026-11-19:** after build, cost was removed (T3, T5), the digest page's Users, Conversations and Feedback tiles were dropped (T16), and `/admin/usage`'s "Reply feedback" block was folded into its Activity table as Thumbs up / Thumbs down columns (from `admin_feedback_stats().per_surface`, `0044`, unchanged). The requirement, plan and task list were updated to match.
 
 ## Open items
 

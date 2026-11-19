@@ -26,7 +26,7 @@ export type Area = 'explore' | 'analyse' | 'contribute';
 const AREAS: readonly Area[] = ['explore', 'analyse', 'contribute'];
 const asArea = (v: unknown): Area => (AREAS.includes(v as Area) ? (v as Area) : 'analyse');
 
-// What the digest keeps of each text, and what migration 0044 cuts it to
+// What the digest keeps of each text, and what migration 0045 cuts it to
 // first (a little longer, so a word split by that cut is dropped after
 // scrubbing, not left half-scrubbed). The reply is long enough to show an
 // admission of "not covered" that comes after a short introduction.
@@ -38,7 +38,7 @@ const SQL_REPLY_CHARS = 400;
 const SQL_EXCERPT_CHARS = 300;
 
 // ---------------------------------------------------------------------------
-// Shapes from migration 0044's functions
+// Shapes from migration 0045's functions
 // ---------------------------------------------------------------------------
 
 export interface DigestStats {

@@ -267,7 +267,7 @@ async function handlePOST(req: Request) {
       // Published toolkit assets for this pathway — public by the
       // contributors' consent.
       const toolkitAssets = await loadPublishedToolkitAssets({ pathwaySlug: pathwayId });
-      const passages = hasQuestion ? await pathwayPassages(pathwayId, lastUserText(apiMessages)) : '';
+      const passages = hasQuestion ? await pathwayPassages(pathwayId, lastUserText(apiMessages), 'explore') : '';
       systemPrompt = libraryPathwaySystemPrompt(document, toolkitAssets, passages);
     } else {
       const { overview, count } = await buildOverview();

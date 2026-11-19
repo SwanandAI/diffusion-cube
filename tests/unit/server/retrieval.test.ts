@@ -16,13 +16,16 @@ vi.mock('@/lib/pathway-store', async (orig) => ({
   ...(await orig<typeof import('@/lib/pathway-store')>()),
   listPublished: vi.fn(),
   getPublishedDocuments: vi.fn(),
+  publicSourceTexts: vi.fn(),
 }));
 
 import { createAdminClient } from '@/lib/supabase/admin';
 import { embedTexts } from '@/lib/embeddings';
 import { recordAiUsage } from '@/lib/ai-usage';
-import { getPublishedDocuments, listPublished, type PublishedCard } from '@/lib/pathway-store';
-import { buildGrounding, classifyQuery, CLASSIFIER_MODEL, groupPatterns, pathwayPassages, type UnitHit } from '@/lib/retrieval';
+import { getPublishedDocuments, listPublished, publicSourceTexts, type PublishedCard, type SourceText } from '@/lib/pathway-store';
+import {
+  buildGrounding, classifyQuery, CLASSIFIER_MODEL, COVERAGE_MODEL, groupPatterns, pathwayPassages, selectSourceText, SOURCE_TEXT_BUDGET, type UnitHit,
+} from '@/lib/retrieval';
 
 const card = (slug: string, sector = 'Agriculture'): PublishedCard => ({
   slug, title: slug.toUpperCase(), description: '', category: '', sector, stage: '', location: '', tags: [], contributor_org: null, created_at: '2026-01-01',
@@ -44,6 +47,8 @@ const doc = (slug: string, content = `# ${slug} doc\n\n## Source Trace\n\nsecret
 let admin: SupabaseMock;
 let units: UnitHit[] = [];
 let passages: unknown[] = [];
+let docChunks: unknown[] = [];
+let sources: SourceText[] = [];
 
 function msgs(text: string) {
   return [{ role: 'user', content: text }];
@@ -56,12 +61,17 @@ function classifierSays(input: Record<string, unknown>) {
 beforeEach(() => {
   units = [];
   passages = [];
+  docChunks = [];
+  sources = [];
   admin = createSupabaseMock({
     rpc: {
       match_pathway_units: () => ({ data: units }),
       match_source_chunks: () => ({ data: passages }),
+      match_pathway_doc_chunks: () => ({ data: docChunks }),
     },
   });
+  vi.mocked(publicSourceTexts).mockReset();
+  vi.mocked(publicSourceTexts).mockImplementation(async () => sources);
   vi.mocked(createAdminClient).mockReturnValue(admin.client);
   vi.mocked(listPublished).mockResolvedValue(PUBLISHED);
   vi.mocked(getPublishedDocuments).mockImplementation(async (slugs: string[]) => slugs.map((s) => doc(s)));
@@ -141,21 +151,22 @@ describe('groupPatterns', () => {
 });
 
 describe('buildGrounding', () => {
-  it('UC1 with a pathway open: its write-up without Source Trace, plus public source passages', async () => {
-    passages = [
-      { source_key: 'src-01', file_name: 'vendors.pdf', chunk_index: 0, text: 'We chose Vendor X.', is_public: true },
-      { source_key: 'src-02', file_name: 'private.pdf', chunk_index: 0, text: 'PRIVATE', is_public: false },
-    ];
+  it("UC1 with a pathway open: its write-up without Source Trace, plus its originals when Haiku says the write-up falls short", async () => {
+    sources = [{ id: 's1', file_name: 'vendors.pdf', text: 'We chose Vendor X.' }];
+    docChunks = [{ section: 'Section 1', text: 'Section 1\nVoice line for farmers.', similarity: 0.4 }];
+    coverageSays(false);
     const g = await buildGrounding({ surface: 'explore-pathway', messages: msgs('Which telephony vendor?'), openSlug: 'maha' });
     expect(g.kind).toBe('specific');
     expect(g.slugs).toEqual(['maha']);
     expect(g.text).toContain('# Pathway: maha');
     expect(g.text).toContain('Contributed by: Org');
     expect(g.text).not.toMatch(/source trace|secret\.pdf/i);
+    expect(g.text).toContain('original documents');
     expect(g.text).toContain('### Source document: vendors.pdf\nWe chose Vendor X.');
-    // A contributor-only passage never gets through, even if the RPC returned it.
-    expect(g.text).not.toContain('PRIVATE');
-    expect(anthropic.create).not.toHaveBeenCalled();
+    // The only model call is the coverage check (no classifier on an open pathway).
+    expect(anthropic.create).toHaveBeenCalledTimes(1);
+    expect(anthropic.create.mock.calls[0][0].tool_choice).toEqual({ type: 'tool', name: 'judge_coverage' });
+    expect(publicSourceTexts).toHaveBeenCalledWith('maha');
   });
 
   it('UC1 on a pathway with no originals: no passage section', async () => {
@@ -225,19 +236,118 @@ describe('buildGrounding', () => {
   });
 });
 
+function coverageSays(answered: boolean) {
+  anthropic.create.mockResolvedValue(fakeToolUseMessage({ answered }, COVERAGE_MODEL));
+}
+
 describe('pathwayPassages', () => {
-  it('formats public passages and drops contributor-only ones', async () => {
-    passages = [
-      { source_key: 'src-01', file_name: 'a.pdf', chunk_index: 0, text: 'A', is_public: true },
-      { source_key: 'src-02', file_name: 'b.pdf', chunk_index: 0, text: 'B', is_public: false },
-    ];
-    expect(await pathwayPassages('maha', 'q')).toBe('### Source document: a.pdf\nA');
-    expect(admin.rpc).toHaveBeenCalledWith('match_source_chunks', { query_embedding: '[0.1,0.2]', pathway_slug: 'maha', match_count: 5 });
+  const VENDORS: SourceText = { id: 's1', file_name: 'vendors.pdf', text: 'We chose Vendor X for telephony.' };
+
+  it("is '' without a question, and never calls Haiku when the pathway has no originals", async () => {
+    sources = [VENDORS];
+    expect(await pathwayPassages('maha', '')).toBe('');
+    sources = [];
+    expect(await pathwayPassages('maha', 'Which vendor?')).toBe('');
+    expect(anthropic.create).not.toHaveBeenCalled();
+    expect(embedTexts).not.toHaveBeenCalled();
   });
 
-  it("is '' without a question or when embedding fails (passages need a vector)", async () => {
-    expect(await pathwayPassages('maha', '')).toBe('');
+  it("adds nothing when Haiku says the nearest write-up passages answer the question", async () => {
+    sources = [VENDORS];
+    docChunks = [{ section: 'Section 3', text: 'Section 3\nThey picked Vendor X.', similarity: 0.8 }];
+    coverageSays(true);
+    expect(await pathwayPassages('maha', 'Which vendor?', 'explore')).toBe('');
+    expect(admin.rpc).toHaveBeenCalledWith('match_pathway_doc_chunks', { query_embedding: '[0.1,0.2]', pathway_slug: 'maha', match_count: 5 });
+    const req = anthropic.create.mock.calls[0][0];
+    expect(req.model).toBe('claude-haiku-5-5');
+    expect(req.messages[0].content).toContain('Which vendor?');
+    expect(req.messages[0].content).toContain('They picked Vendor X.');
+    expect(anthropic.create.mock.calls[0][1]).toEqual({ maxRetries: 2 });
+    expect(recordAiUsage).toHaveBeenCalledWith(expect.objectContaining({ mode: 'retrieval-coverage', flow: 'explore', ok: true }));
+  });
+
+  it('adds the whole original text, unembedded, when Haiku says the write-up falls short', async () => {
+    sources = [VENDORS, { id: 's2', file_name: 'notes.md', text: 'Budget was small.' }];
+    docChunks = [{ section: 'Section 1', text: 'Section 1\nAbout the pilot.', similarity: 0.3 }];
+    coverageSays(false);
+    expect(await pathwayPassages('maha', 'Which vendor?')).toBe(
+      '### Source document: vendors.pdf\nWe chose Vendor X for telephony.\n\n### Source document: notes.md\nBudget was small.'
+    );
+    // Only the question is embedded — never the originals.
+    expect(vi.mocked(embedTexts).mock.calls).toEqual([[['Which vendor?']]]);
+  });
+
+  it('adds the originals without asking Haiku when the write-up has no indexed passages (or embedding is down)', async () => {
+    sources = [VENDORS];
     vi.mocked(embedTexts).mockRejectedValue(new Error('down'));
-    expect(await pathwayPassages('maha', 'q')).toBe('');
+    expect(await pathwayPassages('maha', 'Which vendor?')).toContain('We chose Vendor X');
+    expect(anthropic.create).not.toHaveBeenCalled();
+  });
+
+  it('adds the originals when the coverage check fails, and records the failure', async () => {
+    sources = [VENDORS];
+    docChunks = [{ section: 'S', text: 'S\nx', similarity: 0.5 }];
+    anthropic.create.mockRejectedValue(new Error('overloaded'));
+    expect(await pathwayPassages('maha', 'Which vendor?')).toContain('We chose Vendor X');
+    expect(recordAiUsage).toHaveBeenCalledWith(expect.objectContaining({ mode: 'retrieval-coverage', ok: false }));
+  });
+
+  it('uses seeded embedded passages first when the originals are over the budget', async () => {
+    sources = [{ id: 's1', file_name: 'big.pdf', text: 'filler words here. '.repeat(SOURCE_TEXT_BUDGET / 10) }];
+    docChunks = [{ section: 'S', text: 'S\nx', similarity: 0.5 }];
+    passages = [
+      { source_key: 'src-01', file_name: 'big.pdf', chunk_index: 7, text: 'The vendor was Vendor X.', is_public: true },
+      { source_key: 'src-02', file_name: 'private.pdf', chunk_index: 0, text: 'PRIVATE', is_public: false },
+    ];
+    coverageSays(false);
+    const text = await pathwayPassages('maha', 'Which vendor?');
+    expect(text).toContain('### Source document: big.pdf (excerpts)');
+    expect(text).toContain('The vendor was Vendor X.');
+    expect(text).not.toContain('PRIVATE');
+    expect(text.length).toBeLessThan(SOURCE_TEXT_BUDGET + 500);
+  });
+});
+
+describe('selectSourceText', () => {
+  it('keeps whole documents that fit the budget', () => {
+    expect(selectSourceText([{ id: 'a', file_name: 'a.txt', text: ' A text ' }], 'q', [], 100)).toBe('### Source document: a.txt\nA text');
+  });
+
+  it('past the budget, keeps the passages sharing the most words with the question, in document order', () => {
+    // ~1,500-character paragraphs, so each passage is about one paragraph
+    // (plus chunkText's 200-character overlap from the one before).
+    const filler = (w: string) => `${w} `.repeat(Math.ceil(1450 / (w.length + 1))).trim() + '.';
+    const text = [
+      filler('alpha'),
+      `The telephony vendor was Vendor X. ${filler('gamma')}`,
+      filler('beta'),
+      `Vendor contract signed in March. ${filler('delta')}`,
+    ].join('\n\n');
+    const out = selectSourceText([{ id: 'a', file_name: 'a.pdf', text }], 'Which telephony vendor?', [], 3500);
+    const count = (w: string) => out.split(w).length - 1;
+    expect(out.startsWith('### Source document: a.pdf (excerpts)')).toBe(true);
+    expect(out).toContain('The telephony vendor was Vendor X.');
+    expect(out).toContain('Vendor contract signed in March.');
+    // The alpha and beta passages aren't picked (242 and 262 words); only
+    // the neighbouring passages' leading text carries a few in.
+    expect(count('alpha')).toBeLessThan(45);
+    expect(count('beta')).toBeLessThan(100);
+    // Document order, with a gap marker between the two excerpts.
+    expect(out.indexOf('telephony vendor')).toBeLessThan(out.indexOf('[…]'));
+    expect(out.indexOf('[…]')).toBeLessThan(out.indexOf('Vendor contract'));
+  });
+
+  it('falls back to each document\'s opening passages, in turn, when nothing over the budget matches the question', () => {
+    const para = (w: string) => `${w} `.repeat(Math.ceil(1450 / (w.length + 1))).trim() + '.';
+    const a = { id: 'a', file_name: 'a.pdf', text: [para('alpha'), para('beta')].join('\n\n') };
+    const b = { id: 'b', file_name: 'b.pdf', text: [para('gamma'), para('delta')].join('\n\n') };
+    const out = selectSourceText([a, b], 'Who paid for it?', [], 3200);
+    expect(out).toContain('### Source document: a.pdf (opening excerpts)\nalpha');
+    expect(out).toContain('### Source document: b.pdf (opening excerpts)\ngamma');
+    expect(out.length).toBeLessThan(3200 + 200);
+  });
+
+  it("is '' only when not even one passage fits the budget", () => {
+    expect(selectSourceText([{ id: 'a', file_name: 'a.pdf', text: 'x'.repeat(200) }], 'vendor', [], 100)).toBe('');
   });
 });

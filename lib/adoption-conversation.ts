@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { GENERIC_ERROR_MESSAGE } from '@/lib/error-messages';
 import { newMessageId, type FeedbackVote } from '@/lib/message-feedback';
 import { extractTextFromFile, fileToImageBlock, getFileExtension, isImageFile } from '@/lib/extract-text';
+import { keepOriginalDocument } from '@/lib/keep-original-document';
 import {
   TOOLKIT_ASSET_BUCKET,
   assetExtension,
@@ -656,6 +657,10 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   // the public-sharing consent card for them. Lost on reload by design —
   // nothing is stored before consent.
   const assetFilesRef = useRef<Map<string, File>>(new Map());
+  // Contributor-only: each attached file, keyed by attachment id, until it is
+  // sent — then kept as one of the pathway's original documents
+  // (keepOriginalDocument, migration 0043) and dropped from here.
+  const attachedFilesRef = useRef<Map<string, File>>(new Map());
   // Consent ids with an upload/register in flight — blocks a double-click
   // from creating two objects and two rows.
   const consentInFlightRef = useRef<Set<string>>(new Set());
@@ -1988,7 +1993,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     async (id: string, history: Message[], userMessage: Message, flow: AdoptionFlow, grid: GridState, meta: AdoptionMeta) => {
       // Every message the user sends is stamped with the time it was sent
       // (Message.at), so the admin Feedback Digest can count it in the right
-      // period (migration 0044 reads it).
+      // period (migration 0045 reads it).
       const next: Message[] = [...history, { ...userMessage, at: userMessage.at ?? new Date().toISOString() }];
       update((c) => ({ ...c, messages: next }));
       setLoading(true);
@@ -2333,6 +2338,22 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       const c = await ensureCreated(flow, intent);
       const activeFlow = c.meta.flow;
 
+      // Contributor flow: keep every document sent as one of the pathway's
+      // originals — in the background, never holding up the message.
+      if (activeFlow === 'contributor' && c.meta.pathwayId) {
+        for (const a of readyAttachments) {
+          const file = attachedFilesRef.current.get(a.id);
+          attachedFilesRef.current.delete(a.id);
+          if (!file) continue;
+          void keepOriginalDocument({
+            file,
+            text: a.kind === 'text' ? a.text ?? '' : '',
+            pathwayId: c.meta.pathwayId,
+            designId: c.id,
+          });
+        }
+      }
+
       if (readyAttachments.length > 0) {
         const images = readyAttachments.filter((a) => a.kind === 'image').map((a) => a.image!);
         const textParts = readyAttachments
@@ -2394,6 +2415,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     const isContributor = (conversationRef.current?.meta.flow || flow) === 'contributor';
     for (const file of files) {
       const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      if (isContributor) attachedFilesRef.current.set(attachmentId, file);
       const assetEligible = isContributor && isAllowedAssetFile(file.name, file.size);
       if (assetEligible) assetFilesRef.current.set(file.name, file);
       const markAsAssetOnly = () =>
@@ -2486,6 +2508,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
   }
 
   function removeAttachment(attachmentId: string) {
+    attachedFilesRef.current.delete(attachmentId);
     setPendingAttachments((s) => s.filter((a) => a.id !== attachmentId));
   }
 

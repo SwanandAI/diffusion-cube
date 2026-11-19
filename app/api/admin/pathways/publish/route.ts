@@ -13,7 +13,7 @@ import { withErrorHandling } from '@/lib/errors';
 // conversations, on the next request (docs/features/pathway-storage/).
 // lib/pathway-store.ts points the pathway at that version, copies the card
 // fields from its frontmatter, and indexes its micro-innovation units for
-// search. Units whose labels aren't valid are skipped and returned as
+// search (embedded in the background, see below). Units whose labels aren't valid are skipped and returned as
 // `skippedUnits`, so the admin panel can say which; the rest of the pathway
 // is published regardless.
 async function handlePOST(req: NextRequest) {
@@ -50,7 +50,14 @@ async function handlePOST(req: NextRequest) {
     );
   }
 
-  const published = await publishVersion({ pathwayId: pathway_id, versionId: version.id, publishedBy: user.id }, admin);
+  // The version goes live now; its units and whole document are embedded
+  // after the response is sent (with retries — lib/pathway-store.ts), and
+  // the outcome lands in pathways.index_status.
+  const published = await publishVersion(
+    { pathwayId: pathway_id, versionId: version.id, publishedBy: user.id },
+    admin,
+    { index: 'background' }
+  );
   const title = published.title;
 
   await admin.from('pathways').update({
@@ -92,6 +99,7 @@ async function handlePOST(req: NextRequest) {
     assetsPublished,
     skippedUnits: published.skippedUnits,
     embedded: published.embedded,
+    indexStatus: published.embedded === null ? 'pending' : published.embedded ? 'indexed' : 'failed',
   });
 }
 

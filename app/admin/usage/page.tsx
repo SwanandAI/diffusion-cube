@@ -11,7 +11,7 @@ import ActivityTable, { type ActivityRow } from '@/components/admin/ActivityTabl
 // and monitoring"). Every figure except the published-pathway count comes
 // from one admin_usage_stats() call (migration 0038), computed on page load;
 // the thumbs up / down columns in the Activity table come from
-// admin_feedback_stats() (migration 0043). Migration 0045 added the 30-day
+// admin_feedback_stats() (migration 0044). Migration 0046 added the 30-day
 // figures behind the Activity table's Overall / 7 / 30-day toggle.
 
 type Area = 'explore' | 'analyse' | 'contribute';
@@ -24,7 +24,7 @@ const AREAS: { key: Area; label: string }[] = [
 interface UsageStats {
   users: { total: number; new_7d: number; active_7d: number; active_30d: number };
   conversations: Partial<Record<Area, { total: number; last_7d: number; last_30d?: number }>>;
-  // 'admin' holds calls only admins trigger (the Feedback Digest, 0044).
+  // 'admin' holds calls only admins trigger (the Feedback Digest, 0045).
   ai_usage: Partial<
     Record<
       Area | 'admin',

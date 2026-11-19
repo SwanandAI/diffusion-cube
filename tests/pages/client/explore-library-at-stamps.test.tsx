@@ -6,7 +6,7 @@ import { jsonResponse, stubFetch } from '../../helpers/ui-fork-http';
 import { stubScrollIntoView } from '../../helpers/ui-dom';
 import { streamResponse } from '../../helpers/pages-client-helpers';
 
-// The admin Feedback Digest (migration 0044) dates a message by its `at` stamp. These tests check
+// The admin Feedback Digest (migration 0045) dates a message by its `at` stamp. These tests check
 // that Explore's chat stamps it on the visitor's message and on Cube's finished reply, saves it,
 // and never sends it to /api/chat.
 

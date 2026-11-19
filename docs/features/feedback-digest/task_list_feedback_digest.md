@@ -12,7 +12,7 @@
 ## Build order
 
 ```
-FD-01 (migration 0044) ──┬──────────────────────────────► FD-06 (page: pathways + saved digest) ─► FD-07 (Generate button)
+FD-01 (migration 0045) ──┬──────────────────────────────► FD-06 (page: pathways + saved digest) ─► FD-07 (Generate button)
                          │                                          ▲                              ▲
 FD-02 (text helpers ─────┼──► FD-03 (digest logic) ────────────────┴──► FD-05 (prompt + API route) ┘
        + admin area)     │
@@ -21,21 +21,21 @@ FD-04 (message `at` stamps) ─ independent; lands any time before FD-09
 FD-09 (dev verification, release checks, wiki refresh) ─ last
 ```
 
-The migration and helpers come first because everything reads `0044`'s functions or the pure helpers. FD-04 is independent: it only makes periods exact for new messages.
+The migration and helpers come first because everything reads `0045`'s functions or the pure helpers. FD-04 is independent: it only makes periods exact for new messages.
 
 ## Stories
 
-### FD-01: Migration `0044_feedback_digest.sql`
+### FD-01: Migration `0045_feedback_digest.sql`
 
 **As an** admin
 **I want** the database to hold the saved digests, a log of every Generate attempt, a lock, and the read functions the digest page needs
 **So that** the page can show the pathways tile and saved digests, and generation is one-at-a-time and capped
 
 **Priority:** P0
-**Depends on:** None (needs `0043_message_feedback.sql` already on this branch)
+**Depends on:** None (needs `0044_message_feedback.sql` already on this branch)
 
 **Acceptance Criteria:**
-- Given `supabase/migrations/0044_feedback_digest.sql`, then its header comment states its purpose and that the only non-additive step is replacing `ai_usage`'s area check (widened, no data change). Nothing is dropped except that constraint.
+- Given `supabase/migrations/0045_feedback_digest.sql`, then its header comment states its purpose and that the only non-additive step is replacing `ai_usage`'s area check (widened, no data change). Nothing is dropped except that constraint.
 - Given the migration, then it creates three tables, each with RLS enabled and **no** policy, and `revoke all … from anon, authenticated` (plan → Data Model):
   - `feedback_digests`, keyed by `period_days` with `check (period_days in (7, 30))`;
   - `feedback_digest_runs`, with only `id, period_days, admin_user_id, started_at, finished_at, status`, and `status` limited to `running | succeeded | empty | failed | superseded`. No model, token or cost columns (revised 2026-11-19): the call's tokens go to `ai_usage` only;
@@ -70,8 +70,8 @@ The migration and helpers come first because everything reads `0044`'s functions
 
 **Test Plan:**
 - *Positive:*
-  - **Vitest:** `tests/db/migrations.test.ts`: `0044_feedback_digest.sql` is the latest file and numbered sequentially; the three tables are created with RLS enabled and no `create policy`; each function is `security definer`, revoked from `public, anon, authenticated` and granted to `service_role`; the new `ai_usage` check lists `'admin'`; the migration has no cost, price or token columns (`cost`, `price`, `input_tokens`, `output_tokens` don't appear). Move the "is the latest migration" assertion from `0043` to `0044`.
-  - **Manual:** apply `0044` on the dev project on top of `0043`. It applies cleanly; `\d feedback_digests` shows the period check; inserting an `ai_usage` row with `area = 'admin'` succeeds.
+  - **Vitest:** `tests/db/migrations.test.ts`: `0045_feedback_digest.sql` is the latest file and numbered sequentially; the three tables are created with RLS enabled and no `create policy`; each function is `security definer`, revoked from `public, anon, authenticated` and granted to `service_role`; the new `ai_usage` check lists `'admin'`; the migration has no cost, price or token columns (`cost`, `price`, `input_tokens`, `output_tokens` don't appear). Move the "is the latest migration" assertion from `0044` to `0045`.
+  - **Manual:** apply `0045` on the dev project on top of `0044`. It applies cleanly; `\d feedback_digests` shows the period check; inserting an `ai_usage` row with `area = 'admin'` succeeds.
   - **Manual:** on dev, `select admin_digest_stats(7, null)` returns `users_period` and `conversations_period` matching a hand count over `designs` and `library_conversations` updated in the last 7 days, and no other counts.
 - *Edge cases:*
   - **Manual:** on staging, the digest banner's "N conversations" for 7 days equals the sum of `/admin/usage`'s Activity "Last 7 days" column, opened at the same time. A conversation started 10 days ago and continued today is in neither.
@@ -182,7 +182,7 @@ The migration and helpers come first because everything reads `0044`'s functions
 **Depends on:** None
 
 **Acceptance Criteria:**
-- Given `components/ChatPanel.tsx`, then `Message` has an optional `at?: string` (ISO time) with a comment saying the digest SQL (`0044`) reads it.
+- Given `components/ChatPanel.tsx`, then `Message` has an optional `at?: string` (ISO time) with a comment saying the digest SQL (`0045`) reads it.
 - Given `lib/adoption-conversation.ts`, when the user sends a message, then it carries `at`. When Cube's streamed reply finishes (`finalMsg`), then it carries `at` alongside its `id`.
 - Given `app/explore/ExploreLibrary.tsx`, then `ChatMessage` has `at?` and the same two stamps are set in `sendMessage` and `streamReply`.
 - Given a message with `at`, when the conversation is sent to `/api/chat`, then `at` is **not** sent (`toApiMessages` and the Explore request send only `role`/`content`).
@@ -379,7 +379,7 @@ The migration and helpers come first because everything reads `0044`'s functions
 - Given `/admin/usage`, then a "Digest →" link to `/admin/usage/digest` is shown near the top (requirement point 1).
 - Given `/admin` (`app/admin/page.tsx`), then a "Digest" link appears beside the existing Usage and Errors links.
 - Given `/admin/usage`'s AI usage table, then an **Admin (digest)** row shows `ai_usage` figures for area `admin` (calls, failed, tokens). It shows zeros when there are none. The Explore, Analyse and Contribute rows are unchanged. This is where the digest's tokens are seen; there is no cost figure anywhere (revised 2026-11-19).
-- Given `/admin/usage`'s Activity table, then its columns are **Area | Conversations | Thumbs up | Thumbs down**, with an **Overall / Last 7 days / Last 30 days** toggle above it (default Overall) that switches all three figures in the browser without a reload (revised 2026-11-19). Migration `0045_activity_periods.sql` adds `last_30d` to `admin_usage_stats().conversations` (by `created_at`) and `up_30d` / `down_30d` to `admin_feedback_stats().per_surface` (by the vote's `updated_at`); a database without 0045 shows 0 for 30 days rather than failing.
+- Given `/admin/usage`'s Activity table, then its columns are **Area | Conversations | Thumbs up | Thumbs down**, with an **Overall / Last 7 days / Last 30 days** toggle above it (default Overall) that switches all three figures in the browser without a reload (revised 2026-11-19). Migration `0046_activity_periods.sql` adds `last_30d` to `admin_usage_stats().conversations` (by `created_at`) and `up_30d` / `down_30d` to `admin_feedback_stats().per_surface` (by the vote's `updated_at`); a database without 0046 shows 0 for 30 days rather than failing.
 - Given the Activity note, then it also says thumbs are one vote per person per reply, a changed vote counts once, and Explore's include signed-out visitors.
 - There is **no** separate "Reply feedback" section: no total tiles, no per-area table with Helpful % or 7-day columns, and no "Recent thumbs down" list (removed 2026-11-19).
 
@@ -410,7 +410,7 @@ The migration and helpers come first because everything reads `0044`'s functions
 - Given the dev project, then the end-to-end checks in the test plan below are done and recorded in the PR.
 - Given the privacy notice (`content/legal/privacy.md`), then before release its wording covers admins (EkStep) seeing saved signed-in Explore chats and aggregated digests, approved by the owner of legal sign-off (requirement → risks, a release blocker). This story tracks it; the wording itself is not decided here.
 - Given the Anthropic account (TD-16) and the Vercel plan's function limit (`maxDuration = 300`), then both are confirmed and noted in the PR.
-- Given `docs/wiki/diffusion-cube/`, then after merge it is refreshed with the `llm-wiki` skill to cover `0043`/`0044`, `/api/feedback`, `/api/admin/digest` and the digest page (T15).
+- Given `docs/wiki/diffusion-cube/`, then after merge it is refreshed with the `llm-wiki` skill to cover `0044`/`0045`, `/api/feedback`, `/api/admin/digest` and the digest page (T15).
 
 **Test Plan:**
 - *Positive:*

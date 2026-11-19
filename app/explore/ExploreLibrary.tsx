@@ -18,7 +18,7 @@ import { newMessageId, type FeedbackVote } from '@/lib/message-feedback';
 // `id` is set on each finished reply so it can be rated (thumbs up/down);
 // `feedback` is the visitor's own vote on it, kept with a signed-in visitor's
 // saved chat so it survives a reload. `at` is when the message was sent
-// (ISO time) — the admin Feedback Digest's SQL (migration 0044) reads it,
+// (ISO time) — the admin Feedback Digest's SQL (migration 0045) reads it,
 // with role, content and pathway_slug; keep them in step.
 type ChatMessage = {
   role: 'user' | 'assistant';

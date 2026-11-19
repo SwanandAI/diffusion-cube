@@ -5,7 +5,7 @@ import StatsTable from './StatsTable';
 
 // /admin/usage's Activity table with an Overall / Last 7 days / Last 30 days
 // toggle. All three ranges arrive with the page (admin_usage_stats and
-// admin_feedback_stats, migration 0045), so switching is instant and never
+// admin_feedback_stats, migration 0046), so switching is instant and never
 // refetches. Conversations count by when they were started (as the Feedback
 // Digest does); thumbs by when the vote was cast or last changed.
 

@@ -1,8 +1,8 @@
 -- /admin/usage's Activity table gets an Overall / Last 7 days / Last 30 days
 -- toggle, so both of its sources now also return 30-day figures:
 -- - admin_usage_stats() (0041): conversations.<area>.last_30d, counted by
---   created_at like last_7d (and like the Feedback Digest's period, 0044).
--- - admin_feedback_stats() (0043): per_surface.<surface>.up_30d / down_30d,
+--   created_at like last_7d (and like the Feedback Digest's period, 0045).
+-- - admin_feedback_stats() (0044): per_surface.<surface>.up_30d / down_30d,
 --   counted by the vote's updated_at like up_7d / down_7d.
 -- Both functions are otherwise unchanged (same signatures, same keys plus the
 -- new ones), so this is create-or-replace only. Additive only.

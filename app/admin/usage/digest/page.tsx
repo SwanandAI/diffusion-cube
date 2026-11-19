@@ -10,7 +10,7 @@ import DigestScreen from '@/components/digest/DigestScreen';
 // digest for the period, checked against the conversations and votes that
 // still exist. Opening this page never calls Claude — only the Generate
 // button does (POST /api/admin/digest). Read with the service role through
-// migration 0044's functions; isAdmin here is UX, the API route re-checks.
+// migration 0045's functions; isAdmin here is UX, the API route re-checks.
 export default async function AdminDigestPage({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
   const supabase = await createClient();
   const {

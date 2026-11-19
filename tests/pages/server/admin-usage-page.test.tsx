@@ -123,7 +123,7 @@ describe('app/admin/usage/page.tsx — Activity table: thumbs and the Overall / 
     expect(activityRow('Contribute')).toHaveTextContent('Contribute01,2000');
   });
 
-  it('shows zeros for 30 days when the database has not been migrated to 0045 yet (no *_30d keys)', async () => {
+  it('shows zeros for 30 days when the database has not been migrated to 0046 yet (no *_30d keys)', async () => {
     render(await AdminUsagePage());
     fireEvent.click(screen.getByRole('button', { name: 'Last 30 days' }));
     expect(activityRow('Explore')).toHaveTextContent('Explore000');

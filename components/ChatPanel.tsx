@@ -37,7 +37,7 @@ export interface Message {
   feedback?: FeedbackVote;
   // When the message was sent (ISO time), set on user messages and finished
   // companion replies. Read by the admin Feedback Digest's SQL (migration
-  // 0044) along with role, content, displayContent, hidden and
+  // 0045) along with role, content, displayContent, hidden and
   // pathwaysReferenced — keep those field names in step with it. Never sent
   // to /api/chat (toApiMessages sends only role/content/images).
   at?: string;

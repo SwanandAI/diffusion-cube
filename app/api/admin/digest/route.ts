@@ -21,7 +21,7 @@ import {
 // Generates the admin Feedback Digest for one period
 // (docs/features/feedback-digest/, FD-05). Admin only — this route is the
 // real gate; the page's check is UX. Everything is read and written with
-// the service role through migration 0044's functions:
+// the service role through migration 0045's functions:
 //   claim_feedback_digest_run  → one run at a time, at most DAILY_CAP a day
 //   admin_digest_input         → the period's questions and 👎 votes
 //   one forced-tool Claude call → validateDigest (code checks every item)

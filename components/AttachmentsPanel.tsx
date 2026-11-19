@@ -12,12 +12,15 @@ interface Props {
   // Contributor flow passes CONTRIBUTOR_ATTACH_ACCEPT (toolkit-asset-only types).
   accept?: string;
   // Contributor flow: file name → toolkit asset id, for uploads the
-  // contributor agreed to share (the only uploads ever stored). Those get a
-  // Download link; every other upload was read in the browser and never kept.
+  // contributor agreed to share as toolkit assets. Those get a Download link.
   viewableFiles?: Record<string, string>;
+  // Contributor flow: names of uploads kept as the pathway's original
+  // documents (pathway_sources, migration 0043) — "Saved". Anything else was
+  // sent before uploads were kept, or couldn't be saved — "Not stored".
+  storedFiles?: string[];
 }
 
-export default function AttachmentsPanel({ attachments, uploadedFileNames = [], onAttachFiles, onRemoveAttachment, accept = ATTACH_ACCEPT, viewableFiles }: Props) {
+export default function AttachmentsPanel({ attachments, uploadedFileNames = [], onAttachFiles, onRemoveAttachment, accept = ATTACH_ACCEPT, viewableFiles, storedFiles = [] }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
@@ -124,10 +127,12 @@ export default function AttachmentsPanel({ attachments, uploadedFileNames = [], 
                   >
                     Download
                   </a>
+                ) : viewableFiles && storedFiles.includes(name) ? (
+                  <span className="flex-shrink-0 text-[10px] text-ink-soft/70">Saved</span>
                 ) : viewableFiles ? (
                   <span
                     className="flex-shrink-0 text-[10px] text-ink-soft/70"
-                    title="Only files you agreed to share as toolkit assets are stored. Other uploads are read once and not kept."
+                    title="Not kept: it was sent before uploads were saved, or saving it failed."
                   >
                     Not stored
                   </span>

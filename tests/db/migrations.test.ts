@@ -253,10 +253,41 @@ describe('0042_pathway_storage', () => {
   });
 });
 
+describe('0043_contributor_sources_doc_chunks', () => {
+  const sql = sourceOf('0043_contributor_sources_doc_chunks.sql');
+
+  it('marks where each original came from, and dedupes a contributor document sent twice', () => {
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+origin\s+text\s+not\s+null\s+default\s+'seed'/);
+    expect(sql).toMatch(/check\s*\(\s*origin\s+in\s*\(\s*'seed',\s*'contributor'\s*\)\s*\)/);
+    expect(sql).toMatch(/create\s+unique\s+index[^;]*pathway_sources\s*\(\s*pathway_id,\s*content_hash\s*\)[^;]*where\s+origin\s*=\s*'contributor'/);
+  });
+
+  it('embeds the published document in a server-only table', () => {
+    expect(sql).toMatch(/create\s+table\s+if\s+not\s+exists\s+public\.pathway_doc_chunks\b/);
+    expect(sql).toMatch(/alter\s+table\s+public\.pathway_doc_chunks\s+enable\s+row\s+level\s+security/);
+    expect(sql).not.toMatch(/create\s+policy[^;]*\bon\s+public\.pathway_doc_chunks\b/);
+    expect(sql).toMatch(/embedding\s+extensions\.vector\(384\)/);
+    expect(sql).toMatch(/on\s+public\.pathway_doc_chunks\s+using\s+hnsw\s*\(\s*embedding\s+extensions\.vector_cosine_ops\s*\)/);
+  });
+
+  it('searches only the live version of a published pathway, server-side only', () => {
+    const fn = sql.match(/function\s+public\.match_pathway_doc_chunks\([\s\S]*?\$\$([\s\S]*?)\$\$/)?.[1] ?? '';
+    expect(fn).toMatch(/p\.status\s*=\s*'published'/);
+    expect(fn).toMatch(/c\.version_id\s*=\s*p\.published_version_id/);
+    expect(sql).toMatch(/revoke\s+all\s+on\s+function\s+public\.match_pathway_doc_chunks\([^)]*\)\s+from\s+public,\s*anon,\s*authenticated/);
+    expect(sql).toMatch(/grant\s+execute\s+on\s+function\s+public\.match_pathway_doc_chunks\([^)]*\)\s+to\s+service_role/);
+  });
+
+  it('records each pathway index status', () => {
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+index_status\s+text\s+not\s+null\s+default\s+'none'/);
+    expect(sql).toMatch(/check\s*\(\s*index_status\s+in\s*\(\s*'none',\s*'pending',\s*'indexed',\s*'failed'\s*\)\s*\)/);
+  });
+});
+
 // Thumbs up / down on Cube's replies (POST /api/feedback, shown on /admin/usage).
-describe('0043_message_feedback', () => {
-  const raw = fs.readFileSync(path.join(DIR, '0043_message_feedback.sql'), 'utf8');
-  const sql = sourceOf('0043_message_feedback.sql');
+describe('0044_message_feedback', () => {
+  const raw = fs.readFileSync(path.join(DIR, '0044_message_feedback.sql'), 'utf8');
+  const sql = sourceOf('0044_message_feedback.sql');
 
   it('says it is additive', () => {
     const header = raw.split('\n').filter((l) => l.startsWith('--')).join('\n');
@@ -289,9 +320,9 @@ describe('0043_message_feedback', () => {
 });
 
 // Feedback Digest for admins (docs/features/feedback-digest/, FD-01).
-describe('0044_feedback_digest', () => {
-  const raw = fs.readFileSync(path.join(DIR, '0044_feedback_digest.sql'), 'utf8');
-  const sql = sourceOf('0044_feedback_digest.sql');
+describe('0045_feedback_digest', () => {
+  const raw = fs.readFileSync(path.join(DIR, '0045_feedback_digest.sql'), 'utf8');
+  const sql = sourceOf('0045_feedback_digest.sql');
   const header = raw.split('\n').filter((l) => l.startsWith('--')).join('\n');
   const TABLES = ['feedback_digest_runs', 'feedback_digests', 'feedback_digest_lock'];
   const FUNCTIONS = [
@@ -350,10 +381,10 @@ describe('0044_feedback_digest', () => {
   });
 });
 
-// Gap-filling text checks for 0044 (QA pass). Text only: nothing here runs the SQL
+// Gap-filling text checks for 0045 (QA pass). Text only: nothing here runs the SQL
 // (see "Manual / needs a real database" in the QA report).
-describe('0044_feedback_digest: function bodies', () => {
-  const sql = sourceOf('0044_feedback_digest.sql');
+describe('0045_feedback_digest: function bodies', () => {
+  const sql = sourceOf('0045_feedback_digest.sql');
   const fn = (name: string) => {
     const m = sql.match(new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${name}\\([\\s\\S]*?\\$\\$;`));
     expect(m, `${name} is defined`).not.toBeNull();
@@ -477,7 +508,7 @@ describe('0044_feedback_digest: function bodies', () => {
   });
 
   it('its header names the client files that write the JSON it reads', () => {
-    const raw = fs.readFileSync(path.join(DIR, '0044_feedback_digest.sql'), 'utf8');
+    const raw = fs.readFileSync(path.join(DIR, '0045_feedback_digest.sql'), 'utf8');
     for (const file of ['components/ChatPanel.tsx', 'lib/adoption-conversation.ts', 'app/explore/ExploreLibrary.tsx']) {
       expect(raw).toContain(file);
     }
@@ -515,12 +546,12 @@ describe('0044_feedback_digest: function bodies', () => {
 });
 
 // Overall / 7 / 30-day toggle on /admin/usage's Activity table.
-describe('0045_activity_periods', () => {
-  const raw = fs.readFileSync(path.join(DIR, '0045_activity_periods.sql'), 'utf8');
-  const sql = sourceOf('0045_activity_periods.sql');
+describe('0046_activity_periods', () => {
+  const raw = fs.readFileSync(path.join(DIR, '0046_activity_periods.sql'), 'utf8');
+  const sql = sourceOf('0046_activity_periods.sql');
 
   it('is the latest migration, additive only, and replaces functions without dropping anything', () => {
-    expect(files[files.length - 1]).toBe('0045_activity_periods.sql');
+    expect(files[files.length - 1]).toBe('0046_activity_periods.sql');
     const header = raw.split('\n').filter((l) => l.startsWith('--')).join('\n');
     expect(header).toMatch(/Additive only/);
     expect(sql).not.toMatch(/\b(drop|alter|create\s+table)\b/);

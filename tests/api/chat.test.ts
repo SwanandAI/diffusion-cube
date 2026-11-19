@@ -324,11 +324,11 @@ describe('POST /api/chat — library mode (public /explore)', () => {
     expect(systemText(streamArgs().system)).toContain('First published: 2026-01-02');
   });
 
-  it("adds public source-document passages for the latest question, after the cache break", async () => {
+  it("adds the pathway's original documents for the latest question, after the cache break", async () => {
     vi.mocked(pathwayPassages).mockResolvedValue('### Source document: vendors.pdf\nWe chose Vendor X.');
     const res = await post({ mode: 'library', messages: [userMsg('Which telephony vendor?')], pathwayId: 'mahavistaar' });
     expect(res.status).toBe(200);
-    expect(pathwayPassages).toHaveBeenCalledWith('mahavistaar', 'Which telephony vendor?');
+    expect(pathwayPassages).toHaveBeenCalledWith('mahavistaar', 'Which telephony vendor?', 'explore');
     const system = streamArgs().system as { text: string; cache_control?: unknown }[];
     expect(system[0].text).toContain('Maha body text.');
     expect(system[0].text).not.toContain('Vendor X');

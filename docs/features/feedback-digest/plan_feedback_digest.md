@@ -13,7 +13,7 @@ All reads across every user's data live in service-role SQL functions. One new a
 ## Scope
 
 **In scope:**
-- migration `0044` (three tables, four functions, the `ai_usage` area change, two indexes);
+- migration `0045` (three tables, four functions, the `ai_usage` area change, two indexes);
 - `POST /api/admin/digest`;
 - the page and two components;
 - pure digest logic, text helpers and the prompt file;
@@ -35,7 +35,7 @@ Every row marked **Waived — assumed** in [`architecture_clarifications_feedbac
 
 | Area | Component(s) | Nature of change |
 |------|--------------|-------------------|
-| Data | `supabase/migrations/0044_feedback_digest.sql` | **New.** Three tables, four `security definer` functions executable by `service_role` only, the `ai_usage.area` check widened to add `admin`, indexes on `designs(created_at)` and `library_conversations(updated_at)`. Its header states the one non-additive step (the constraint replacement). |
+| Data | `supabase/migrations/0045_feedback_digest.sql` | **New.** Three tables, four `security definer` functions executable by `service_role` only, the `ai_usage.area` check widened to add `admin`, indexes on `designs(created_at)` and `library_conversations(updated_at)`. Its header states the one non-additive step (the constraint replacement). |
 | Routes/API | `app/api/admin/digest/route.ts` | **New.** `export const POST = withErrorHandling('api/admin/digest', handlePOST)`, `export const maxDuration = 300`. |
 | Domain logic | `lib/feedback-digest.ts` | **New, pure** (no React, no server imports): `toPeriod`, `buildDigestInput`, `DIGEST_TOOL`, `validateDigest`, `viewDigest`, payload types. |
 | | `lib/digest-text.ts` | **New:** `scrubContact` (emails, phone numbers, URLs), `cap`, `oneLine`. |
@@ -43,8 +43,8 @@ Every row marked **Waived — assumed** in [`architecture_clarifications_feedbac
 | Content | `content/feedback-digest-prompt.md` | **New.** The digest system prompt, implementing the requirement's "How the assistant behaves". |
 | Chat clients | `components/ChatPanel.tsx` (`Message.at`), `lib/adoption-conversation.ts`, `app/explore/ExploreLibrary.tsx` (`ChatMessage.at`) | Stamp `at` (ISO time) on every new user and assistant message. `toApiMessages` and the Explore request already send only `role`/`content`. Add a comment that the digest SQL reads these fields. |
 | Frontend | `app/admin/usage/digest/page.tsx` (server), `components/digest/DigestScreen.tsx` (server), `components/digest/GenerateButton.tsx` (client) | **New.** Standalone admin layout (no `AppShell`). `isAdmin` → `redirect('/')`. The button uses `components/ConfirmDialog.tsx` and `router.refresh()`. |
-| | `app/admin/usage/page.tsx`, `app/admin/page.tsx` | "Digest →" links; an "Admin (digest)" row in the AI usage table. On `/admin/usage`, the Activity table becomes Area \| Conversations \| Last 7 days \| Thumbs up \| Thumbs down (all-time, from `admin_feedback_stats().per_surface`, `0043`), and the separate "Reply feedback" block (two total tiles, the per-area table with Helpful % and 7-day columns, "Recent thumbs down") is removed. |
-| Tests | `tests/db/migrations.test.ts` | `0044` is the latest; RLS on the three tables and no policies; functions revoked from clients and granted to `service_role`; the `ai_usage` check includes `admin`; `feedback_digest_runs` has no cost or token columns. |
+| | `app/admin/usage/page.tsx`, `app/admin/page.tsx` | "Digest →" links; an "Admin (digest)" row in the AI usage table. On `/admin/usage`, the Activity table becomes Area \| Conversations \| Last 7 days \| Thumbs up \| Thumbs down (all-time, from `admin_feedback_stats().per_surface`, `0044`), and the separate "Reply feedback" block (two total tiles, the per-area table with Helpful % and 7-day columns, "Recent thumbs down") is removed. |
+| Tests | `tests/db/migrations.test.ts` | `0045` is the latest; RLS on the three tables and no policies; functions revoked from clients and granted to `service_role`; the `ai_usage` check includes `admin`; `feedback_digest_runs` has no cost or token columns. |
 | | `tests/unit/lib/feedback-digest.test.ts`, `tests/unit/lib/digest-text.test.ts` | Pure logic. |
 | | `tests/api/admin/digest.test.ts` | The route, with `tests/helpers/supabase-mock.ts` and `tests/helpers/anthropic-mock.ts`. |
 | | `tests/pages/server/admin-digest-page.test.tsx`, `tests/features/digest/GenerateButton.test.tsx` | Page (no Users, Conversations or Feedback tiles, no cost) and button. |
@@ -183,7 +183,7 @@ sequenceDiagram
 
 ## Data Model / API Changes
 
-**Migration `0044_feedback_digest.sql`** (additive except the `ai_usage` check replacement, called out in its header):
+**Migration `0045_feedback_digest.sql`** (additive except the `ai_usage` check replacement, called out in its header):
 
 **Tables**
 - `feedback_digests`:
@@ -255,18 +255,18 @@ Body: `{ periodDays: 7 | 30 }`.
 - **"Not covered" judgement** isn't code-verifiable (see Key Tradeoffs).
 - **The digest's user counts include admins** (T6). This matches the Usage page, which counts admins too.
 - **No cost figure** (revised 2026-11-19). Spend is judged from the tokens in `/admin/usage`'s "Admin (digest)" row.
-- **Wiki** (`docs/wiki/diffusion-cube/`) is stale on `0043`/`0044` and the new routes. Refresh with `llm-wiki` after merge.
+- **Wiki** (`docs/wiki/diffusion-cube/`) is stale on `0044`/`0045` and the new routes. Refresh with `llm-wiki` after merge.
 - **JSON-shape coupling** between the chat clients and the digest SQL: comments at both ends.
 
 ## Sequencing
 
-1. Migration `0044` and the `tests/db/migrations.test.ts` assertions. Everything else reads its functions.
+1. Migration `0045` and the `tests/db/migrations.test.ts` assertions. Everything else reads its functions.
 2. `lib/digest-text.ts`, `lib/feedback-digest.ts`, with unit tests.
 3. `at` stamps in both chat clients and the hook test. Independent of steps 1–2; can run in parallel.
 4. `content/feedback-digest-prompt.md`, then `app/api/admin/digest/route.ts` and the `admin` area in `lib/ai-usage.ts`, with route tests.
 5. Page, `DigestScreen`, `GenerateButton`, the admin links, the "Admin (digest)" row and the Activity table's Thumbs up / Thumbs down columns, with page and button tests.
 6. Full `npm test`. Manual on dev:
-   - apply `0044`;
+   - apply `0045`;
    - call `admin_digest_stats` / `admin_digest_input` against real data and check the banner counts against the Usage page;
    - one paid Regenerate, then read the output and check the "Admin (digest)" row in `/admin/usage`;
    - delete a test conversation and confirm its items disappear.

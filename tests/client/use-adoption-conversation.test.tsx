@@ -11,6 +11,7 @@ vi.mock('@/lib/design-documents', () => ({
   insertDraftVersion: vi.fn(),
   hashConversationState: vi.fn(() => 'hash-1'),
 }));
+vi.mock('@/lib/keep-original-document', () => ({ keepOriginalDocument: vi.fn(async () => true) }));
 vi.mock('@/lib/extract-text', () => ({
   ATTACH_ACCEPT: '.pdf,.txt,.png',
   CONTRIBUTOR_ATTACH_ACCEPT: '.pdf,.txt,.png,.csv',
@@ -31,6 +32,7 @@ import {
   listDesignDocumentVersions,
 } from '@/lib/design-documents';
 import { extractTextFromFile } from '@/lib/extract-text';
+import { keepOriginalDocument } from '@/lib/keep-original-document';
 import {
   EMPTY_GRID,
   EMPTY_META,
@@ -386,6 +388,57 @@ describe('useAdoptionConversation — failed turns', () => {
 });
 
 describe('useAdoptionConversation — attachments', () => {
+  beforeEach(() => vi.mocked(keepOriginalDocument).mockClear());
+
+  it("keeps every document a contributor sends as one of the pathway's originals", async () => {
+    const { result } = renderHook(() =>
+      useAdoptionConversation({ initial: existing('contributor', [], { pathwayId: 'pw-1' }) })
+    );
+    const pdf = new File(['abc'], 'report.pdf');
+    const png = new File(['x'], 'photo.png');
+    act(() => {
+      result.current.handleAttachFiles([pdf, png]);
+    });
+    await waitFor(() => expect(result.current.pendingAttachments.every((a) => a.state === 'ready')).toBe(true));
+    // Nothing is kept until the message is sent.
+    expect(keepOriginalDocument).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.handleUserSend('');
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(keepOriginalDocument).toHaveBeenCalledTimes(2);
+    expect(keepOriginalDocument).toHaveBeenCalledWith({ file: pdf, text: 'extracted text', pathwayId: 'pw-1', designId: 'design-9' });
+    expect(keepOriginalDocument).toHaveBeenCalledWith({ file: png, text: '', pathwayId: 'pw-1', designId: 'design-9' });
+  });
+
+  it('keeps nothing for a removed attachment, or in the explorer flow', async () => {
+    const contributor = renderHook(() =>
+      useAdoptionConversation({ initial: existing('contributor', [], { pathwayId: 'pw-1' }) })
+    );
+    act(() => {
+      contributor.result.current.handleAttachFiles([new File(['abc'], 'report.pdf')]);
+    });
+    await waitFor(() => expect(contributor.result.current.pendingAttachments[0]?.state).toBe('ready'));
+    act(() => {
+      contributor.result.current.removeAttachment(contributor.result.current.pendingAttachments[0].id);
+    });
+    await act(async () => {
+      await contributor.result.current.handleUserSend('hi');
+    });
+
+    const explorer = renderHook(() => useAdoptionConversation({ initial: existing('explorer') }));
+    act(() => {
+      explorer.result.current.handleAttachFiles([new File(['abc'], 'report.pdf')]);
+    });
+    await waitFor(() => expect(explorer.result.current.pendingAttachments[0]?.state).toBe('ready'));
+    await act(async () => {
+      await explorer.result.current.handleUserSend('');
+    });
+    await waitFor(() => expect(explorer.result.current.loading).toBe(false));
+    expect(keepOriginalDocument).not.toHaveBeenCalled();
+  });
+
   it('stages a text file (reading → ready) and folds it into the next message', async () => {
     const { result } = renderHook(() => useAdoptionConversation({ initial: existing('explorer') }));
     act(() => {

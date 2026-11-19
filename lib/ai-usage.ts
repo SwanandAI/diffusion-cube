@@ -6,7 +6,7 @@ import { sessionUserId } from '@/lib/errors';
 // (migration 0036) for the admin Usage page — counts only, never text.
 
 // 'admin' is for calls only admins trigger: the Feedback Digest (mode
-// 'digest', app/api/admin/digest; allowed by migration 0044).
+// 'digest', app/api/admin/digest; allowed by migration 0045).
 export type UsageArea = 'explore' | 'analyse' | 'contribute' | 'admin';
 
 // The one place internal modes map to the product areas. `companion`
@@ -15,9 +15,9 @@ export type UsageArea = 'explore' | 'analyse' | 'contribute' | 'admin';
 export function areaFor(mode: string, flow?: string | null): UsageArea {
   if (mode === 'digest') return 'admin';
   if (mode === 'library') return 'explore';
-  // lib/retrieval.ts's question classifier runs for every surface; `flow`
-  // carries which ('explore' for the library).
-  if (mode === 'retrieval-classify') {
+  // lib/retrieval.ts's question classifier and write-up coverage check run
+  // for every surface; `flow` carries which ('explore' for the library).
+  if (mode === 'retrieval-classify' || mode === 'retrieval-coverage') {
     return flow === 'explore' ? 'explore' : flow === 'contributor' ? 'contribute' : 'analyse';
   }
   if (mode === 'companion' || mode === 'extract-insights') {

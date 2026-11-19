@@ -8,7 +8,7 @@ import type { FeedbackSurface } from '@/lib/message-feedback';
 
 // Admin review of 👎 votes: each rated reply with the question asked just
 // before it, newest first. Read with the service role (message_feedback has
-// no client policy, migration 0043; conversations are read by id). No
+// no client policy, migration 0044; conversations are read by id). No
 // migration: a vote's conversation_id is a designs id for Analyse and
 // Contribute and a library_conversations id for Explore, and its message_id
 // is the reply's `id` inside that conversation's messages. Only the one
