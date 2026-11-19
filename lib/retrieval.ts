@@ -389,14 +389,30 @@ export function selectSourceText(sources: SourceText[], question: string, prefer
   }
   candidates.sort((a, b) => b.rank - a.rank);
 
-  const chosen: Pick[] = [];
-  const seen = new Set<string>();
-  let used = 0;
-  for (const c of candidates) {
-    if (seen.has(c.text) || used + c.text.length > budget) continue;
-    seen.add(c.text);
-    chosen.push(c);
-    used += c.text.length;
+  const pick = (list: Pick[]): Pick[] => {
+    const chosen: Pick[] = [];
+    const seen = new Set<string>();
+    let used = 0;
+    for (const c of list) {
+      if (seen.has(c.text) || used + c.text.length > budget) continue;
+      seen.add(c.text);
+      chosen.push(c);
+      used += c.text.length;
+    }
+    return chosen;
+  };
+
+  let chosen = pick(candidates);
+  let label = 'excerpts';
+  if (chosen.length === 0) {
+    // Nothing shares a word with the question (a paraphrase, another
+    // language). The write-up was already judged not to answer it, so give
+    // the model each document's opening passages — taken in turn, so every
+    // file gets a share — rather than nothing.
+    const opening: Pick[] = [];
+    sources.forEach((s, f) => chunkText(s.text).forEach((text, i) => opening.push({ file: s.file_name, order: i, text, rank: -(i * sources.length + f) })));
+    chosen = pick(opening.sort((a, b) => b.rank - a.rank));
+    label = 'opening excerpts';
   }
   if (chosen.length === 0) return '';
 
@@ -405,7 +421,7 @@ export function selectSourceText(sources: SourceText[], question: string, prefer
   return [...byFile.entries()]
     .map(([file, picks]) => {
       const parts = picks.sort((a, b) => a.order - b.order).map((p) => p.text);
-      return `### Source document: ${file} (excerpts)\n${parts.join('\n\n[…]\n\n')}`;
+      return `### Source document: ${file} (${label})\n${parts.join('\n\n[…]\n\n')}`;
     })
     .join('\n\n');
 }
@@ -419,11 +435,23 @@ export async function pathwayPassages(slug: string, searchText: string, flow: st
   if (sources.length === 0) return '';
 
   const vector = await queryVector(searchText);
-  const nearest = await writeUpPassages(slug, vector);
+  // Both searches only refine what is added; a failure (e.g. the RPC not
+  // deployed yet, or a transient error) adds the originals unrefined rather
+  // than failing the whole chat.
+  const nearest = await writeUpPassages(slug, vector).catch((err) => {
+    logError('lib/retrieval', err, { step: 'write-up passages', pathway_slug: slug });
+    return [] as DocPassage[];
+  });
   if (nearest.length > 0 && (await writeUpAnswers(searchText, nearest, flow)) === true) return '';
 
   const total = sources.reduce((n, s) => n + s.text.length, 0);
-  const preferred = total > SOURCE_TEXT_BUDGET ? await sourcePassages(slug, vector, LIMITS.specific.passages) : [];
+  const preferred =
+    total > SOURCE_TEXT_BUDGET
+      ? await sourcePassages(slug, vector, LIMITS.specific.passages).catch((err) => {
+          logError('lib/retrieval', err, { step: 'source passages', pathway_slug: slug });
+          return [] as Passage[];
+        })
+      : [];
   return selectSourceText(sources, searchText, preferred);
 }
 

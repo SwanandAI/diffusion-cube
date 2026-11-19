@@ -67,15 +67,17 @@ const STOP_WORDS = new Set(
   'a an and are as at be but by did do does for from had has have how i if in into is it its of on or our so that the their them then there these they this to was we were what when where which who why will with would you your about can could should after before than more most other some such only'.split(' ')
 );
 
+// Words are letters, digits AND combining marks (\p{M}): Devanagari vowel
+// signs are marks, and without them "किसान" would split into fragments.
 export function keywordsOf(text: string): string[] {
-  return [...new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 1 && !STOP_WORDS.has(w)))];
+  return [...new Set((text.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? []).filter((w) => w.length > 1 && !STOP_WORDS.has(w)))];
 }
 
 // How many of the question's keywords a passage contains (each counted once),
 // with a small bonus for repeats. 0 when it shares none.
 export function keywordScore(passage: string, keywords: string[]): number {
   if (keywords.length === 0) return 0;
-  const words = passage.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const words = passage.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
   const counts = new Map<string, number>();
   for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
   let score = 0;

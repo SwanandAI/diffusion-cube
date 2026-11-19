@@ -309,7 +309,7 @@ describe('contributor originals', () => {
             : { data: null },
     });
     const saved = await saveContributorSource(INPUT);
-    expect(saved).toEqual({ id: 'new', sourceKey: 'src-08', duplicate: false });
+    expect(saved).toEqual({ id: 'new', sourceKey: 'src-08', duplicate: false, storagePath: 'contrib/p1/x-Vendor Eval.pdf' });
     expect(admin.ops('pathway_sources', 'insert')[0].payload).toMatchObject({
       pathway_id: 'p1', source_key: 'src-08', file_name: 'Vendor Eval.pdf', storage_path: 'contrib/p1/x-Vendor Eval.pdf',
       extracted_text: 'We chose Vendor X.', is_public: true, origin: 'contributor', design_id: 'd1', uploaded_by: 'u1',
@@ -318,8 +318,8 @@ describe('contributor originals', () => {
   });
 
   it('keeps the same text only once', async () => {
-    setup({ pathway_sources: (op) => (op.columns === 'id, source_key' ? { data: { id: 'old', source_key: 'src-02' } } : {}) });
-    expect(await saveContributorSource(INPUT)).toEqual({ id: 'old', sourceKey: 'src-02', duplicate: true });
+    setup({ pathway_sources: (op) => (op.columns === 'id, source_key, storage_path' ? { data: { id: 'old', source_key: 'src-02', storage_path: null } } : {}) });
+    expect(await saveContributorSource(INPUT)).toEqual({ id: 'old', sourceKey: 'src-02', duplicate: true, storagePath: null });
     expect(admin.ops('pathway_sources', 'insert')).toHaveLength(0);
   });
 

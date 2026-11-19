@@ -295,10 +295,10 @@ async function setIndexStatus(
   if (error) throw error;
 }
 
-async function indexOnce(
-  input: { pathwayId: string; versionId: string },
-  admin: Admin
-): Promise<{ units: number; docChunks: number }> {
+// Throws Superseded once another version has been published. Checked before
+// the job starts and again after each slow embedding step, right before the
+// writes it guards.
+async function assertStillLive(input: { pathwayId: string; versionId: string }, admin: Admin): Promise<void> {
   const { data: pathway, error: pErr } = await admin
     .from('pathways')
     .select('published_version_id')
@@ -306,6 +306,13 @@ async function indexOnce(
     .maybeSingle();
   if (pErr) throw pErr;
   if (!pathway || pathway.published_version_id !== input.versionId) throw new Superseded();
+}
+
+async function indexOnce(
+  input: { pathwayId: string; versionId: string },
+  admin: Admin
+): Promise<{ units: number; docChunks: number }> {
+  await assertStillLive(input, admin);
 
   // 1. Units still without a vector (all of them on the first try).
   const { data: pending, error: uErr } = await admin
@@ -318,8 +325,14 @@ async function indexOnce(
   const rows = (pending ?? []) as (Pick<ParsedUnit, 'title' | 'applies_when' | 'fails_when' | 'adopter_intents' | 'body'> & { id: string })[];
   if (rows.length) {
     const vectors = await embedTexts(rows.map((r) => unitEmbeddingText({ ...r, adopter_intents: r.adopter_intents ?? [] })));
+    // Scoped to this version: unit ids (<slug>-uNN) repeat across versions,
+    // so a newer publish's rows can carry the same id by now.
     for (let i = 0; i < rows.length; i++) {
-      const { error } = await admin.from('pathway_units').update({ embedding: toPgVector(vectors[i]) }).eq('id', rows[i].id);
+      const { error } = await admin
+        .from('pathway_units')
+        .update({ embedding: toPgVector(vectors[i]) })
+        .eq('id', rows[i].id)
+        .eq('version_id', input.versionId);
       if (error) throw error;
     }
   }
@@ -334,6 +347,9 @@ async function indexOnce(
   const chunks = documentChunks((version?.content as string | undefined) ?? '');
   const vectors = chunks.length ? await embedTexts(chunks.map((c) => c.text)) : [];
 
+  // The replace below is pathway-wide: never let a superseded job wipe the
+  // newer version's passages.
+  await assertStillLive(input, admin);
   const { error: delErr } = await admin.from('pathway_doc_chunks').delete().eq('pathway_id', input.pathwayId);
   if (delErr) throw delErr;
   if (chunks.length) {
@@ -467,6 +483,7 @@ export interface SavedSource {
   id: string;
   sourceKey: string;
   duplicate: boolean; // the same text was already saved for this pathway
+  storagePath: string | null; // the kept row's file (the existing one's, for a duplicate)
 }
 
 function nextSourceKey(keys: string[]): string {
@@ -487,13 +504,20 @@ export async function saveContributorSource(input: SaveSourceInput, admin: Admin
     if (hash) {
       const { data: dup, error: dupErr } = await admin
         .from('pathway_sources')
-        .select('id, source_key')
+        .select('id, source_key, storage_path')
         .eq('pathway_id', input.pathwayId)
         .eq('origin', 'contributor')
         .eq('content_hash', hash)
         .maybeSingle();
       if (dupErr) throw dupErr;
-      if (dup) return { id: dup.id as string, sourceKey: dup.source_key as string, duplicate: true };
+      if (dup) {
+        return {
+          id: dup.id as string,
+          sourceKey: dup.source_key as string,
+          duplicate: true,
+          storagePath: (dup.storage_path as string | null) ?? null,
+        };
+      }
     }
 
     const { data: existing, error: keysErr } = await admin
@@ -520,7 +544,7 @@ export async function saveContributorSource(input: SaveSourceInput, admin: Admin
       })
       .select('id')
       .single();
-    if (!error && data) return { id: data.id as string, sourceKey, duplicate: false };
+    if (!error && data) return { id: data.id as string, sourceKey, duplicate: false, storagePath: input.storagePath };
     // 23505: another save took this key (or saved the same text) first.
     if (error?.code !== '23505') throw error ?? new Error('pathway_sources insert returned no row');
   }

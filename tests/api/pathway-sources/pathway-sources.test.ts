@@ -101,7 +101,7 @@ describe('POST /api/pathway-sources', () => {
   });
 
   it('removes the just-uploaded file of a document already kept', async () => {
-    sourcesTable = (op) => (op.columns === 'id, source_key' ? { data: { id: 'old', source_key: 'src-03' } } : {});
+    sourcesTable = (op) => (op.columns === 'id, source_key, storage_path' ? { data: { id: 'old', source_key: 'src-03', storage_path: 'contrib/p1/old-Vendor Eval.pdf' } } : {});
     const res = await post(BODY);
     expect(await res.json()).toEqual({ id: 'old', sourceKey: 'src-03', duplicate: true });
     expect(admin.storageBucket.remove).toHaveBeenCalledWith(['contrib/p1/abc-Vendor Eval.pdf']);

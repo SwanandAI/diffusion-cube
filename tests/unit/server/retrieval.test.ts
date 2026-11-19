@@ -337,7 +337,17 @@ describe('selectSourceText', () => {
     expect(out.indexOf('[…]')).toBeLessThan(out.indexOf('Vendor contract'));
   });
 
-  it("is '' when nothing over the budget matches the question", () => {
+  it('falls back to each document\'s opening passages, in turn, when nothing over the budget matches the question', () => {
+    const para = (w: string) => `${w} `.repeat(Math.ceil(1450 / (w.length + 1))).trim() + '.';
+    const a = { id: 'a', file_name: 'a.pdf', text: [para('alpha'), para('beta')].join('\n\n') };
+    const b = { id: 'b', file_name: 'b.pdf', text: [para('gamma'), para('delta')].join('\n\n') };
+    const out = selectSourceText([a, b], 'Who paid for it?', [], 3200);
+    expect(out).toContain('### Source document: a.pdf (opening excerpts)\nalpha');
+    expect(out).toContain('### Source document: b.pdf (opening excerpts)\ngamma');
+    expect(out.length).toBeLessThan(3200 + 200);
+  });
+
+  it("is '' only when not even one passage fits the budget", () => {
     expect(selectSourceText([{ id: 'a', file_name: 'a.pdf', text: 'x'.repeat(200) }], 'vendor', [], 100)).toBe('');
   });
 });

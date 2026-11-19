@@ -64,7 +64,9 @@ async function handlePOST(req: NextRequest) {
     admin
   )
 
-  if (saved.duplicate && path) {
+  // A retry whose first attempt was saved (its response lost) re-sends the
+  // same path: that file IS the kept row's, so it stays.
+  if (saved.duplicate && path && path !== saved.storagePath) {
     const { error } = await admin.storage.from(SOURCES_BUCKET).remove([path])
     if (error) console.error('[pathway-sources] remove duplicate upload:', error)
   }
