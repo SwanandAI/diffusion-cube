@@ -203,6 +203,7 @@ describe('app/admin/page.tsx — content', () => {
     expect(screen.getByText(/Every account is an Adopter from signup\./)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Usage' })).toHaveAttribute('href', '/admin/usage');
     expect(screen.getByRole('link', { name: 'Recent errors' })).toHaveAttribute('href', '/admin/errors');
+    expect(screen.getByRole('link', { name: 'Digest' })).toHaveAttribute('href', '/admin/usage/digest');
     expect(screen.getByRole('link', { name: '← Back' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('heading', { level: 2, name: 'Contributor Registrations' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Pathways' })).toBeInTheDocument();

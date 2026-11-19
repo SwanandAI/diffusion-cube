@@ -17,7 +17,9 @@ import { newMessageId, type FeedbackVote } from '@/lib/message-feedback';
 // never sent back to /api/chat as history and never saved.
 // `id` is set on each finished reply so it can be rated (thumbs up/down);
 // `feedback` is the visitor's own vote on it, kept with a signed-in visitor's
-// saved chat so it survives a reload.
+// saved chat so it survives a reload. `at` is when the message was sent
+// (ISO time) — the admin Feedback Digest's SQL (migration 0044) reads it,
+// with role, content and pathway_slug; keep them in step.
 type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
@@ -25,6 +27,7 @@ type ChatMessage = {
   notice?: true;
   id?: string;
   feedback?: FeedbackVote;
+  at?: string;
 };
 type View = 'library' | 'chat';
 
@@ -259,6 +262,7 @@ export default function ExploreLibrary({
       const reply: ChatMessage = {
         role: 'assistant',
         id: newMessageId(),
+        at: new Date().toISOString(),
         content: stripToolkitAssetsTag(text),
         ...(assetIds.length ? { toolkitAssets: assetIds } : {}),
       };
@@ -285,7 +289,7 @@ export default function ExploreLibrary({
     const trimmed = text.trim();
     if (!trimmed) return;
     const base = options?.historyOverride ?? messages;
-    const next = [...base, { role: 'user' as const, content: trimmed }];
+    const next = [...base, { role: 'user' as const, content: trimmed, at: new Date().toISOString() }];
     setDraft('');
     void streamReply(next, options?.pathway?.id, options?.pathway ?? null);
   }

@@ -1986,7 +1986,10 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
 
   const runTurn = useCallback(
     async (id: string, history: Message[], userMessage: Message, flow: AdoptionFlow, grid: GridState, meta: AdoptionMeta) => {
-      const next: Message[] = [...history, userMessage];
+      // Every message the user sends is stamped with the time it was sent
+      // (Message.at), so the admin Feedback Digest can count it in the right
+      // period (migration 0044 reads it).
+      const next: Message[] = [...history, { ...userMessage, at: userMessage.at ?? new Date().toISOString() }];
       update((c) => ({ ...c, messages: next }));
       setLoading(true);
 
@@ -2125,6 +2128,7 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
         role: 'assistant' as const,
         // Lets the reply be rated (thumbs up/down — see setMessageFeedback).
         id: newMessageId(),
+        at: new Date().toISOString(),
         content: finalContent,
         ...(finalRefs?.length ? { pathwaysReferenced: finalRefs } : {}),
         ...(finalAssets?.length ? { toolkitAssetsReferenced: finalAssets } : {}),

@@ -35,6 +35,12 @@ export interface Message {
   // The viewer's own thumbs vote on this reply, kept here so it survives a
   // reload (the totals live in message_feedback).
   feedback?: FeedbackVote;
+  // When the message was sent (ISO time), set on user messages and finished
+  // companion replies. Read by the admin Feedback Digest's SQL (migration
+  // 0044) along with role, content, displayContent, hidden and
+  // pathwaysReferenced — keep those field names in step with it. Never sent
+  // to /api/chat (toApiMessages sends only role/content/images).
+  at?: string;
   // Shown in the chat bubble instead of `content` — used for uploads, where
   // `content` carries the full extracted document text sent to the agent.
   displayContent?: string;
