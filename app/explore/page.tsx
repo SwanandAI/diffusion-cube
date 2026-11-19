@@ -75,7 +75,17 @@ export default async function PublicExplorePage({
 
   return (
     <AppShell email={email} adoptions={adoptions ?? []} isAdmin={adminAccess}>
-      <ExploreLibrary signedIn dbPathways={dbPathways} initialConversation={initialConversation} />
+      {/* Keyed by the opened conversation: ExploreLibrary seeds its state from
+          initialConversation only when it mounts, and a sidebar link clicked
+          while already on /explore is a client navigation that keeps the
+          component. A new key remounts it, so the chosen chat shows at once
+          (and /explore with no ?open= goes back to the library). */}
+      <ExploreLibrary
+        key={initialConversation?.id ?? 'new'}
+        signedIn
+        dbPathways={dbPathways}
+        initialConversation={initialConversation}
+      />
     </AppShell>
   );
 }

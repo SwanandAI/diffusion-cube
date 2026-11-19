@@ -5,12 +5,15 @@ import { sessionUserId } from '@/lib/errors';
 // SERVER-ONLY. Records each Claude call's area and token counts in ai_usage
 // (migration 0036) for the admin Usage page — counts only, never text.
 
-export type UsageArea = 'explore' | 'analyse' | 'contribute';
+// 'admin' is for calls only admins trigger: the Feedback Digest (mode
+// 'digest', app/api/admin/digest; allowed by migration 0045).
+export type UsageArea = 'explore' | 'analyse' | 'contribute' | 'admin';
 
-// The one place internal modes map to the three product areas. `companion`
+// The one place internal modes map to the product areas. `companion`
 // and `extract-insights` serve both signed-in flows, so they go by `flow`.
 // 'check-similar' is app/api/pathways/check-similar's duplicate-pathway check.
 export function areaFor(mode: string, flow?: string | null): UsageArea {
+  if (mode === 'digest') return 'admin';
   if (mode === 'library') return 'explore';
   // lib/retrieval.ts's question classifier and write-up coverage check run
   // for every surface; `flow` carries which ('explore' for the library).

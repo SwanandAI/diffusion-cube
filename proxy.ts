@@ -42,6 +42,10 @@ const PUBLIC_PATHS = [
   // Browser error reports from app/error.tsx — a page can crash before or
   // without sign-in. Rate-limited per IP and size-capped inside the route.
   '/api/errors/client',
+  // Thumbs up/down on Cube's replies — signed-out /explore visitors can rate
+  // too. The route itself requires a session for Analyse/Contribute replies
+  // and rate-limits per account or per IP.
+  '/api/feedback',
 ];
 
 // x-user-email is trusted by server components ((app)/layout.tsx, /analyse,

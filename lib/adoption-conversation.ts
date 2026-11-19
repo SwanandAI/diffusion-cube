@@ -3,6 +3,7 @@ import { EMPTY_GRID, type GridState } from '@/lib/dimensions';
 import { Message } from '@/components/ChatPanel';
 import { createClient } from '@/lib/supabase/client';
 import { GENERIC_ERROR_MESSAGE } from '@/lib/error-messages';
+import { newMessageId, type FeedbackVote } from '@/lib/message-feedback';
 import { extractTextFromFile, fileToImageBlock, getFileExtension, isImageFile } from '@/lib/extract-text';
 import { keepOriginalDocument } from '@/lib/keep-original-document';
 import {
@@ -1062,6 +1063,19 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     void persist(next);
   }
 
+  // Keeps the viewer's thumbs vote on the rated reply and saves the
+  // conversation, so the chosen thumb is still shown after a reload. The
+  // vote itself was already recorded by /api/feedback (MessageFeedback).
+  function setMessageFeedback(messageId: string, vote: FeedbackVote | null) {
+    commitMessages((msgs) =>
+      msgs.map((m) => {
+        if (m.id !== messageId) return m;
+        const { feedback: _previous, ...rest } = m;
+        return vote === null ? rest : { ...rest, feedback: vote };
+      })
+    );
+  }
+
   // What the model reads back in history for a consent card — states the
   // outcome, so it knows not to flag the same file again.
   function toolkitAssetConsentContent(consent: ToolkitAssetConsentState): string {
@@ -1977,7 +1991,10 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
 
   const runTurn = useCallback(
     async (id: string, history: Message[], userMessage: Message, flow: AdoptionFlow, grid: GridState, meta: AdoptionMeta) => {
-      const next: Message[] = [...history, userMessage];
+      // Every message the user sends is stamped with the time it was sent
+      // (Message.at), so the admin Feedback Digest can count it in the right
+      // period (migration 0045 reads it).
+      const next: Message[] = [...history, { ...userMessage, at: userMessage.at ?? new Date().toISOString() }];
       update((c) => ({ ...c, messages: next }));
       setLoading(true);
 
@@ -2112,8 +2129,11 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
       // so the first resource review can collect them, across reloads.
       const finalCandidates = flow === 'contributor' ? lastParsed?.toolkitAssetCandidates : undefined;
       const finalMentions = flow === 'contributor' ? lastParsed?.toolkitAssetMentions : undefined;
-      const finalMsg = {
+      const finalMsg: Message = {
         role: 'assistant' as const,
+        // Lets the reply be rated (thumbs up/down — see setMessageFeedback).
+        id: newMessageId(),
+        at: new Date().toISOString(),
         content: finalContent,
         ...(finalRefs?.length ? { pathwaysReferenced: finalRefs } : {}),
         ...(finalAssets?.length ? { toolkitAssetsReferenced: finalAssets } : {}),
@@ -2530,5 +2550,6 @@ export function useAdoptionConversation({ initial, pathwayId, onCreated, onChang
     explorerDoc,
     openExplorerDocument,
     closeExplorerDocument,
+    setMessageFeedback,
   };
 }

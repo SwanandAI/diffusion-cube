@@ -37,8 +37,18 @@ describe('areaFor', () => {
     ['explorer-doc', undefined, 'analyse'],
     ['something-new', 'contributor', 'analyse'],
     ['', undefined, 'analyse'],
+    ['digest', undefined, 'admin'],
+    ['digest', 'contributor', 'admin'],
   ])('maps mode %j / flow %j to %s', (mode, flow, area) => {
     expect(areaFor(mode, flow)).toBe(area);
+  });
+});
+
+describe('recordAiUsage — Feedback Digest', () => {
+  it("records a digest call under the 'admin' area", async () => {
+    recordAiUsage({ mode: 'digest', model: 'claude-sonnet-4-6', usage: { input_tokens: 9, output_tokens: 3 }, ok: false, userId: 'a1' });
+    await vi.waitFor(() => expect(rows()).toHaveLength(1));
+    expect(rows()[0]).toMatchObject({ area: 'admin', mode: 'digest', ok: false, input_tokens: 9, output_tokens: 3 });
   });
 });
 

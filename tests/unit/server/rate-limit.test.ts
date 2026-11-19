@@ -8,7 +8,7 @@ vi.mock('@/lib/errors', () => ({ logError: vi.fn() }));
 
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logError } from '@/lib/errors';
-import { checkRateLimit, clientIp, type RateLimitScope } from '@/lib/rate-limit';
+import { anonymousVisitorKey, checkRateLimit, clientIp, type RateLimitScope } from '@/lib/rate-limit';
 
 const URL = 'http://localhost/api/chat';
 let admin: SupabaseMock;
@@ -77,6 +77,7 @@ describe('checkRateLimit', () => {
     ['client-error', 20, 200],
     ['anon-error', 20, 200],
     ['chat-user', 30, 300],
+    ['feedback', 30, 500],
   ])('uses the default limits for %s', async (scope, perMin, perDay) => {
     await checkRateLimit(getRequest(URL, { ip: '1.2.3.4' }), scope);
     expect(lastArgs()).toMatchObject({ p_per_min: perMin, p_per_day: perDay });
@@ -199,5 +200,25 @@ describe('RATE_LIMIT_SALT unset', () => {
     const fresh = await import('@/lib/rate-limit');
     await fresh.checkRateLimit(getRequest(URL, { ip: '1.2.3.4' }), 'explore');
     expect(vi.mocked(console.warn).mock.calls.some(([m]) => String(m).includes('RATE_LIMIT_SALT'))).toBe(false);
+  });
+});
+
+describe('anonymousVisitorKey', () => {
+  it('is a salted hash of the client IP, never the IP itself', () => {
+    vi.stubEnv('RATE_LIMIT_SALT', 'pepper');
+    const key = anonymousVisitorKey(getRequest(URL, { ip: '1.2.3.4' }));
+    expect(key).toBe(sha('pepper:visitor:1.2.3.4'));
+    expect(key).not.toContain('1.2.3.4');
+  });
+
+  it('is stable per IP and differs between IPs', () => {
+    const a = anonymousVisitorKey(getRequest(URL, { ip: '1.2.3.4' }));
+    expect(anonymousVisitorKey(getRequest(URL, { ip: '1.2.3.4' }))).toBe(a);
+    expect(anonymousVisitorKey(getRequest(URL, { ip: '5.6.7.8' }))).not.toBe(a);
+  });
+
+  it('differs from the rate-limit key for the same IP', async () => {
+    await checkRateLimit(getRequest(URL, { ip: '1.2.3.4' }), 'feedback');
+    expect(anonymousVisitorKey(getRequest(URL, { ip: '1.2.3.4' }))).not.toBe(lastArgs().p_key);
   });
 });

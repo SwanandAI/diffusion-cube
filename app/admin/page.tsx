@@ -119,6 +119,12 @@ export default async function AdminPage() {
             Usage
           </Link>
           <Link
+            href="/admin/usage/digest"
+            className="inline-flex items-center rounded-lg border border-navy/15 bg-white px-4 py-2 text-sm font-medium text-navy shadow-sm transition hover:border-coral hover:bg-coral-soft hover:text-coral"
+          >
+            Digest
+          </Link>
+          <Link
             href="/admin/errors"
             className="inline-flex items-center rounded-lg border border-navy/15 bg-white px-4 py-2 text-sm font-medium text-navy shadow-sm transition hover:border-coral hover:bg-coral-soft hover:text-coral"
           >

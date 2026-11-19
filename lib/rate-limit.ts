@@ -8,7 +8,7 @@ import { logError } from '@/lib/errors';
 // withErrorHandling records), per account for signed-in /api/chat callers.
 // Limits come from env vars so they can change without a code change.
 
-export type RateLimitScope = 'explore' | 'client-error' | 'anon-error' | 'chat-user';
+export type RateLimitScope = 'explore' | 'client-error' | 'anon-error' | 'chat-user' | 'feedback';
 
 // <env>_PER_MIN / <env>_PER_DAY override each scope's defaults. The per-IP
 // scopes share the EXPLORE_RATE_LIMIT_* values (20 / 200). A signed-in
@@ -21,6 +21,10 @@ const LIMITS: Record<RateLimitScope, { env: string; perMin: number; perDay: numb
   'client-error': { env: 'EXPLORE_RATE_LIMIT', perMin: 20, perDay: 200 },
   'anon-error': { env: 'EXPLORE_RATE_LIMIT', perMin: 20, perDay: 200 },
   'chat-user': { env: 'CHAT_USER_RATE_LIMIT', perMin: 30, perDay: 300 },
+  // Thumbs up/down on replies (/api/feedback) — per account when signed in,
+  // per IP otherwise. Cheap writes, but a ceiling keeps a script from
+  // stuffing message_feedback.
+  feedback: { env: 'FEEDBACK_RATE_LIMIT', perMin: 30, perDay: 500 },
 };
 
 function limitFromEnv(name: string, fallback: number): number {
@@ -47,6 +51,15 @@ function rateLimitKey(scope: RateLimitScope, subject: string): string {
     console.warn('[rate-limit] RATE_LIMIT_SALT is not set — IP hashes are unsalted.');
   }
   return createHash('sha256').update(`${salt}:${scope}:${subject}`).digest('hex');
+}
+
+// A stable, salted, non-reversible key for a signed-out visitor, derived from
+// their IP the same way rate-limit keys are — used where a signed-out
+// visitor's action must be recognised again (their thumbs vote on /explore)
+// without ever storing the IP itself.
+export function anonymousVisitorKey(req: Request): string {
+  const salt = process.env.RATE_LIMIT_SALT ?? '';
+  return createHash('sha256').update(`${salt}:visitor:${clientIp(req)}`).digest('hex');
 }
 
 // True when this request may proceed. Counted per `subject` when given (a

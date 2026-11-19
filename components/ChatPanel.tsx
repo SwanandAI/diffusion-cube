@@ -22,10 +22,25 @@ import AssetShareCard, { type AssetShareActions } from '@/components/AssetShareC
 import PublishConsentCard from '@/components/PublishConsentCard';
 import ToolkitAssetCards from '@/components/ToolkitAssetCards';
 import VoiceInputButton from '@/components/VoiceInputButton';
+import MessageFeedback from '@/components/MessageFeedback';
+import type { FeedbackSurface, FeedbackVote } from '@/lib/message-feedback';
 
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
+  // Set on each finished, streamed companion reply (newMessageId) — the key
+  // its thumbs up/down vote is stored under in message_feedback. App-written
+  // messages, cards and notices have none, so they show no thumbs.
+  id?: string;
+  // The viewer's own thumbs vote on this reply, kept here so it survives a
+  // reload (the totals live in message_feedback).
+  feedback?: FeedbackVote;
+  // When the message was sent (ISO time), set on user messages and finished
+  // companion replies. Read by the admin Feedback Digest's SQL (migration
+  // 0045) along with role, content, displayContent, hidden and
+  // pathwaysReferenced — keep those field names in step with it. Never sent
+  // to /api/chat (toApiMessages sends only role/content/images).
+  at?: string;
   // Shown in the chat bubble instead of `content` — used for uploads, where
   // `content` carries the full extracted document text sent to the agent.
   displayContent?: string;
@@ -402,6 +417,13 @@ interface Props {
   // else's documented pathway, but not for the Contributor who's the one
   // supplying that information about their own deployment.
   hideAccuracyDisclaimer?: boolean;
+  // Thumbs up/down under each companion reply that has an id. Omit to show
+  // none (e.g. the pre-chat screen, where nothing has been answered yet).
+  feedback?: {
+    surface: FeedbackSurface;
+    conversationId?: string | null;
+    onChange: (messageId: string, vote: FeedbackVote | null) => void;
+  };
 }
 
 // Default height (px) matching the old rows={2} textarea, and the cap before it scrolls.
@@ -428,6 +450,7 @@ export default function ChatPanel({
   assetShareActions,
   onPublishConsent,
   hideAccuracyDisclaimer,
+  feedback,
 }: Props) {
   const [input, setInput] = useState('');
   const [sourcePopup, setSourcePopup] = useState<string | null>(null);
@@ -608,6 +631,19 @@ export default function ChatPanel({
             </div>
           ) : null;
 
+          const feedbackBlock =
+            feedback && m.role === 'assistant' && m.id && !m.notice ? (
+              <MessageFeedback
+                key={m.id}
+                messageId={m.id}
+                surface={feedback.surface}
+                content={m.content}
+                vote={m.feedback}
+                conversationId={feedback.conversationId}
+                onChange={feedback.onChange}
+              />
+            ) : null;
+
           return (
             <div
               key={i}
@@ -626,6 +662,7 @@ export default function ChatPanel({
                     {assetsBlock}
                     {disclaimerBlock}
                     {sourcesBlock}
+                    {feedbackBlock}
                   </div>
                 ) : (
                   <>
@@ -633,6 +670,7 @@ export default function ChatPanel({
                     {assetsBlock}
                     {disclaimerBlock}
                     {sourcesBlock}
+                    {feedbackBlock}
                   </>
                 )}
               </div>

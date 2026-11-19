@@ -182,8 +182,16 @@ describe('useAdoptionConversation — first message', () => {
 
     const conv = result.current.conversation!;
     expect(conv.messages).toEqual([
-      { role: 'user', content: 'We run kiosks' },
-      { role: 'assistant', content: 'Thanks — tell me more about the pilot.', pathwaysReferenced: ['blue-dots'] },
+      // Messages are stamped with when they were sent (read by the admin digest).
+      { role: 'user', content: 'We run kiosks', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/) },
+      {
+        role: 'assistant',
+        // Every finished companion reply gets an id so it can be rated.
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+        content: 'Thanks — tell me more about the pilot.',
+        pathwaysReferenced: ['blue-dots'],
+      },
     ]);
     expect(conv.grid['persona:Explore']).toEqual({ density: 2, note: 'farmers' });
     expect(conv.meta).toMatchObject({ name: 'Kiosk', sector: 'Agri', flowStep: 2, flow: 'explorer' });
@@ -191,6 +199,73 @@ describe('useAdoptionConversation — first message', () => {
     await waitFor(() => expect(sb.ops('designs', 'update').length).toBeGreaterThan(0));
     expect(lastPersistedMessages()).toHaveLength(2);
     expect(onChange).toHaveBeenCalled();
+  });
+
+  it('keeps a thumbs vote on the rated reply and saves it; removing the vote drops the field', async () => {
+    routes = () => streamResponse(['Here is the closest match.', gridUpdate({})]);
+    const { result } = renderHook(() => useAdoptionConversation({ initial: existing('explorer', []) }));
+    await act(async () => {
+      await result.current.handleUserSend('Any pathway like ours?');
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const reply = result.current.conversation!.messages.at(-1)!;
+    expect(reply.id).toBeTruthy();
+    const updatesBefore = sb.ops('designs', 'update').length;
+
+    act(() => result.current.setMessageFeedback(reply.id!, -1));
+    expect(result.current.conversation!.messages.at(-1)).toMatchObject({ id: reply.id, feedback: -1 });
+    await waitFor(() => expect(sb.ops('designs', 'update').length).toBeGreaterThan(updatesBefore));
+    expect(lastPersistedMessages().at(-1)).toMatchObject({ id: reply.id, feedback: -1 });
+
+    act(() => result.current.setMessageFeedback(reply.id!, null));
+    expect(result.current.conversation!.messages.at(-1)).not.toHaveProperty('feedback');
+    // The user's own message is untouched, and an unknown id changes nothing.
+    act(() => result.current.setMessageFeedback('no-such-id', 1));
+    expect(result.current.conversation!.messages.some((m) => m.feedback !== undefined)).toBe(false);
+  });
+
+  it('never sends a reply\'s id or vote to /api/chat as history', async () => {
+    routes = () => streamResponse(['ok', gridUpdate({})]);
+    const { result } = renderHook(() =>
+      useAdoptionConversation({
+        initial: existing('explorer', [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', id: 'r1', feedback: 1, content: 'hello' },
+        ]),
+      })
+    );
+    await act(async () => {
+      await result.current.handleUserSend('next');
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const [call] = chatCalls('companion');
+    expect(JSON.stringify(call.body.messages)).not.toMatch(/"id"|"feedback"|"at"/);
+  });
+
+  it('stamps the sent message and the reply with ISO times and saves them; older messages without one still work', async () => {
+    routes = () => streamResponse(['ok', gridUpdate({})]);
+    const { result } = renderHook(() =>
+      useAdoptionConversation({
+        initial: existing('explorer', [
+          { role: 'user', content: 'earlier, no stamp' },
+          { role: 'assistant', content: 'reply, no stamp' },
+        ]),
+      })
+    );
+    const before = Date.now();
+    await act(async () => {
+      await result.current.handleUserSend('now');
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const msgs = result.current.conversation!.messages;
+    expect(msgs[0].at).toBeUndefined();
+    const sent = msgs.at(-2)!;
+    const reply = msgs.at(-1)!;
+    expect(sent).toMatchObject({ role: 'user', content: 'now' });
+    expect(Date.parse(sent.at!)).toBeGreaterThanOrEqual(before - 1000);
+    expect(Date.parse(reply.at!)).toBeGreaterThanOrEqual(Date.parse(sent.at!));
+    await waitFor(() => expect(lastPersistedMessages().at(-1)?.at).toBe(reply.at));
+    expect(lastPersistedMessages().at(-2)?.at).toBe(sent.at);
   });
 
   it('never moves flowStep backwards without an intent switch, and ignores unknown grid cells', async () => {
@@ -292,7 +367,7 @@ describe('useAdoptionConversation — failed turns', () => {
     });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.conversation!.messages).toEqual([
-      { role: 'user', content: 'hi' },
+      { role: 'user', content: 'hi', at: expect.any(String) },
       { role: 'assistant', content: GENERIC_ERROR_MESSAGE, notice: true },
     ]);
   });
@@ -305,7 +380,7 @@ describe('useAdoptionConversation — failed turns', () => {
     });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.conversation!.messages).toEqual([
-      { role: 'user', content: 'hi' },
+      { role: 'user', content: 'hi', at: expect.any(String) },
       { role: 'assistant', content: `Half an answer\n\n${GENERIC_ERROR_MESSAGE}`, notice: true },
     ]);
     expect(sb.ops('designs', 'update')).toHaveLength(0);
