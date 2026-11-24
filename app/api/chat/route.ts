@@ -20,7 +20,7 @@ import { currentRoles, type Role } from '@/lib/roles';
 import { EMPTY_GRID } from '@/lib/dimensions';
 import { parseGridUpdate } from '@/lib/grid-update';
 import { isValidSlug } from '@/lib/slug';
-import { isValidExploreConversation } from '@/lib/explore-guard';
+import { EXPLORE_PROBLEM_MESSAGES, exploreConversationProblem } from '@/lib/explore-guard';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { recordAiUsage } from '@/lib/ai-usage';
 import { messagesForMode, systemForMode } from '@/lib/prompt-cache';
@@ -187,8 +187,14 @@ async function handlePOST(req: Request) {
 
   // 'library' is the one mode open to anonymous callers, so its input is
   // checked before anything else touches the database or Claude.
-  if (mode === 'library' && !isValidExploreConversation(messages)) {
+  // A limit the visitor hit gets its own message and `code`, so the client
+  // can tell "shorten your message" from "this chat is full".
+  const exploreProblem = mode === 'library' ? exploreConversationProblem(messages) : null;
+  if (exploreProblem === 'invalid') {
     return Response.json({ error: 'Invalid request.' }, { status: 400 });
+  }
+  if (exploreProblem) {
+    return Response.json({ error: EXPLORE_PROBLEM_MESSAGES[exploreProblem], code: exploreProblem }, { status: 400 });
   }
 
   // The whole app is the companion now — access requires a signed-in account

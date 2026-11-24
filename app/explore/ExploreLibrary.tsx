@@ -231,7 +231,13 @@ export default function ExploreLibrary({
         if (res.status === 429) {
           notice = 'Too many requests. Please try again later.';
         } else if (res.status === 400) {
-          notice = "Your message couldn't be sent. Please shorten it or start a new chat.";
+          // A limit the visitor hit comes with a `code` and its own message
+          // (lib/explore-guard.ts); anything else gets the general one.
+          const body = await res.json().catch(() => null);
+          notice =
+            typeof body?.code === 'string' && typeof body?.error === 'string'
+              ? body.error
+              : "Your message couldn't be sent. Please go back to the library and start a new chat.";
         } else if (res.status < 500) {
           const body = await res.json().catch(() => null);
           notice = typeof body?.error === 'string' ? body.error : GENERIC_ERROR_MESSAGE;

@@ -261,12 +261,12 @@ describe('POST /api/chat — library mode (public /explore)', () => {
     ['messages as an object', { role: 'user', content: 'hi' }],
     ['messages as a string', 'hi'],
     ['last message from the assistant', [userMsg('hi'), { role: 'assistant', content: 'hello' }]],
-    ['more than 20 messages', Array.from({ length: 21 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x' }))],
-    ['a visitor message over 1,000 chars', [userMsg('x'.repeat(1001))]],
+    ['more than 50 messages', Array.from({ length: 51 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x' }))],
+    ['a visitor message over 2,000 chars', [userMsg('x'.repeat(2001))]],
     [
-      'a conversation over 20,000 chars',
+      'a conversation over 60,000 chars',
       [
-        ...Array.from({ length: 10 }, () => ({ role: 'assistant', content: 'y'.repeat(2000) })),
+        ...Array.from({ length: 10 }, () => ({ role: 'assistant', content: 'y'.repeat(6000) })),
         userMsg('z'),
       ],
     ],
@@ -279,6 +279,38 @@ describe('POST /api/chat — library mode (public /explore)', () => {
     expect(anthropic.stream).not.toHaveBeenCalled();
     expect(session.ops('published_pathways')).toHaveLength(0);
     expect(admin.ops('published_pathways')).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      'conversation-full',
+      'more than 50 messages',
+      Array.from({ length: 51 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x' })),
+      'This conversation has reached its length limit. Go back to the library to start a new chat.',
+    ],
+    [
+      'conversation-full',
+      'over 60,000 chars',
+      [...Array.from({ length: 10 }, () => ({ role: 'assistant', content: 'y'.repeat(6000) })), userMsg('z')],
+      'This conversation has reached its length limit. Go back to the library to start a new chat.',
+    ],
+    [
+      'message-too-long',
+      'a visitor message over 2,000 chars',
+      [userMsg('x'.repeat(2001))],
+      'Your message is too long. Please shorten it and send it again.',
+    ],
+  ])('names the limit it hit (%s: %s)', async (code, _label, messages, error) => {
+    const res = await post({ mode: 'library', messages });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error, code });
+    expect(anthropic.stream).not.toHaveBeenCalled();
+  });
+
+  it('answers a malformed library conversation with the plain invalid-request error, no code', async () => {
+    const res = await post({ mode: 'library', messages: [{ role: 'system', content: 'x' }, userMsg('hi')] });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid request.' });
   });
 
   it.each([

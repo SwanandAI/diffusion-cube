@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isValidExploreConversation, type ExploreMessage } from '@/lib/explore-guard';
+import { exploreConversationProblem, isValidExploreConversation, type ExploreMessage } from '@/lib/explore-guard';
 
 const user = (content: string): ExploreMessage => ({ role: 'user', content });
 const assistant = (content: string): ExploreMessage => ({ role: 'assistant', content });
@@ -52,29 +52,57 @@ describe('isValidExploreConversation', () => {
   });
 
   describe('default limits', () => {
-    it('allows 20 messages and rejects 21', () => {
-      expect(isValidExploreConversation(conversation(20))).toBe(true);
-      expect(isValidExploreConversation(conversation(21))).toBe(false);
+    it('allows 50 messages and rejects 51', () => {
+      expect(isValidExploreConversation(conversation(50))).toBe(true);
+      expect(isValidExploreConversation(conversation(51))).toBe(false);
     });
 
-    it('allows a 1,000-character visitor message and rejects 1,001', () => {
-      expect(isValidExploreConversation([user('x'.repeat(1000))])).toBe(true);
-      expect(isValidExploreConversation([user('x'.repeat(1001))])).toBe(false);
+    it('allows a 2,000-character visitor message and rejects 2,001', () => {
+      expect(isValidExploreConversation([user('x'.repeat(2000))])).toBe(true);
+      expect(isValidExploreConversation([user('x'.repeat(2001))])).toBe(false);
     });
 
     it("does not apply the per-message cap to Cube's own replies", () => {
       expect(isValidExploreConversation([assistant('x'.repeat(5000)), user('ok')])).toBe(true);
     });
 
-    it('allows a 20,000-character conversation and rejects 20,001', () => {
-      const replies = [assistant('x'.repeat(10_000)), assistant('x'.repeat(9_999))];
+    it('allows a 60,000-character conversation and rejects 60,001', () => {
+      const replies = [assistant('x'.repeat(30_000)), assistant('x'.repeat(29_999))];
       expect(isValidExploreConversation([...replies, user('x')])).toBe(true);
       expect(isValidExploreConversation([...replies, user('xx')])).toBe(false);
     });
 
     it('counts UTF-16 code units, so an emoji counts as two characters', () => {
-      expect(isValidExploreConversation([user('😀'.repeat(500))])).toBe(true);
-      expect(isValidExploreConversation([user(`${'😀'.repeat(500)}x`)])).toBe(false);
+      expect(isValidExploreConversation([user('😀'.repeat(1000))])).toBe(true);
+      expect(isValidExploreConversation([user(`${'😀'.repeat(1000)}x`)])).toBe(false);
+    });
+  });
+
+  describe('exploreConversationProblem', () => {
+    it('is null for a valid conversation', () => {
+      expect(exploreConversationProblem(conversation(3))).toBeNull();
+      expect(exploreConversationProblem([])).toBeNull();
+    });
+
+    it("is 'conversation-full' past the message limit", () => {
+      expect(exploreConversationProblem(conversation(51))).toBe('conversation-full');
+    });
+
+    it("is 'conversation-full' past the total character limit, even for a short last message", () => {
+      expect(exploreConversationProblem([assistant('x'.repeat(60_000)), user('yes')])).toBe('conversation-full');
+    });
+
+    it("is 'message-too-long' for an over-long visitor message, even in a full conversation", () => {
+      expect(exploreConversationProblem([...conversation(51).slice(0, -1), user('x'.repeat(2001))])).toBe('message-too-long');
+    });
+
+    it.each([
+      ['not an array', 'hello'],
+      ['an unknown role', [{ role: 'system', content: 'x' }, user('x')]],
+      ['ending on the assistant', [user('q'), assistant('a')]],
+      ['a malformed entry in an over-long conversation', [...conversation(60), null, user('x')]],
+    ])("is 'invalid' for %s", (_label, messages) => {
+      expect(exploreConversationProblem(messages)).toBe('invalid');
     });
   });
 
@@ -99,8 +127,8 @@ describe('isValidExploreConversation', () => {
 
     it.each(['', 'abc', '0', '-5', 'NaN'])('falls back to the default for %j', (value) => {
       vi.stubEnv('EXPLORE_MAX_MESSAGES', value);
-      expect(isValidExploreConversation(conversation(20))).toBe(true);
-      expect(isValidExploreConversation(conversation(21))).toBe(false);
+      expect(isValidExploreConversation(conversation(50))).toBe(true);
+      expect(isValidExploreConversation(conversation(51))).toBe(false);
     });
   });
 });
